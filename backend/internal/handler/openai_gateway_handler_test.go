@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 )
 
 func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
@@ -89,7 +91,8 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 			errorObj, ok := parsed["error"].(map[string]any)
 			require.True(t, ok, "应包含 error 对象")
 			assert.Equal(t, tt.errType, errorObj["type"])
-			assert.Equal(t, tt.message, errorObj["message"])
+			assert.Equal(t, clienterr.WithSource(tt.message), errorObj["message"])
+			assert.Equal(t, clienterr.Source, errorObj["source"])
 		})
 	}
 }
@@ -130,7 +133,8 @@ func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
-	assert.Equal(t, "test error", errorObj["message"])
+	assert.Equal(t, clienterr.WithSource("test error"), errorObj["message"])
+	assert.Equal(t, clienterr.Source, errorObj["source"])
 }
 
 func TestReadRequestBodyWithPrealloc(t *testing.T) {
@@ -172,7 +176,8 @@ func TestOpenAIEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testin
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
-	assert.Equal(t, "Upstream request failed", errorObj["message"])
+	assert.Equal(t, clienterr.WithSource("Upstream request failed"), errorObj["message"])
+	assert.Equal(t, clienterr.Source, errorObj["source"])
 }
 
 // Writer 已写后 ensureForwardErrorResponse 必须仍然把错误信息以 SSE
@@ -274,7 +279,8 @@ func TestOpenAIRecoverResponsesPanic_WritesFallbackResponse(t *testing.T) {
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
-	assert.Equal(t, "Upstream request failed", errorObj["message"])
+	assert.Equal(t, clienterr.WithSource("Upstream request failed"), errorObj["message"])
+	assert.Equal(t, clienterr.Source, errorObj["source"])
 }
 
 func TestOpenAIRecoverResponsesPanic_NoPanicNoWrite(t *testing.T) {
@@ -366,7 +372,8 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 		errorObj, exists := parsed["error"].(map[string]any)
 		require.True(t, exists)
 		assert.Equal(t, "api_error", errorObj["type"])
-		assert.Equal(t, "Service temporarily unavailable", errorObj["message"])
+		assert.Equal(t, clienterr.WithSource("Service temporarily unavailable"), errorObj["message"])
+		assert.Equal(t, clienterr.Source, errorObj["source"])
 	})
 
 	t.Run("already_written_response_not_overridden", func(t *testing.T) {
@@ -577,7 +584,8 @@ func TestOpenAIResponses_MissingDependencies_ReturnsServiceUnavailable(t *testin
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "api_error", errorObj["type"])
-	assert.Equal(t, "Service temporarily unavailable", errorObj["message"])
+	assert.Equal(t, clienterr.WithSource("Service temporarily unavailable"), errorObj["message"])
+	assert.Equal(t, clienterr.Source, errorObj["source"])
 }
 
 func TestOpenAIResponses_SetsClientTransportHTTP(t *testing.T) {

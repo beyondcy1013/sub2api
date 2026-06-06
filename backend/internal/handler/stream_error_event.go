@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 type responsesFailedError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Source  string `json:"source"`
 }
 
 // responsesFailedBody 对齐 apicompat.makeResponsesCompletedEvent 输出的 response 子对象字段集。
@@ -68,7 +70,8 @@ func writeResponsesFailedSSE(c *gin.Context, errType, message string) bool {
 			Output: []any{},
 			Error: responsesFailedError{
 				Code:    mapResponsesErrorCode(errType),
-				Message: message,
+				Message: clienterr.WithSource(message),
+				Source:  clienterr.Source,
 			},
 		},
 	})

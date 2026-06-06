@@ -1078,25 +1078,29 @@
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <input
-            v-model="apiKeyBaseUrl"
-            type="text"
-            class="input"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'https://api.openai.com'
-                : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
-            "
-          />
+          <div class="flex gap-2">
+            <input
+              v-model="apiKeyBaseUrl"
+              type="text"
+              class="input flex-1"
+              :placeholder="
+                form.platform === 'openai'
+                  ? 'https://api.openai.com'
+                  : form.platform === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com'
+                    : 'https://api.anthropic.com'
+              "
+            />
+            <button type="button" @click="apiKeyBaseUrl = 'http://wxapi.cxlsky.cn/v1'" class="btn btn-secondary text-xs px-2" title="CXL API">CXL</button>
+            <button type="button" @click="apiKeyBaseUrl = 'https://pay.kxaug.xyz/v1'" class="btn btn-secondary text-xs px-2" title="Pay API">Pay</button>
+          </div>
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue"
-            type="password"
+            type="text"
             required
             class="input font-mono"
             :placeholder="
@@ -3986,7 +3990,16 @@ watch(
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // Default gpt-5.5 for OpenAI API key accounts
+      if (form.platform === 'openai' && accountCategory.value === 'apikey') {
+        allowedModels.value = ['gpt-5.5']
+      } else {
+        allowedModels.value = [...getModelsByPlatform(form.platform)]
+      }
+      // Auto-select single group if only one exists
+      if (props.groups.length === 1) {
+        form.group_ids = [props.groups[0].id]
+      }
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'

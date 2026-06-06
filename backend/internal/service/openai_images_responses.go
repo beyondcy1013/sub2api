@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -1015,7 +1016,8 @@ func writeOpenAIImagesUpstreamErrorResponse(c *gin.Context, err *OpenAIImagesUps
 	}
 	errorObj := gin.H{
 		"type":    err.clientErrorType(),
-		"message": err.clientMessage(),
+		"message": clienterr.WithSource(err.clientMessage()),
+		"source":  clienterr.Source,
 	}
 	if code := strings.TrimSpace(err.Code); code != "" {
 		errorObj["code"] = code

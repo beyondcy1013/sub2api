@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -1743,7 +1744,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 	); matched {
 		c.JSON(status, gin.H{
 			"type":  "error",
-			"error": gin.H{"type": errType, "message": errMsg},
+			"error": gin.H{"type": errType, "message": clienterr.WithSource(errMsg), "source": clienterr.Source},
 		})
 		if upstreamMsg == "" {
 			upstreamMsg = errMsg
@@ -1859,7 +1860,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 
 	c.JSON(statusCode, gin.H{
 		"type":  "error",
-		"error": gin.H{"type": errType, "message": errMsg},
+		"error": gin.H{"type": errType, "message": clienterr.WithSource(errMsg), "source": clienterr.Source},
 	})
 	if upstreamMsg == "" {
 		return fmt.Errorf("upstream error: %d", upstreamStatus)
@@ -2252,7 +2253,7 @@ func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status in
 	MarkResponseCommitted(c)
 	c.JSON(status, gin.H{
 		"type":  "error",
-		"error": gin.H{"type": errType, "message": message},
+		"error": gin.H{"type": errType, "message": clienterr.WithSource(message), "source": clienterr.Source},
 	})
 	return fmt.Errorf("%s", message)
 }
@@ -2262,7 +2263,8 @@ func (s *GeminiMessagesCompatService) writeGoogleError(c *gin.Context, status in
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
-			"message": message,
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})
