@@ -984,6 +984,56 @@ default:
   rate_multiplier: 1.0
 
 # =============================================================================
+# Balance Check
+# 余额检测
+# =============================================================================
+balance_check:
+  # Enable periodic upstream account balance checks.
+  # 是否启用定时检测上游账号余额。
+  enabled: true
+
+  # Cron expression accepted by robfig/cron, e.g. "@every 5m".
+  # robfig/cron 支持的表达式，例如 "@every 5m"。
+  interval: "@every 5m"
+
+  # Balance API endpoint. The account api_key is sent as Bearer token.
+  # 余额接口地址，账号 api_key 会作为 Bearer token 发送。
+  balance_url: "https://ai.router.team/api/public/cc-switch/balance"
+
+  # Per-request timeout and worker concurrency.
+  # 单次请求超时和并发检测数量。
+  request_timeout_seconds: 30
+  max_concurrent_checks: 1
+
+  # Stop scheduling when current balance is below this value. 0 disables this rule.
+  # 当前余额低于该数值时停止调度，0 表示关闭。
+  stop_when_current_below: 0
+
+  # Resume stopped accounts when current balance reaches this value. 0 disables auto resume.
+  # 当前余额恢复到该数值及以上时自动恢复停止账号，0 表示关闭自动恢复。
+  resume_when_current_above: 0
+
+  # Pause duration after a balance rule is triggered.
+  # 触发余额规则后的暂停时长。
+  pause_duration_hours: 5
+
+  # Pause when current balance is lower than previous balance by more than this amount.
+  # 当前余额相比上次余额下降超过该数值时暂停。
+  min_decrease: 5.0
+
+  # Optional absolute low-balance rule. 0 disables this rule.
+  # 可选的余额低于阈值暂停规则，0 表示关闭。
+  pause_when_current_below: 0
+
+  # Optional percentage drop rule. 0 disables this rule.
+  # 可选的余额下降百分比暂停规则，0 表示关闭。
+  pause_when_drop_percent: 0
+
+  # Keep the legacy guard: only accounts with extra.quota_hourly_limit > 0 are checked.
+  # 保持旧逻辑：只检测 extra.quota_hourly_limit > 0 的账号。
+  require_quota_hourly_limit: true
+
+# =============================================================================
 # Rate Limiting
 # 速率限制
 # =============================================================================

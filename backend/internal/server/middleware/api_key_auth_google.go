@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -217,6 +218,7 @@ func allowGoogleQueryKey(path string) bool {
 }
 
 func abortWithGoogleError(c *gin.Context, status int, message string) {
+	message = clienterror.Local(message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,

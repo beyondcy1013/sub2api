@@ -1,0 +1,55 @@
+package clienterror
+
+import "strings"
+
+const (
+	LocalPrefix       = "【sub2freeApi限制】"
+	legacyLocalPrefix = "【" + "本" + "项目限制】"
+	UpstreamPrefix    = "【上游错误】"
+)
+
+func Prefix(errType, message string) string {
+	if IsUpstream(errType, message) {
+		return Upstream(message)
+	}
+	return Local(message)
+}
+
+func Local(message string) string {
+	return withPrefix(LocalPrefix, message)
+}
+
+func Upstream(message string) string {
+	return withPrefix(UpstreamPrefix, message)
+}
+
+func IsUpstream(errType, message string) bool {
+	errType = strings.TrimSpace(strings.ToLower(errType))
+	if strings.Contains(errType, "upstream") || errType == "overloaded_error" {
+		return true
+	}
+	msg := strings.TrimSpace(strings.ToLower(message))
+	return strings.HasPrefix(msg, "upstream ") ||
+		strings.HasPrefix(msg, "upstream:") ||
+		strings.Contains(msg, " upstream ") ||
+		strings.Contains(msg, "upstream request") ||
+		strings.Contains(msg, "upstream service")
+}
+
+func withPrefix(prefix, message string) string {
+	message = strings.TrimSpace(message)
+	if prefix == LocalPrefix && strings.HasPrefix(message, legacyLocalPrefix) {
+		message = strings.TrimSpace(strings.TrimPrefix(message, legacyLocalPrefix))
+	}
+	if hasKnownPrefix(message) {
+		return message
+	}
+	if message == "" {
+		return prefix
+	}
+	return prefix + " " + message
+}
+
+func hasKnownPrefix(message string) bool {
+	return strings.HasPrefix(message, LocalPrefix) || strings.HasPrefix(message, UpstreamPrefix)
+}

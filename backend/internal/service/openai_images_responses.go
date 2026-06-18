@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -998,8 +999,9 @@ func buildOpenAIImagesStreamErrorBodyFromUpstream(err *OpenAIImagesUpstreamError
 	if err == nil {
 		return buildOpenAIImagesStreamErrorBody("")
 	}
-	body := buildOpenAIImagesStreamErrorBody(err.clientMessage())
-	body, _ = sjson.SetBytes(body, "error.type", err.clientErrorType())
+	errType := err.clientErrorType()
+	body := buildOpenAIImagesStreamErrorBody(clienterror.Prefix(errType, err.clientMessage()))
+	body, _ = sjson.SetBytes(body, "error.type", errType)
 	if code := strings.TrimSpace(err.Code); code != "" {
 		body, _ = sjson.SetBytes(body, "error.code", code)
 	}
@@ -1015,7 +1017,7 @@ func writeOpenAIImagesUpstreamErrorResponse(c *gin.Context, err *OpenAIImagesUps
 	}
 	errorObj := gin.H{
 		"type":    err.clientErrorType(),
-		"message": err.clientMessage(),
+		"message": clienterror.Prefix(err.clientErrorType(), err.clientMessage()),
 	}
 	if code := strings.TrimSpace(err.Code); code != "" {
 		errorObj["code"] = code

@@ -5,6 +5,7 @@ import "github.com/Wei-Shaw/sub2api/internal/service"
 
 // RedactCredentials 复制一份 in，剥离 service.SensitiveCredentialKeys 列出的所有敏感子键，
 // 并产出一个 has_<key> 状态 map 表示哪些敏感键存在且非零值。
+// 注意：api_key 需要在账号管理页明文展示，因此不在脱敏列表中。
 //
 // 输入 nil 时返回 nil, nil（避免响应里出现空对象）。
 // 不修改入参；调用方拿到的 out 可安全序列化进 JSON 返回前端。

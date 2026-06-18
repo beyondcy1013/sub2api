@@ -77,6 +77,7 @@ type Config struct {
 	GitHubOAuth             EmailOAuthProviderConfig      `mapstructure:"github_oauth"`
 	GoogleOAuth             EmailOAuthProviderConfig      `mapstructure:"google_oauth"`
 	Default                 DefaultConfig                 `mapstructure:"default"`
+	BalanceCheck            BalanceCheckConfig            `mapstructure:"balance_check"`
 	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
@@ -1327,6 +1328,21 @@ type DefaultConfig struct {
 	RateMultiplier  float64 `mapstructure:"rate_multiplier"`
 }
 
+type BalanceCheckConfig struct {
+	Enabled                 *bool   `mapstructure:"enabled"`
+	Interval                string  `mapstructure:"interval"`
+	BalanceURL              string  `mapstructure:"balance_url"`
+	RequestTimeoutSeconds   int     `mapstructure:"request_timeout_seconds"`
+	MaxConcurrentChecks     int     `mapstructure:"max_concurrent_checks"`
+	PauseDurationHours      float64 `mapstructure:"pause_duration_hours"`
+	MinDecrease             float64 `mapstructure:"min_decrease"`
+	PauseWhenCurrentBelow   float64 `mapstructure:"pause_when_current_below"`
+	PauseWhenDropPercent    float64 `mapstructure:"pause_when_drop_percent"`
+	StopWhenCurrentBelow    float64 `mapstructure:"stop_when_current_below"`
+	ResumeWhenCurrentAbove  float64 `mapstructure:"resume_when_current_above"`
+	RequireQuotaHourlyLimit *bool   `mapstructure:"require_quota_hourly_limit"`
+}
+
 type RateLimitConfig struct {
 	OverloadCooldownMinutes int `mapstructure:"overload_cooldown_minutes"`  // 529过载冷却时间(分钟)
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
@@ -1863,6 +1879,20 @@ func setDefaults() {
 	viper.SetDefault("default.user_balance", 0)
 	viper.SetDefault("default.api_key_prefix", "sk-")
 	viper.SetDefault("default.rate_multiplier", 1.0)
+
+	// BalanceCheck
+	viper.SetDefault("balance_check.enabled", true)
+	viper.SetDefault("balance_check.interval", "@every 5m")
+	viper.SetDefault("balance_check.balance_url", "https://ai.router.team/api/public/cc-switch/balance")
+	viper.SetDefault("balance_check.request_timeout_seconds", 30)
+	viper.SetDefault("balance_check.max_concurrent_checks", 1)
+	viper.SetDefault("balance_check.pause_duration_hours", 5)
+	viper.SetDefault("balance_check.min_decrease", 5.0)
+	viper.SetDefault("balance_check.pause_when_current_below", 0)
+	viper.SetDefault("balance_check.pause_when_drop_percent", 0)
+	viper.SetDefault("balance_check.stop_when_current_below", 0)
+	viper.SetDefault("balance_check.resume_when_current_above", 0)
+	viper.SetDefault("balance_check.require_quota_hourly_limit", true)
 
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)

@@ -503,6 +503,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/balance-check-settings',
+    name: 'AdminBalanceCheckSettings',
+    component: () => import('@/views/admin/BalanceCheckSettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: '余额检测设置',
+      description: '配置余额检测、暂停条件和检测调度'
+    }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

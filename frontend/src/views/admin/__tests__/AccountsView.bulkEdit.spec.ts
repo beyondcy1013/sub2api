@@ -67,6 +67,8 @@ const DataTableStub = {
     <div data-test="data-table">
       <span v-for="column in columns" :key="column.key" data-test="column-key">{{ column.key }}</span>
       <div v-for="row in data" :key="row.id">
+        <slot name="cell-name" :value="row.name" :row="row" />
+        <slot name="cell-today_cost" :value="row.today_cost" :row="row" />
         <slot name="cell-created_at" :value="row.created_at" :row="row" />
       </div>
     </div>
@@ -82,6 +84,46 @@ const AccountBulkActionsBarStub = {
 const BulkEditAccountModalStub = {
   props: ['show', 'target'],
   template: '<div data-test="bulk-edit-modal" :data-show="String(show)" :data-target-mode="target?.mode ?? \'\'"></div>'
+}
+
+function mountView(extraStubs: Record<string, unknown> = {}) {
+  return mount(AccountsView, {
+    global: {
+      stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        TablePageLayout: {
+          template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+        },
+        DataTable: DataTableStub,
+        Pagination: true,
+        ConfirmDialog: true,
+        AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+        AccountTableFilters: { template: '<div></div>' },
+        AccountBulkActionsBar: AccountBulkActionsBarStub,
+        AccountActionMenu: true,
+        ImportDataModal: true,
+        ReAuthAccountModal: true,
+        AccountTestModal: true,
+        AccountStatsModal: true,
+        ScheduledTestsPanel: true,
+        SyncFromCrsModal: true,
+        TempUnschedStatusModal: true,
+        ErrorPassthroughRulesModal: true,
+        TLSFingerprintProfilesModal: true,
+        CreateAccountModal: true,
+        EditAccountModal: true,
+        BulkEditAccountModal: BulkEditAccountModalStub,
+        PlatformTypeBadge: true,
+        AccountCapacityCell: true,
+        AccountStatusIndicator: true,
+        AccountTodayStatsCell: true,
+        AccountGroupsCell: true,
+        AccountUsageCell: true,
+        Icon: true,
+        ...extraStubs
+      }
+    }
+  })
 }
 
 describe('admin AccountsView bulk edit scope', () => {
@@ -223,5 +265,138 @@ describe('admin AccountsView bulk edit scope', () => {
       label: 'admin.accounts.columns.createdAt',
       sortable: true
     })
+  })
+
+  it('renders account identifiers in plain text under account names', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          name: 'openai-main',
+          platform: 'openai',
+          type: 'oauth',
+          credentials: {
+            email: 'owner@example.com'
+          },
+          extra: {
+            chatgpt_account_id: 'acct-fallback'
+          },
+          status: 'active',
+          schedulable: true,
+          created_at: '2026-03-07T10:00:00Z',
+          updated_at: '2026-03-07T10:00:00Z'
+        },
+        {
+          id: 2,
+          name: 'vertex-main',
+          platform: 'gemini',
+          type: 'service_account',
+          credentials: {
+            client_email: 'svc@vertex-project.iam.gserviceaccount.com'
+          },
+          status: 'active',
+          schedulable: true,
+          created_at: '2026-03-07T10:00:00Z',
+          updated_at: '2026-03-07T10:00:00Z'
+        }
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('owner@example.com')
+    expect(wrapper.text()).toContain('svc@vertex-project.iam.gserviceaccount.com')
+  })
+
+  it('renders today cost by default from batched account stats', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 7,
+          name: 'cost-account',
+          platform: 'openai',
+          type: 'apikey',
+          status: 'active',
+          schedulable: true,
+          created_at: '2026-03-07T10:00:00Z',
+          updated_at: '2026-03-07T10:00:00Z'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    getBatchTodayStats.mockResolvedValue({
+      stats: {
+        '7': {
+          requests: 3,
+          tokens: 1200,
+          cost: 1.23,
+          standard_cost: 1.23,
+          user_cost: 1.5
+        }
+      }
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayCostCell: {
+            props: ['stats'],
+            template: '<span data-test="today-cost">{{ stats?.cost }}</span>'
+          },
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await flushPromises()
+
+    const columnKeys = wrapper.findAll('[data-test="column-key"]').map(node => node.text())
+    expect(columnKeys).toContain('today_cost')
+    const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; label: string; sortable: boolean }>
+    expect(columns.find(column => column.key === 'today_cost')).toMatchObject({
+      label: 'admin.accounts.columns.todayCost',
+      sortable: false
+    })
+    expect(getBatchTodayStats).toHaveBeenCalledWith([7])
+    expect(wrapper.get('[data-test="today-cost"]').text()).toBe('1.23')
   })
 })

@@ -490,6 +490,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.PUT("/web-search-emulation", h.Admin.Setting.UpdateWebSearchEmulationConfig)
 		adminSettings.POST("/web-search-emulation/test", h.Admin.Setting.TestWebSearchEmulation)
 		adminSettings.POST("/web-search-emulation/reset-usage", h.Admin.Setting.ResetWebSearchUsage)
+		// 本地自定义：余额检测配置（YAML-backed）
+		adminSettings.GET("/balance-check", h.Admin.Setting.GetBalanceCheckSettings)
+		adminSettings.PUT("/balance-check", h.Admin.Setting.UpdateBalanceCheckSettings)
 	}
 }
 

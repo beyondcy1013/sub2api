@@ -100,6 +100,9 @@ func registerRoutes(
 	cfg *config.Config,
 	redisClient *redis.Client,
 ) {
+	// 本地自定义页面。独立于嵌入式前端，便于上游更新后只补链接入口。
+	registerLocalPages(r)
+
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
 
