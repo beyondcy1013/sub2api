@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
@@ -446,7 +447,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 			"type": "error",
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
+				"message": clienterror.Upstream(errMsg),
 			},
 		})
 
@@ -506,7 +507,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": errMsg,
+			"message": clienterror.Upstream(errMsg),
 		},
 	})
 
@@ -609,7 +610,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 			"type": "error",
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
+				"message": clienterror.Upstream(errMsg),
 			},
 		})
 

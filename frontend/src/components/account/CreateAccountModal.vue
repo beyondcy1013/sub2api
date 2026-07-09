@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.accounts.createAccount')"
+    :title="cloneSource ? t('admin.accounts.cloneAccount') : t('admin.accounts.createAccount')"
     width="wide"
     @close="handleClose"
   >
@@ -153,7 +153,7 @@
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
               form.platform === 'grok'
-                ? 'bg-white text-zinc-900 shadow-sm dark:bg-dark-600 dark:text-zinc-100'
+                ? 'bg-white text-slate-700 shadow-sm dark:bg-dark-600 dark:text-slate-200'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
           >
@@ -362,15 +362,15 @@
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'oauth-based'
-                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
-                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+                ? 'border-slate-500 bg-slate-50 dark:bg-slate-900/20'
+                : 'border-gray-200 hover:border-slate-300 dark:border-dark-600 dark:hover:border-slate-700'
             ]"
           >
             <div
               :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'oauth-based'
-                  ? 'bg-zinc-900 text-white'
+                  ? 'bg-slate-700 text-white'
                   : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
               ]"
             >
@@ -560,18 +560,18 @@
                   Google One
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.accounts.gemini.oauthType.googleOneDesc') }}
+                  个人账号，享受 Google One 订阅配额
                 </span>
                 <div class="mt-2 flex flex-wrap gap-1">
                   <span
                     class="rounded bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
                   >
-                    {{ t('admin.accounts.gemini.oauthType.badges.individuals') }}
+                    推荐个人用户
                   </span>
                   <span
                     class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                   >
-                    {{ t('admin.accounts.gemini.oauthType.badges.noGcp') }}
+                    无需 GCP
                   </span>
                 </div>
               </div>
@@ -603,10 +603,10 @@
                   GCP Code Assist
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.accounts.gemini.oauthType.codeAssistDesc') }}
+                  企业级，需要 GCP 项目
                 </span>
                 <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.accounts.gemini.oauthType.codeAssistRequirement') }}
+                  需要激活 GCP 项目并绑定信用卡
                   <a
                     :href="geminiHelpLinks.gcpProject"
                     class="ml-1 text-blue-600 hover:underline dark:text-blue-400"
@@ -620,12 +620,12 @@
                   <span
                     class="rounded bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                   >
-                    {{ t('admin.accounts.gemini.oauthType.badges.enterprise') }}
+                    企业用户
                   </span>
                   <span
                     class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                   >
-                    {{ t('admin.accounts.gemini.oauthType.badges.highConcurrency') }}
+                    高并发
                   </span>
                 </div>
               </div>
@@ -648,13 +648,7 @@
               >
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
               </svg>
-              <span>
-                {{
-                  showAdvancedOAuth
-                    ? t('admin.accounts.gemini.oauthType.hideAdvanced')
-                    : t('admin.accounts.gemini.oauthType.showAdvanced')
-                }}
-              </span>
+              <span>{{ showAdvancedOAuth ? '隐藏' : '显示' }}高级选项（自建 OAuth Client）</span>
             </button>
           </div>
 
@@ -847,7 +841,7 @@
           <input
             v-model="upstreamBaseUrl"
             type="text"
-            required
+            :required="!isCloneMode"
             class="input"
             placeholder="https://cloudcode-pa.googleapis.com"
           />
@@ -858,7 +852,7 @@
           <input
             v-model="upstreamApiKey"
             type="password"
-            required
+            :required="!isCloneMode"
             class="input font-mono"
             placeholder="sk-..."
           />
@@ -934,7 +928,7 @@
             <label class="input-label">Location</label>
             <select
               v-model="vertexLocation"
-              required
+              :required="!isCloneMode"
               class="input font-mono"
             >
               <optgroup
@@ -1078,35 +1072,48 @@
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <input
-            v-model="apiKeyBaseUrl"
-            type="text"
-            class="input"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'https://api.openai.com'
-                : form.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : 'https://api.anthropic.com'
-            "
-          />
+          <div class="flex gap-2">
+            <input
+              v-model="apiKeyBaseUrl"
+              type="text"
+              class="input flex-1"
+              :placeholder="
+                form.platform === 'openai'
+                  ? 'https://api.openai.com'
+                  : form.platform === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com'
+                    : 'https://api.anthropic.com'
+              "
+            />
+            <button type="button" @click="apiKeyBaseUrl = 'http://wxapi.cxlsky.cn/v1'" class="btn btn-secondary text-xs px-2" title="CXL API">CXL</button>
+            <button type="button" @click="apiKeyBaseUrl = 'https://pay.kxaug.xyz/v1'" class="btn btn-secondary text-xs px-2" title="Pay API">Pay</button>
+          </div>
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
-          <input
-            v-model="apiKeyValue"
-            type="password"
-            required
-            class="input font-mono"
-            :placeholder="
-              form.platform === 'openai'
-                ? 'sk-proj-...'
-                : form.platform === 'gemini'
-                  ? 'AIza...'
-                  : 'sk-ant-...'
-            "
-          />
+          <div class="relative">
+            <input
+              v-model="apiKeyValue"
+              :type="showApiKey ? 'text' : 'password'"
+              :required="!isCloneMode"
+              class="input font-mono pr-10"
+              :placeholder="
+                form.platform === 'openai'
+                  ? 'sk-proj-...'
+                  : form.platform === 'gemini'
+                    ? 'AIza...'
+                    : 'sk-ant-...'
+              "
+            />
+            <button type="button" @click="showApiKey = !showApiKey" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+              <svg v-if="showApiKey" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+              <svg v-else class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+            </button>
+            <button type="button" @click="copyApiKeyToClipboard" class="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" /></svg>
+            </button>
+          </div>
           <p class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
@@ -1468,110 +1475,6 @@
           </div>
         </div>
 
-        <!-- Header Override Section (anthropic/openai apikey only) -->
-        <div
-          v-if="isHeaderOverridePlatform(form.platform)"
-          class="border-t border-gray-200 pt-4 dark:border-dark-600"
-        >
-          <div class="mb-3 flex items-center justify-between">
-            <div>
-              <label class="input-label mb-0">{{ t('admin.accounts.headerOverride.title') }}</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.headerOverride.hint') }}
-              </p>
-            </div>
-            <button
-              type="button"
-              @click="headerOverrideEnabled = !headerOverrideEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  headerOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-
-          <div v-if="headerOverrideEnabled" class="space-y-3">
-            <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
-              <p class="text-xs text-blue-700 dark:text-blue-400">
-                <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
-                {{ t('admin.accounts.headerOverride.info') }}
-              </p>
-            </div>
-
-            <div v-if="headerOverrideRows.length > 0" class="space-y-2">
-              <div
-                v-for="(row, index) in headerOverrideRows"
-                :key="getHeaderOverrideRowKey(row)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="row.name"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.headerOverride.namePlaceholder')"
-                />
-                <input
-                  v-model="row.value"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.headerOverride.valuePlaceholder')"
-                />
-                <button
-                  type="button"
-                  @click="removeHeaderOverrideRow(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addHeaderOverrideRow"
-              class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              <svg class="mr-1 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              {{ t('admin.accounts.headerOverride.addRow') }}
-            </button>
-
-            <div class="flex flex-wrap gap-2">
-              <button
-                type="button"
-                @click="fillHeaderOverrideTemplate"
-                class="rounded-lg bg-primary-50 px-3 py-1 text-xs text-primary-700 transition-colors hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
-              >
-                + {{ t('admin.accounts.headerOverride.fillTemplate') }}
-              </button>
-            </div>
-
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.headerOverride.emptyValueHint') }}
-            </p>
-          </div>
-        </div>
-
       </div>
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
@@ -1608,7 +1511,7 @@
             <input
               v-model="bedrockAccessKeyId"
               type="text"
-              required
+              :required="!isCloneMode"
               class="input font-mono"
               placeholder="AKIA..."
             />
@@ -1618,7 +1521,7 @@
             <input
               v-model="bedrockSecretAccessKey"
               type="password"
-              required
+              :required="!isCloneMode"
               class="input font-mono"
             />
           </div>
@@ -1639,7 +1542,7 @@
           <input
             v-model="bedrockApiKeyValue"
             type="password"
-            required
+            :required="!isCloneMode"
             class="input font-mono"
           />
         </div>
@@ -1845,6 +1748,7 @@
         </div>
         <QuotaLimitCard
           :totalLimit="editQuotaLimit"
+          :hourlyLimit="editQuotaHourlyLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
@@ -1864,6 +1768,7 @@
           :weeklyResetHour="editWeeklyResetHour"
           :resetTimezone="editResetTimezone"
           @update:totalLimit="editQuotaLimit = $event"
+          @update:hourlyLimit="editQuotaHourlyLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
           @update:quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled = $event"
@@ -1897,6 +1802,7 @@
         </div>
         <QuotaLimitCard
           :totalLimit="editQuotaLimit"
+          :hourlyLimit="editQuotaHourlyLimit"
           :dailyLimit="editQuotaDailyLimit"
           :weeklyLimit="editQuotaWeeklyLimit"
           :quotaNotifyGlobalEnabled="quotaNotifyGlobalEnabled"
@@ -1916,6 +1822,7 @@
           :weeklyResetHour="editWeeklyResetHour"
           :resetTimezone="editResetTimezone"
           @update:totalLimit="editQuotaLimit = $event"
+          @update:hourlyLimit="editQuotaHourlyLimit = $event"
           @update:dailyLimit="editQuotaDailyLimit = $event"
           @update:weeklyLimit="editQuotaWeeklyLimit = $event"
           @update:quotaNotifyDailyEnabled="quotaNotifyState.daily.enabled = $event"
@@ -2757,24 +2664,6 @@
         </div>
       </div>
 
-      <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.anthropic.apiKeyAuthScheme') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.anthropic.apiKeyAuthSchemeDesc') }}
-            </p>
-          </div>
-          <select v-model="anthropicAPIKeyAuthScheme" class="input w-52 text-sm">
-            <option value="x_api_key">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeXApiKey') }}</option>
-            <option value="authorization_bearer">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeBearer') }}</option>
-          </select>
-        </div>
-      </div>
-
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
         v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
@@ -3104,7 +2993,7 @@
             ></path>
           </svg>
           {{
-            isOAuthFlow
+            isOAuthFlow && !isCloneMode
               ? t('common.next')
               : submitting
                 ? t('admin.accounts.creating')
@@ -3200,7 +3089,7 @@
                 rel="noreferrer"
                 class="text-sm text-blue-600 hover:underline dark:text-blue-400"
               >
-                {{ t('admin.accounts.gemini.setupGuide.links.countryChange') }}
+                修改归属地
               </a>
               <span class="text-gray-400">·</span>
               <a
@@ -3384,7 +3273,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -3393,6 +3282,7 @@ import {
   getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  splitModelMappingObject,
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3411,6 +3301,7 @@ import { useGrokOAuth } from '@/composables/useGrokOAuth'
 import type {
   Proxy,
   AdminGroup,
+  Account,
   AccountPlatform,
   AccountType,
   CheckMixedChannelResponse,
@@ -3432,12 +3323,7 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import {
   applyAntigravityProjectID,
-  applyHeaderOverride,
-  applyInterceptWarmup,
-  getHeaderOverrideTemplate,
-  isHeaderOverridePlatform,
-  validateHeaderOverrideRows,
-  type HeaderOverrideRow
+  applyInterceptWarmup
 } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -3446,7 +3332,6 @@ import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
   OPENAI_WS_MODE_PASSTHROUGH,
-  OPENAI_WS_MODE_HTTP_BRIDGE,
   isOpenAIWSModeEnabled,
   resolveOpenAIWSModeConcurrencyHintKey,
   type OpenAIWSMode
@@ -3498,6 +3383,7 @@ interface Props {
   show: boolean
   proxies: Proxy[]
   groups: AdminGroup[]
+  cloneSource?: Account | null
 }
 
 const props = defineProps<Props>()
@@ -3507,6 +3393,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const isCloneMode = computed(() => !!props.cloneSource)
 
 // OAuth composables
 const oauth = useAccountOAuth() // For Anthropic OAuth
@@ -3567,6 +3454,7 @@ interface TempUnschedRuleForm {
 // State
 const step = ref(1)
 const submitting = ref(false)
+const applyingCloneSource = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
@@ -3582,7 +3470,15 @@ const syncPreviewCredentials = computed(() => {
   }
 })
 
+const showApiKey = ref(false)
+const copyApiKeyToClipboard = async () => {
+  if (apiKeyValue.value) {
+    await navigator.clipboard.writeText(apiKeyValue.value)
+    appStore.showSuccess(t('common.copied'))
+  }
+}
 const editQuotaLimit = ref<number | null>(null)
+const editQuotaHourlyLimit = ref<number | null>(5)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
 const editDailyResetMode = ref<'rolling' | 'fixed' | null>(null)
@@ -3621,30 +3517,6 @@ function parsePoolModeRetryStatusCodes(input: string): number[] {
 const customErrorCodesEnabled = ref(false)
 const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
-const headerOverrideEnabled = ref(false)
-const headerOverrideRows = ref<HeaderOverrideRow[]>([])
-
-const addHeaderOverrideRow = () => {
-  headerOverrideRows.value.push({ name: '', value: '' })
-}
-
-const removeHeaderOverrideRow = (index: number) => {
-  headerOverrideRows.value.splice(index, 1)
-}
-
-// 模板按钮：填入标准客户端请求头名称（值留空），跳过已存在的同名行
-const fillHeaderOverrideTemplate = () => {
-  const existing = new Set(
-    headerOverrideRows.value.map((row) => row.name.trim().toLowerCase()).filter(Boolean)
-  )
-  const rows = headerOverrideRows.value.filter((row) => row.name.trim() || row.value.trim())
-  for (const row of getHeaderOverrideTemplate(form.platform)) {
-    if (!existing.has(row.name)) {
-      rows.push(row)
-    }
-  }
-  headerOverrideRows.value = rows
-}
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
 const openaiPassthroughEnabled = ref(false)
@@ -3655,9 +3527,8 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
-type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
+const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
 const anthropicPassthroughEnabled = ref(false)
-const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
 const {
@@ -3702,7 +3573,6 @@ const vertexServiceAccountDragActive = ref(false)
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
-const getHeaderOverrideRowKey = createStableObjectKeyResolver<HeaderOverrideRow>('create-header-override-row')
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-openai-compact-model-mapping')
 const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-antigravity-model-mapping')
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
@@ -3838,8 +3708,7 @@ const geminiSelectedTier = computed(() => {
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
   { value: OPENAI_WS_MODE_CTX_POOL, label: t('admin.accounts.openai.wsModeCtxPool') },
-  { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') },
-  { value: OPENAI_WS_MODE_HTTP_BRIDGE, label: t('admin.accounts.openai.wsModeHttpBridge') }
+  { value: OPENAI_WS_MODE_PASSTHROUGH, label: t('admin.accounts.openai.wsModePassthrough') }
 ])
 
 const openaiResponsesWebSocketV2Mode = computed({
@@ -3986,7 +3855,16 @@ watch(
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // Default gpt-5.5 for OpenAI platform
+      if (form.platform === 'openai') {
+        allowedModels.value = ['gpt-5.5']
+      } else {
+        allowedModels.value = [...getModelsByPlatform(form.platform)]
+      }
+      // Auto-select single group if only one exists
+      if (props.groups.length === 1) {
+        form.group_ids = [props.groups[0].id]
+      }
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -3998,6 +3876,9 @@ watch(
         antigravityWhitelistModels.value = []
         antigravityModelMappings.value = []
         antigravityModelRestrictionMode.value = 'mapping'
+      }
+      if (props.cloneSource) {
+        nextTick(() => applyCloneSource(props.cloneSource as Account))
       }
     } else {
       resetForm()
@@ -4034,6 +3915,9 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    if (applyingCloneSource.value) {
+      return
+    }
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
       (newPlatform === 'openai')
@@ -4101,13 +3985,8 @@ watch(
     }
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
-      anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
-    // 请求头覆写为平台相关配置（模板/常用头集合不同），切换平台时清空，
-    // 避免上一平台的模板行被提交到新平台账号
-    headerOverrideEnabled.value = false
-    headerOverrideRows.value = []
     // Reset OAuth states
     oauth.resetState()
     openaiOAuth.resetState()
@@ -4128,7 +4007,6 @@ watch(
     }
     if (platform !== 'anthropic' || category !== 'apikey') {
       anthropicPassthroughEnabled.value = false
-      anthropicAPIKeyAuthScheme.value = 'x_api_key'
       webSearchEmulationMode.value = 'default'
     }
   }
@@ -4354,6 +4232,27 @@ const splitTempUnschedKeywords = (value: string) => {
     .filter((item) => item.length > 0)
 }
 
+const loadTempUnschedRules = (credentials?: Record<string, unknown>) => {
+  tempUnschedEnabled.value = credentials?.temp_unschedulable_enabled === true
+  const rawRules = credentials?.temp_unschedulable_rules
+  if (!Array.isArray(rawRules)) {
+    tempUnschedRules.value = []
+    return
+  }
+  tempUnschedRules.value = rawRules.map((rule) => {
+    const entry = rule as Record<string, unknown>
+    const keywords = Array.isArray(entry.keywords)
+      ? entry.keywords.map((keyword) => String(keyword)).join(', ')
+      : String(entry.keywords || '')
+    return {
+      error_code: typeof entry.error_code === 'number' ? entry.error_code : null,
+      keywords,
+      duration_minutes: typeof entry.duration_minutes === 'number' ? entry.duration_minutes : null,
+      description: typeof entry.description === 'string' ? entry.description : ''
+    }
+  })
+}
+
 const needsMixedChannelCheck = (platform: AccountPlatform) => platform === 'antigravity' || platform === 'anthropic'
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
@@ -4453,6 +4352,149 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   }
 }
 
+const buildCloneCredentials = () => {
+  const credentials: Record<string, unknown> = {}
+  if (form.type === 'apikey') {
+    if (form.platform === 'antigravity') {
+      if (upstreamBaseUrl.value.trim()) credentials.base_url = upstreamBaseUrl.value.trim()
+      if (upstreamApiKey.value.trim()) credentials.api_key = upstreamApiKey.value.trim()
+      const antigravityModelMapping = buildModelMappingObject('mapping', [], antigravityModelMappings.value)
+      if (antigravityModelMapping) credentials.model_mapping = antigravityModelMapping
+    } else {
+      if (apiKeyBaseUrl.value.trim()) credentials.base_url = apiKeyBaseUrl.value.trim()
+      if (apiKeyValue.value.trim()) credentials.api_key = apiKeyValue.value.trim()
+      if (form.platform === 'gemini') credentials.tier_id = geminiTierAIStudio.value
+      if (!isOpenAIModelRestrictionDisabled.value) {
+        const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+        if (modelMapping) credentials.model_mapping = modelMapping
+      }
+      if (form.platform === 'openai') {
+        applyOpenAIEndpointCapabilities(credentials)
+        const compactModelMapping = buildOpenAICompactModelMapping()
+        if (compactModelMapping) credentials.compact_model_mapping = compactModelMapping
+      }
+      if (poolModeEnabled.value) {
+        credentials.pool_mode = true
+        credentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+        const statusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+        if (statusCodes.length > 0) credentials.pool_mode_retry_status_codes = statusCodes
+      }
+      if (customErrorCodesEnabled.value) {
+        credentials.custom_error_codes_enabled = true
+        credentials.custom_error_codes = [...selectedErrorCodes.value]
+      }
+    }
+  } else if (form.type === 'bedrock') {
+    credentials.auth_mode = bedrockAuthMode.value
+    credentials.aws_region = bedrockRegion.value.trim() || 'us-east-1'
+    if (bedrockAuthMode.value === 'sigv4') {
+      if (bedrockAccessKeyId.value.trim()) credentials.aws_access_key_id = bedrockAccessKeyId.value.trim()
+      if (bedrockSecretAccessKey.value.trim()) credentials.aws_secret_access_key = bedrockSecretAccessKey.value.trim()
+      if (bedrockSessionToken.value.trim()) credentials.aws_session_token = bedrockSessionToken.value.trim()
+    } else if (bedrockApiKeyValue.value.trim()) {
+      credentials.api_key = bedrockApiKeyValue.value.trim()
+    }
+    if (bedrockForceGlobal.value) credentials.aws_force_global = 'true'
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) credentials.model_mapping = modelMapping
+    if (poolModeEnabled.value) {
+      credentials.pool_mode = true
+      credentials.pool_mode_retry_count = normalizePoolModeRetryCount(poolModeRetryCount.value)
+      const statusCodes = parsePoolModeRetryStatusCodes(poolModeRetryStatusCodesInput.value)
+      if (statusCodes.length > 0) credentials.pool_mode_retry_status_codes = statusCodes
+    }
+  } else if (form.type === 'service_account') {
+    if (vertexServiceAccountJson.value.trim()) credentials.service_account_json = vertexServiceAccountJson.value.trim()
+    if (vertexProjectId.value.trim()) credentials.project_id = vertexProjectId.value.trim()
+    if (vertexClientEmail.value.trim()) credentials.client_email = vertexClientEmail.value.trim()
+    if (vertexLocation.value.trim()) credentials.location = vertexLocation.value.trim()
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) credentials.model_mapping = modelMapping
+  } else {
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) credentials.model_mapping = modelMapping
+    if (form.platform === 'openai') {
+      const compactModelMapping = buildOpenAICompactModelMapping()
+      if (compactModelMapping) credentials.compact_model_mapping = compactModelMapping
+    }
+  }
+  applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+  applyTempUnschedConfig(credentials)
+  return credentials
+}
+
+const buildCloneExtra = () => {
+  let extra = form.platform === 'antigravity'
+    ? buildAntigravityExtra()
+    : buildAnthropicExtra(buildOpenAIExtra())
+  if (form.type === 'apikey' || form.type === 'bedrock') {
+    const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
+    if (editQuotaLimit.value != null && editQuotaLimit.value > 0) quotaExtra.quota_limit = editQuotaLimit.value
+    if (editQuotaHourlyLimit.value != null && editQuotaHourlyLimit.value > 0) quotaExtra.quota_hourly_limit = editQuotaHourlyLimit.value
+    if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) quotaExtra.quota_daily_limit = editQuotaDailyLimit.value
+    if (editQuotaWeeklyLimit.value != null && editQuotaWeeklyLimit.value > 0) quotaExtra.quota_weekly_limit = editQuotaWeeklyLimit.value
+    if (editDailyResetMode.value === 'fixed') {
+      quotaExtra.quota_daily_reset_mode = 'fixed'
+      quotaExtra.quota_daily_reset_hour = editDailyResetHour.value ?? 0
+    }
+    if (editWeeklyResetMode.value === 'fixed') {
+      quotaExtra.quota_weekly_reset_mode = 'fixed'
+      quotaExtra.quota_weekly_reset_day = editWeeklyResetDay.value ?? 1
+      quotaExtra.quota_weekly_reset_hour = editWeeklyResetHour.value ?? 0
+    }
+    if (editDailyResetMode.value === 'fixed' || editWeeklyResetMode.value === 'fixed') {
+      quotaExtra.quota_reset_timezone = editResetTimezone.value || 'UTC'
+    }
+    writeQuotaNotifyToExtra(quotaExtra, 'create')
+    extra = Object.keys(quotaExtra).length > 0 ? quotaExtra : extra
+  }
+  return extra
+}
+
+const submitCloneAccount = async () => {
+  if (!props.cloneSource) return
+  if (!form.name.trim()) {
+    appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    return
+  }
+  submitting.value = true
+  try {
+    await adminAPI.accounts.clone(props.cloneSource.id, withAntigravityConfirmFlag({
+      name: form.name,
+      notes: form.notes,
+      platform: form.platform,
+      type: form.type,
+      credentials: buildCloneCredentials(),
+      extra: buildCloneExtra(),
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value
+    }))
+    appStore.showSuccess(t('admin.accounts.accountCloned'))
+    emit('created')
+    handleClose()
+  } catch (error: any) {
+    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+      openMixedChannelDialog({
+        message: error.response?.data?.message,
+        onConfirm: async () => {
+          antigravityMixedChannelConfirmed.value = true
+          await submitCloneAccount()
+        }
+      })
+      return
+    }
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToClone'))
+  } finally {
+    submitting.value = false
+  }
+}
+
 // Methods
 const resetForm = () => {
   step.value = 1
@@ -4473,6 +4515,7 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   editQuotaLimit.value = null
+  editQuotaHourlyLimit.value = 5
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
   editDailyResetMode.value = null
@@ -4497,8 +4540,6 @@ const resetForm = () => {
   customErrorCodesEnabled.value = false
   selectedErrorCodes.value = []
   customErrorCodeInput.value = null
-  headerOverrideEnabled.value = false
-  headerOverrideRows.value = []
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
   openaiPassthroughEnabled.value = false
@@ -4510,7 +4551,6 @@ const resetForm = () => {
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
   anthropicPassthroughEnabled.value = false
-  anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   // Reset quota control state
   windowCostEnabled.value = false
@@ -4554,6 +4594,142 @@ const resetForm = () => {
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
+}
+
+const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
+  const parsed = splitModelMappingObject(rawMapping)
+  allowedModels.value = parsed.allowedModels
+  modelMappings.value = parsed.modelMappings
+  modelRestrictionMode.value =
+    parsed.modelMappings.length > 0 && parsed.allowedModels.length === 0
+      ? 'mapping'
+      : 'whitelist'
+}
+
+const applyCloneSource = (source: Account) => {
+  applyingCloneSource.value = true
+  form.name = t('admin.accounts.cloneNameDefault', { name: source.name })
+  form.notes = source.notes || ''
+  form.platform = source.platform
+  form.type = source.type
+  form.proxy_id = source.proxy_id
+  form.concurrency = source.concurrency
+  form.load_factor = source.load_factor ?? null
+  form.priority = source.priority
+  form.rate_multiplier = source.rate_multiplier ?? 1
+  form.group_ids = [...(source.group_ids || [])]
+  form.expires_at = source.expires_at ?? null
+  autoPauseOnExpired.value = source.auto_pause_on_expired !== false
+
+  if (source.type === 'bedrock') {
+    accountCategory.value = 'bedrock'
+  } else if (source.type === 'service_account') {
+    accountCategory.value = 'service_account'
+  } else if (source.type === 'apikey') {
+    accountCategory.value = source.platform === 'antigravity' ? 'oauth-based' : 'apikey'
+  } else {
+    accountCategory.value = 'oauth-based'
+    addMethod.value = source.type === 'setup-token' ? 'setup-token' : 'oauth'
+  }
+  antigravityAccountType.value = source.platform === 'antigravity' && source.type === 'apikey' ? 'upstream' : 'oauth'
+
+  const credentials = (source.credentials || {}) as Record<string, unknown>
+  const extra = (source.extra || {}) as Record<string, unknown>
+  apiKeyValue.value = ''
+  upstreamApiKey.value = ''
+  bedrockSecretAccessKey.value = ''
+  bedrockSessionToken.value = ''
+  bedrockApiKeyValue.value = ''
+  vertexServiceAccountJson.value = ''
+
+  apiKeyBaseUrl.value = String(
+    credentials.base_url ||
+      (source.platform === 'openai'
+        ? 'https://api.openai.com'
+        : source.platform === 'gemini'
+          ? 'https://generativelanguage.googleapis.com'
+          : 'https://api.anthropic.com')
+  )
+  upstreamBaseUrl.value = String(credentials.base_url || '')
+
+  loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
+  poolModeEnabled.value = credentials.pool_mode === true
+  poolModeRetryCount.value = normalizePoolModeRetryCount(Number(credentials.pool_mode_retry_count ?? DEFAULT_POOL_MODE_RETRY_COUNT))
+  poolModeRetryStatusCodesInput.value = Array.isArray(credentials.pool_mode_retry_status_codes)
+    ? credentials.pool_mode_retry_status_codes.join(', ')
+    : ''
+  customErrorCodesEnabled.value = credentials.custom_error_codes_enabled === true
+  selectedErrorCodes.value = Array.isArray(credentials.custom_error_codes)
+    ? credentials.custom_error_codes.map((code) => Number(code)).filter((code) => Number.isInteger(code))
+    : []
+  interceptWarmupRequests.value = credentials.intercept_warmup_requests === true
+  loadTempUnschedRules(credentials)
+
+  if (source.platform === 'openai') {
+    openaiPassthroughEnabled.value = extra.openai_passthrough === true || extra.openai_oauth_passthrough === true
+    openAICompactMode.value = (extra.openai_compact_mode as OpenAICompactMode) || 'auto'
+    openAIResponsesMode.value = (extra.openai_responses_mode as OpenAIResponsesMode) || 'auto'
+    openAIEndpointCapabilities.value = normalizeOpenAIEndpointCapabilities(
+      Array.isArray(credentials.openai_capabilities)
+        ? credentials.openai_capabilities as OpenAIEndpointCapability[]
+        : ['chat_completions', 'embeddings']
+    )
+    openaiOAuthResponsesWebSocketV2Mode.value = (extra.openai_oauth_responses_websockets_v2_mode as OpenAIWSMode) || OPENAI_WS_MODE_OFF
+    openaiAPIKeyResponsesWebSocketV2Mode.value = (extra.openai_apikey_responses_websockets_v2_mode as OpenAIWSMode) || OPENAI_WS_MODE_OFF
+    codexCLIOnlyEnabled.value = extra.codex_cli_only === true
+    codexCLIOnlyAllowClaudeCodeEnabled.value =
+      Array.isArray(extra.codex_cli_only_allowed_clients) &&
+      (extra.codex_cli_only_allowed_clients as unknown[]).includes('claude_code')
+    const compactMappings = credentials.compact_model_mapping as Record<string, string> | undefined
+    openAICompactModelMappings.value = compactMappings ? Object.entries(compactMappings).map(([from, to]) => ({ from, to })) : []
+  }
+  if (source.platform === 'anthropic' && source.type === 'apikey') {
+    anthropicPassthroughEnabled.value = extra.anthropic_passthrough === true
+    const webSearchValue = extra.web_search_emulation
+    webSearchEmulationMode.value =
+      webSearchValue === 'enabled' || webSearchValue === 'disabled'
+        ? webSearchValue
+        : webSearchValue === true
+          ? 'enabled'
+          : 'default'
+  }
+  if (source.platform === 'antigravity') {
+    mixedScheduling.value = extra.mixed_scheduling === true
+    allowOverages.value = extra.allow_overages === true
+    antigravityModelRestrictionMode.value = 'mapping'
+    const agMapping = credentials.model_mapping as Record<string, string> | undefined
+    antigravityModelMappings.value = agMapping ? Object.entries(agMapping).map(([from, to]) => ({ from, to })) : []
+  }
+
+  if (source.type === 'bedrock') {
+    bedrockAuthMode.value = String(credentials.auth_mode || 'sigv4') === 'apikey' ? 'apikey' : 'sigv4'
+    bedrockAccessKeyId.value = String(credentials.aws_access_key_id || '')
+    bedrockRegion.value = String(credentials.aws_region || 'us-east-1')
+    bedrockForceGlobal.value = credentials.aws_force_global === 'true'
+  }
+  if (source.type === 'service_account') {
+    vertexProjectId.value = String(credentials.project_id || '')
+    vertexClientEmail.value = String(credentials.client_email || '')
+    vertexLocation.value = String(credentials.location || credentials.vertex_location || 'global')
+  }
+  if (source.platform === 'gemini' && source.type === 'apikey' && typeof credentials.tier_id === 'string') {
+    geminiTierAIStudio.value = credentials.tier_id as typeof geminiTierAIStudio.value
+  }
+  if (source.type === 'apikey' || source.type === 'bedrock') {
+    editQuotaLimit.value = typeof extra.quota_limit === 'number' ? extra.quota_limit : null
+    editQuotaHourlyLimit.value = typeof extra.quota_hourly_limit === 'number' ? extra.quota_hourly_limit : null
+    editQuotaDailyLimit.value = typeof extra.quota_daily_limit === 'number' ? extra.quota_daily_limit : null
+    editQuotaWeeklyLimit.value = typeof extra.quota_weekly_limit === 'number' ? extra.quota_weekly_limit : null
+    editDailyResetMode.value = (extra.quota_daily_reset_mode as 'rolling' | 'fixed') || null
+    editDailyResetHour.value = typeof extra.quota_daily_reset_hour === 'number' ? extra.quota_daily_reset_hour : null
+    editWeeklyResetMode.value = (extra.quota_weekly_reset_mode as 'rolling' | 'fixed') || null
+    editWeeklyResetDay.value = typeof extra.quota_weekly_reset_day === 'number' ? extra.quota_weekly_reset_day : null
+    editWeeklyResetHour.value = typeof extra.quota_weekly_reset_hour === 'number' ? extra.quota_weekly_reset_hour : null
+    editResetTimezone.value = typeof extra.quota_reset_timezone === 'string' ? extra.quota_reset_timezone : null
+  }
+  nextTick(() => {
+    applyingCloneSource.value = false
+  })
 }
 
 const handleClose = () => {
@@ -4629,11 +4805,6 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
     extra.anthropic_passthrough = true
   } else {
     delete extra.anthropic_passthrough
-  }
-  if (anthropicAPIKeyAuthScheme.value === 'authorization_bearer') {
-    extra.anthropic_apikey_auth_scheme = 'authorization_bearer'
-  } else {
-    delete extra.anthropic_apikey_auth_scheme
   }
   if (webSearchEmulationMode.value === 'default') {
     delete extra.web_search_emulation
@@ -4736,6 +4907,11 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (isCloneMode.value) {
+    await submitCloneAccount()
+    return
+  }
+
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!form.name.trim()) {
@@ -4929,18 +5105,6 @@ const handleSubmit = async () => {
     credentials.custom_error_codes = [...selectedErrorCodes.value]
   }
 
-  // Add header override if enabled (anthropic/openai apikey only)
-  if (isHeaderOverridePlatform(form.platform)) {
-    if (headerOverrideEnabled.value) {
-      const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
-      if (headerError) {
-        appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
-        return
-      }
-    }
-    applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
-  }
-
   applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
   if (!applyTempUnschedConfig(credentials)) {
     return
@@ -5019,6 +5183,9 @@ const createAccountAndFinish = async (
     const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
     if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
       quotaExtra.quota_limit = editQuotaLimit.value
+    }
+    if (editQuotaHourlyLimit.value != null && editQuotaHourlyLimit.value > 0) {
+      quotaExtra.quota_hourly_limit = editQuotaHourlyLimit.value
     }
     if (editQuotaDailyLimit.value != null && editQuotaDailyLimit.value > 0) {
       quotaExtra.quota_daily_limit = editQuotaDailyLimit.value

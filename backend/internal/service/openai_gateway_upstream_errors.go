@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
@@ -340,7 +341,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		c.JSON(status, gin.H{
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
+				"message": clienterror.Upstream(errMsg),
 			},
 		})
 		if upstreamMsg == "" {
@@ -443,7 +444,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": errMsg,
+			"message": clienterror.Upstream(errMsg),
 		},
 	})
 

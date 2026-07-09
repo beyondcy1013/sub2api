@@ -96,7 +96,7 @@ func TestOpenAIHandleErrorResponse_ContextWindow502KeepsMessageWithoutFailover(t
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
 	svc := &OpenAIGatewayService{}
-	respBody := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
+	respBody := []byte(`{"error":{"message":"【上游错误】 Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
 	resp := &http.Response{
 		StatusCode: http.StatusBadGateway,
 		Body:       io.NopCloser(bytes.NewReader(respBody)),
@@ -115,7 +115,7 @@ func TestOpenAIHandleErrorResponse_ContextWindow502KeepsMessageWithoutFailover(t
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, "Your input exceeds the context window of this model. Please adjust your input and try again.", errField["message"])
+	assert.Equal(t, "【上游错误】 Your input exceeds the context window of this model. Please adjust your input and try again.", errField["message"])
 }
 
 func TestGeminiWriteGeminiMappedError_NoRuleKeepsDefault(t *testing.T) {
