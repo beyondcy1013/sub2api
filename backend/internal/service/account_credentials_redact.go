@@ -5,12 +5,17 @@ package service
 var SensitiveCredentialKeys = []string{
 	// OAuth
 	"access_token", "refresh_token", "id_token",
-	// API Key 类
-	"api_key", "session_key", "cookie",
+	// Session / Cookie 类
+	"session_key", "cookie",
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
 	"service_account_json", "service_account", "private_key",
 }
+
+// PreserveOnMissingCredentialKeys 列出编辑账号时 incoming 未提供就保留 existing 的凭证子键。
+// 本地管理端需要明文展示 api_key，因此 api_key 不在 SensitiveCredentialKeys 中；
+// 但旧前端/局部更新仍可能不提交 api_key，必须保留已有值。
+var PreserveOnMissingCredentialKeys = append([]string{"api_key"}, SensitiveCredentialKeys...)
 
 var sensitiveCredentialKeySet = func() map[string]struct{} {
 	m := make(map[string]struct{}, len(SensitiveCredentialKeys))
@@ -34,11 +39,11 @@ func IsSensitiveCredentialKey(key string) bool {
 //   - 非敏感键：完全由 incoming 决定（用户可以编辑、删除非敏感字段）。
 //   - 敏感键：incoming 显式提供则覆盖（用户主动旋转 token），否则保留 existing。
 func MergePreservingSensitiveCreds(existing, incoming map[string]any) map[string]any {
-	out := make(map[string]any, len(incoming)+len(SensitiveCredentialKeys))
+	out := make(map[string]any, len(incoming)+len(PreserveOnMissingCredentialKeys))
 	for k, v := range incoming {
 		out[k] = v
 	}
-	for _, key := range SensitiveCredentialKeys {
+	for _, key := range PreserveOnMissingCredentialKeys {
 		if _, hasIncoming := incoming[key]; hasIncoming {
 			continue
 		}

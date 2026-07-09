@@ -50,9 +50,9 @@
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey"
-            type="password"
+            type="text"
             class="input font-mono"
-            autocomplete="new-password"
+            autocomplete="off"
             data-1p-ignore
             data-lpignore="true"
             data-bwignore="true"
