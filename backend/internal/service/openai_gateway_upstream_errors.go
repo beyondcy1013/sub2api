@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
@@ -337,10 +338,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		"Upstream request failed",
 	); matched {
 		MarkResponseCommitted(c)
+		// Only attribute project-generated messages; preserve upstream's verbatim text.
+		projectMsg := errMsg
+		if errMsg != upstreamMsg {
+			projectMsg = clienterr.WithSource(errMsg)
+		}
 		c.JSON(status, gin.H{
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
+				"message": projectMsg,
+				"source":  clienterr.Source,
 			},
 		})
 		if upstreamMsg == "" {
@@ -440,10 +447,16 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		errMsg = upstreamMsg
 	}
 
+	// Only attribute project-generated messages; preserve upstream's verbatim text.
+	projectMsg := errMsg
+	if errMsg != upstreamMsg {
+		projectMsg = clienterr.WithSource(errMsg)
+	}
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": errMsg,
+			"message": projectMsg,
+			"source":  clienterr.Source,
 		},
 	})
 

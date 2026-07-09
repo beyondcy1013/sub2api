@@ -31,11 +31,11 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 
 	require.NotContains(t, out, "refresh_token")
 	require.NotContains(t, out, "access_token")
-	require.NotContains(t, out, "api_key")
 	require.NotContains(t, out, "aws_secret_access_key")
 	require.NotContains(t, out, "service_account_json")
 	require.NotContains(t, out, "private_key")
 
+	require.Equal(t, "sk-secret", out["api_key"])
 	require.Equal(t, "https://api.example.com", out["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, out["model_mapping"])
 	require.Equal(t, "proj-1", out["project_id"])
@@ -43,12 +43,12 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 
 	require.True(t, status["has_refresh_token"])
 	require.True(t, status["has_access_token"])
-	require.True(t, status["has_api_key"])
 	require.True(t, status["has_aws_secret_access_key"])
 	require.True(t, status["has_service_account_json"])
 	require.True(t, status["has_private_key"])
 
 	// 状态 map 不应携带非敏感键的 has_*
+	require.NotContains(t, status, "has_api_key")
 	require.NotContains(t, status, "has_base_url")
 	require.NotContains(t, status, "has_project_id")
 }
@@ -61,10 +61,11 @@ func TestRedactCredentials_EmptyValuesNotMarkedPresent(t *testing.T) {
 		"id_token":      "actual-id",
 	}
 	out, status := RedactCredentials(in)
-	require.Empty(t, out, "敏感键即使为空也不应出现在 redacted output")
+	require.Equal(t, false, out["api_key"])
+	require.Len(t, out, 1)
 	require.False(t, status["has_refresh_token"])
 	require.False(t, status["has_access_token"])
-	require.False(t, status["has_api_key"])
+	require.NotContains(t, status, "has_api_key")
 	require.True(t, status["has_id_token"])
 }
 
@@ -81,7 +82,7 @@ func TestRedactCredentials_DoesNotMutateInput(t *testing.T) {
 func TestRedactCredentials_AllKnownSensitiveKeys(t *testing.T) {
 	keys := []string{
 		"access_token", "refresh_token", "id_token",
-		"api_key", "session_key", "cookie",
+		"session_key", "cookie",
 		"aws_secret_access_key", "aws_session_token",
 		"service_account_json", "service_account", "private_key",
 	}

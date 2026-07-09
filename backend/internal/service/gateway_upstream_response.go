@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
@@ -442,11 +443,17 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		"upstream_error",
 		"Upstream request failed",
 	); matched {
+		// Only attribute project-generated messages; preserve upstream's verbatim text.
+		projectMsg := errMsg
+		if errMsg != upstreamMsg {
+			projectMsg = clienterr.WithSource(errMsg)
+		}
 		c.JSON(status, gin.H{
 			"type": "error",
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
+				"message": projectMsg,
+				"source":  clienterr.Source,
 			},
 		})
 
@@ -502,11 +509,17 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	}
 
 	// 返回自定义错误响应
+	// Only attribute project-generated messages; preserve upstream's verbatim text.
+	projectMsg := errMsg
+	if errMsg != upstreamMsg {
+		projectMsg = clienterr.WithSource(errMsg)
+	}
 	c.JSON(statusCode, gin.H{
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": errMsg,
+			"message": projectMsg,
+			"source":  clienterr.Source,
 		},
 	})
 
