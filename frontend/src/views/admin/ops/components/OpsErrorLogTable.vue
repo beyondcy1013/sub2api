@@ -12,7 +12,7 @@
         default-sort-key="created_at"
         default-sort-order="desc"
         @sort="onSort"
-        @rowClick="(row) => emit('openErrorDetail', row.id)"
+        @rowClick="(row: any) => emit('openErrorDetail', row.id)"
       >
         <template #cell-created_at="{ row }">
           <span

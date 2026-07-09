@@ -139,6 +139,17 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
 }
 
 /**
+ * Clone an existing account. Sensitive credentials are copied server-side.
+ * @param id - Source account ID
+ * @param accountData - Fields to override on the cloned account
+ * @returns Created cloned account
+ */
+export async function clone(id: number, accountData: Partial<CreateAccountRequest>): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/clone`, accountData)
+  return data
+}
+
+/**
  * Update account
  * @param id - Account ID
  * @param updates - Fields to update
@@ -849,7 +860,8 @@ export const accountsAPI = {
   revertProxyFallback,
   queryOpenAIQuota,
   resetOpenAIQuota,
-  createSparkShadow
+  createSparkShadow,
+  clone
 }
 
 export default accountsAPI
