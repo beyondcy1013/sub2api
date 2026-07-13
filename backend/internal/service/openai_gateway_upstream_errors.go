@@ -338,15 +338,12 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		"Upstream request failed",
 	); matched {
 		MarkResponseCommitted(c)
-		// Only attribute project-generated messages; preserve upstream's verbatim text.
-		projectMsg := errMsg
-		if errMsg != upstreamMsg {
-			projectMsg = clienterr.WithSource(errMsg)
-		}
+		// Passthrough path: emit the matched message verbatim (upstream text or
+		// user-configured custom replacement). Do not self-attribute with source.
 		c.JSON(status, gin.H{
 			"error": gin.H{
 				"type":    errType,
-				"message": projectMsg,
+				"message": errMsg,
 				"source":  clienterr.Source,
 			},
 		})

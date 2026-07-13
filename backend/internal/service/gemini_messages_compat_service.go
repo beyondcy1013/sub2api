@@ -1744,7 +1744,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 	); matched {
 		c.JSON(status, gin.H{
 			"type":  "error",
-			"error": gin.H{"type": errType, "message": clienterr.WithSource(errMsg), "source": clienterr.Source},
+			"error": gin.H{"type": errType, "message": errMsg, "source": clienterr.Source},
 		})
 		if upstreamMsg == "" {
 			upstreamMsg = errMsg

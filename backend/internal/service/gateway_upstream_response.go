@@ -443,16 +443,13 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		"upstream_error",
 		"Upstream request failed",
 	); matched {
-		// Only attribute project-generated messages; preserve upstream's verbatim text.
-		projectMsg := errMsg
-		if errMsg != upstreamMsg {
-			projectMsg = clienterr.WithSource(errMsg)
-		}
+		// Passthrough path: emit the matched message verbatim (upstream text or
+		// user-configured custom replacement). Do not self-attribute with source.
 		c.JSON(status, gin.H{
 			"type": "error",
 			"error": gin.H{
 				"type":    errType,
-				"message": projectMsg,
+				"message": errMsg,
 				"source":  clienterr.Source,
 			},
 		})

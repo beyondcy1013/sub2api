@@ -170,7 +170,7 @@ func TestGatewayHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, clienterr.WithSource("上游请求失败"), errField["message"])
+	assert.Equal(t, "上游请求失败", errField["message"])
 	assert.Equal(t, clienterr.Source, errField["source"])
 }
 
@@ -201,7 +201,7 @@ func TestOpenAIHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, clienterr.WithSource("OpenAI上游失败"), errField["message"])
+	assert.Equal(t, "OpenAI上游失败", errField["message"])
 	assert.Equal(t, clienterr.Source, errField["source"])
 }
 
@@ -227,7 +227,7 @@ func TestGeminiWriteGeminiMappedError_AppliesRuleFor422(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, clienterr.WithSource("Gemini上游失败"), errField["message"])
+	assert.Equal(t, "Gemini上游失败", errField["message"])
 	assert.Equal(t, clienterr.Source, errField["source"])
 }
 

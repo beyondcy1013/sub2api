@@ -818,7 +818,16 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 		"upstream_error",
 		"Upstream request failed",
 	); matched {
-		return s.writeChatCompletionsError(c, status, errType, errMsg)
+		MarkResponseCommitted(c)
+		// Passthrough path: emit the matched message verbatim. Do not self-attribute.
+		c.JSON(status, gin.H{
+			"error": gin.H{
+				"type":    errType,
+				"message": errMsg,
+				"source":  clienterr.Source,
+			},
+		})
+		return fmt.Errorf("upstream error: %d (passthrough rule matched)", status)
 	}
 
 	statusCode := http.StatusBadGateway

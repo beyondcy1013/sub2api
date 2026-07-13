@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -858,7 +859,7 @@ func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlocked
 	c.JSON(http.StatusForbidden, gin.H{
 		"error": gin.H{
 			"type":    "permission_error",
-			"message": err.Message,
+			"message": clienterr.WithSource(err.Message),
 		},
 	})
 }
@@ -997,13 +998,13 @@ func buildOpenAIFastPolicyBlockedWSEvent(err *OpenAIFastBlockedError) []byte {
 		"error": map[string]any{
 			"type":    "invalid_request_error",
 			"code":    "policy_violation",
-			"message": err.Message,
+			"message": clienterr.WithSource(err.Message),
 		},
 	})
 	if mErr != nil {
 		// Fallback to a minimal hand-rolled payload; Marshal of the literal
 		// shape above should never fail in practice.
-		return []byte(`{"event_id":"` + eventID + `","type":"error","error":{"type":"invalid_request_error","code":"policy_violation","message":"openai fast policy blocked this request"}}`)
+		return []byte(`{"event_id":"` + eventID + `","type":"error","error":{"type":"invalid_request_error","code":"policy_violation","message":"openai fast policy blocked this request (source: sub2api)"}}`)
 	}
 	return payload
 }
