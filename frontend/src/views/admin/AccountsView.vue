@@ -1237,9 +1237,7 @@ function getAntigravityTierClass(row: any): string {
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
-    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
-    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '140px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
@@ -1258,6 +1256,8 @@ const allColumns = computed(() => {
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
+    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, width: '130px' },
+    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
   )
   return c

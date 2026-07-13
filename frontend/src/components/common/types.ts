@@ -7,5 +7,6 @@ export interface Column {
   label: string
   sortable?: boolean
   class?: string
+  width?: string
   formatter?: (value: any, row: any) => string
 }
