@@ -331,8 +331,8 @@ func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

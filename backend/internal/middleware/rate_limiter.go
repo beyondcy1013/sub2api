@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
@@ -133,8 +133,8 @@ func windowTTLMillis(window time.Duration) int64 {
 func abortRateLimit(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 		"error":   "rate limit exceeded",
-		"message": clienterr.WithSource("Too many requests, please try again later"),
-		"source":  clienterr.Source,
+		"message": clienterror.WithSource("Too many requests, please try again later"),
+		"source":  clienterror.Source,
 	})
 }
 

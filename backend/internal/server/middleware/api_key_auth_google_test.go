@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -218,8 +218,8 @@ type googleErrorResponse struct {
 
 func requireGoogleErrorSource(t *testing.T, resp googleErrorResponse, message string) {
 	t.Helper()
-	require.Equal(t, clienterr.WithSource(message), resp.Error.Message)
-	require.Equal(t, clienterr.Source, resp.Error.Source)
+	require.Equal(t, clienterror.WithSource(message), resp.Error.Message)
+	require.Equal(t, clienterror.Source, resp.Error.Source)
 }
 
 func newTestAPIKeyService(repo service.APIKeyRepository) *service.APIKeyService {

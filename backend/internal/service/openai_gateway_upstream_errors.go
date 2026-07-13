@@ -445,11 +445,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		errMsg = upstreamMsg
 	}
 
-	// Only attribute project-generated messages; preserve upstream's verbatim text.
-	projectMsg := errMsg
-	if errMsg != upstreamMsg {
-		projectMsg = clienterr.WithSource(errMsg)
-	}
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,

@@ -529,8 +529,8 @@ func writeResponsesError(c *gin.Context, statusCode int, code, message string) {
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"code":    code,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

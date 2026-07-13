@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -859,7 +859,7 @@ func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlocked
 	c.JSON(http.StatusForbidden, gin.H{
 		"error": gin.H{
 			"type":    "permission_error",
-			"message": clienterr.WithSource(err.Message),
+			"message": clienterror.WithSource(err.Message),
 		},
 	})
 }
@@ -998,7 +998,7 @@ func buildOpenAIFastPolicyBlockedWSEvent(err *OpenAIFastBlockedError) []byte {
 		"error": map[string]any{
 			"type":    "invalid_request_error",
 			"code":    "policy_violation",
-			"message": clienterr.WithSource(err.Message),
+			"message": clienterror.WithSource(err.Message),
 		},
 	})
 	if mErr != nil {

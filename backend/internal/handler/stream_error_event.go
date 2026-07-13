@@ -72,8 +72,8 @@ func writeResponsesFailedSSE(c *gin.Context, errType, message string) bool {
 			Output: []any{},
 			Error: responsesFailedError{
 				Code:    mapResponsesErrorCode(errType),
-				Message: clienterr.WithSource(message),
-				Source:  clienterr.Source,
+				Message: clienterror.WithSource(message),
+				Source:  clienterror.Source,
 			},
 		},
 	})

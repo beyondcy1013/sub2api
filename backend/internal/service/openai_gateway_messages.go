@@ -1100,8 +1100,8 @@ func writeAnthropicError(c *gin.Context, statusCode int, errType, message string
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

@@ -825,7 +825,7 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 			"error": gin.H{
 				"type":    errType,
 				"message": errMsg,
-				"source":  clienterr.Source,
+				"source":  clienterror.Source,
 			},
 		})
 		return fmt.Errorf("upstream error: %d (passthrough rule matched)", status)

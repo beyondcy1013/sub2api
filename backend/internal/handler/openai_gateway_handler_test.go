@@ -25,7 +25,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 )
 
 func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
@@ -374,8 +374,8 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 		errorObj, exists := parsed["error"].(map[string]any)
 		require.True(t, exists)
 		assert.Equal(t, "api_error", errorObj["type"])
-		assert.Equal(t, clienterr.WithSource("Service temporarily unavailable"), errorObj["message"])
-		assert.Equal(t, clienterr.Source, errorObj["source"])
+		assert.Equal(t, clienterror.WithSource("Service temporarily unavailable"), errorObj["message"])
+		assert.Equal(t, clienterror.Source, errorObj["source"])
 	})
 
 	t.Run("already_written_response_not_overridden", func(t *testing.T) {
@@ -586,8 +586,8 @@ func TestOpenAIResponses_MissingDependencies_ReturnsServiceUnavailable(t *testin
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "api_error", errorObj["type"])
-	assert.Equal(t, clienterr.WithSource("Service temporarily unavailable"), errorObj["message"])
-	assert.Equal(t, clienterr.Source, errorObj["source"])
+	assert.Equal(t, clienterror.WithSource("Service temporarily unavailable"), errorObj["message"])
+	assert.Equal(t, clienterror.Source, errorObj["source"])
 }
 
 func TestOpenAIResponses_SetsClientTransportHTTP(t *testing.T) {

@@ -77,7 +77,6 @@
             :key="column.key"
             scope="col"
             :style="column.width ? { width: column.width, minWidth: column.width } : undefined"
-            :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
 
             :class="[
               'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
@@ -166,9 +165,6 @@
             :data-index="item.index"
             :ref="item.measure ? measureElement : undefined"
             class="hover:bg-gray-50 dark:hover:bg-dark-800"
-            :class="{ 'cursor-pointer': clickableRows }"
-            @click="clickableRows && emit('rowClick', item.row)"
-
           >
             <td
               v-for="(column, colIndex) in columns"
@@ -180,7 +176,7 @@
                 getStickyColumnClass(column, colIndex),
                 column.class
               ]"
-             :style="column.width ? { width: column.width, minWidth: column.width } : undefined">
+            >
               <slot :name="`cell-${column.key}`"
                     :row="item.row"
                     :value="item.row[column.key]"

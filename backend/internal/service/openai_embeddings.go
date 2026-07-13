@@ -190,8 +190,8 @@ func writeOpenAIEmbeddingsError(c *gin.Context, statusCode int, errType, message
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

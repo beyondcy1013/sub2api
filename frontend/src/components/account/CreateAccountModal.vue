@@ -1108,7 +1108,7 @@
                     ? 'https://generativelanguage.googleapis.com'
                     : form.platform === 'grok'
                       ? 'https://api.x.ai/v1'
-                      : 'https://api.anthropic.com
+                      : 'https://api.anthropic.com'
               "
             />
             <button type="button" @click="apiKeyBaseUrl = 'http://wxapi.cxlsky.cn/v1'" class="btn btn-secondary text-xs px-2" title="CXL API">CXL</button>

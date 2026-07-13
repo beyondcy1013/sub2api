@@ -15,7 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 
@@ -238,7 +238,7 @@ func TestBuildOpenAIFastPolicyBlockedWSEvent_HasEventIDAndCode(t *testing.T) {
 	require.Equal(t, "error", gjson.GetBytes(bytes, "type").String())
 	require.Equal(t, "invalid_request_error", gjson.GetBytes(bytes, "error.type").String())
 	require.Equal(t, "policy_violation", gjson.GetBytes(bytes, "error.code").String())
-	require.Equal(t, clienterr.WithSource("blocked because reasons"), gjson.GetBytes(bytes, "error.message").String())
+	require.Equal(t, clienterror.WithSource("blocked because reasons"), gjson.GetBytes(bytes, "error.message").String())
 
 	eventID := gjson.GetBytes(bytes, "event_id").String()
 	require.NotEmpty(t, eventID, "event_id must be present so clients can correlate the rejection in their logs")

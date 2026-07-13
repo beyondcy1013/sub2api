@@ -310,8 +310,8 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    code,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }
