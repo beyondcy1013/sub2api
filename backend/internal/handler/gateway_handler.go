@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -449,7 +450,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -869,7 +870,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -1455,13 +1456,14 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 			remaining := h.calculateSubscriptionRemaining(apiKey.Group, subscription)
 			resp["remaining"] = remaining
 			resp["subscription"] = gin.H{
-				"daily_usage_usd":   subscription.DailyUsageUSD,
-				"weekly_usage_usd":  subscription.WeeklyUsageUSD,
-				"monthly_usage_usd": subscription.MonthlyUsageUSD,
-				"daily_limit_usd":   apiKey.Group.DailyLimitUSD,
-				"weekly_limit_usd":  apiKey.Group.WeeklyLimitUSD,
-				"monthly_limit_usd": apiKey.Group.MonthlyLimitUSD,
-				"expires_at":        subscription.ExpiresAt,
+				"daily_usage_usd":     subscription.DailyUsageUSD,
+				"weekly_usage_usd":    subscription.WeeklyUsageUSD,
+				"monthly_usage_usd":   subscription.MonthlyUsageUSD,
+				"daily_limit_usd":     apiKey.Group.DailyLimitUSD,
+				"weekly_limit_usd":    apiKey.Group.WeeklyLimitUSD,
+				"monthly_limit_usd":   apiKey.Group.MonthlyLimitUSD,
+				"weekly_window_start": subscription.WeeklyWindowStart,
+				"expires_at":          subscription.ExpiresAt,
 			}
 		}
 
@@ -1647,7 +1649,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
+			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(clienterr.WithSource(message)) + `,"source":` + strconv.Quote(clienterr.Source) + `}}` + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -1754,7 +1756,8 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": message,
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
 		},
 	})
 }

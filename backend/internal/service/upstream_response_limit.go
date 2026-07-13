@@ -8,6 +8,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -69,6 +70,7 @@ func anthropicTooLargeError(c *gin.Context) {
 		"error": gin.H{
 			"type":    "upstream_error",
 			"message": clienterror.Upstream("Upstream response too large"),
+
 		},
 	})
 }
@@ -79,6 +81,7 @@ func openAITooLargeError(c *gin.Context) {
 		"error": gin.H{
 			"type":    "upstream_error",
 			"message": clienterror.Upstream("Upstream response too large"),
+
 		},
 	})
 }

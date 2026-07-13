@@ -20,6 +20,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -1745,6 +1746,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 		c.JSON(status, gin.H{
 			"type":  "error",
 			"error": gin.H{"type": errType, "message": clienterror.Prefix(errType, errMsg)},
+
 		})
 		if upstreamMsg == "" {
 			upstreamMsg = errMsg
@@ -1861,6 +1863,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 	c.JSON(statusCode, gin.H{
 		"type":  "error",
 		"error": gin.H{"type": errType, "message": clienterror.Prefix(errType, errMsg)},
+
 	})
 	if upstreamMsg == "" {
 		return fmt.Errorf("upstream error: %d", upstreamStatus)
@@ -2255,6 +2258,7 @@ func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status in
 	c.JSON(status, gin.H{
 		"type":  "error",
 		"error": gin.H{"type": errType, "message": clientMessage},
+
 	})
 	return fmt.Errorf("%s", message)
 }
@@ -2266,6 +2270,7 @@ func (s *GeminiMessagesCompatService) writeGoogleError(c *gin.Context, status in
 		"error": gin.H{
 			"code":    status,
 			"message": clientMessage,
+
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})

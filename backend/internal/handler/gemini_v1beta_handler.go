@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -483,7 +484,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch failoverAction {
 				case FailoverContinue:
 					continue
@@ -649,7 +650,8 @@ func googleError(c *gin.Context, status int, message string) {
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
-			"message": message,
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})

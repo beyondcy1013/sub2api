@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -250,7 +251,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, failoverErr)
+				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -261,15 +262,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					return
 				}
 			}
-			upstreamErrorAlreadyCommunicated := gatewayForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
-			wroteFallback := false
-			if !upstreamErrorAlreadyCommunicated {
-				wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
-			}
+			h.ensureForwardErrorResponse(c, streamStarted)
 			reqLog.Error("gateway.responses.forward_failed",
 				zap.Int64("account_id", account.ID),
-				zap.Bool("fallback_error_response_written", wroteFallback),
-				zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 				zap.Error(err),
 			)
 			return
@@ -315,7 +310,8 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    code,
-			"message": message,
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
 		},
 	})
 }

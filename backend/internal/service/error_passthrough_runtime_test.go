@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,7 @@ func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
 	assert.Equal(t, "【上游错误】 Upstream request failed", errField["message"])
+
 }
 
 func TestOpenAIHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
@@ -87,6 +89,7 @@ func TestOpenAIHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
 	assert.Equal(t, "【上游错误】 Upstream request failed", errField["message"])
+
 }
 
 func TestOpenAIHandleErrorResponse_ContextWindow502KeepsMessageWithoutFailover(t *testing.T) {
@@ -137,6 +140,7 @@ func TestGeminiWriteGeminiMappedError_NoRuleKeepsDefault(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "invalid_request_error", errField["type"])
 	assert.Equal(t, "【上游错误】 Upstream request failed", errField["message"])
+
 }
 
 func TestGatewayHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
@@ -167,6 +171,7 @@ func TestGatewayHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
 	assert.Equal(t, "【上游错误】 上游请求失败", errField["message"])
+
 }
 
 func TestOpenAIHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
@@ -197,6 +202,7 @@ func TestOpenAIHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
 	assert.Equal(t, "【上游错误】 OpenAI上游失败", errField["message"])
+
 }
 
 func TestGeminiWriteGeminiMappedError_AppliesRuleFor422(t *testing.T) {
@@ -222,6 +228,7 @@ func TestGeminiWriteGeminiMappedError_AppliesRuleFor422(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
 	assert.Equal(t, "【上游错误】 Gemini上游失败", errField["message"])
+
 }
 
 func TestApplyErrorPassthroughRule_SkipMonitoringSetsContextKey(t *testing.T) {

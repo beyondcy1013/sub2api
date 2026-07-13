@@ -24,7 +24,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  http.StatusTooManyRequests,
 			wantType:    "rate_limit_error",
-			wantMessage: "Concurrency limit exceeded for account, please retry later",
+			wantMessage: "Concurrency limit exceeded for account, please retry later (source: sub2api)",
 		},
 		{
 			name:        "client cancellation is not classified as concurrency limit",
@@ -32,7 +32,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  statusClientClosedRequest,
 			wantType:    "api_error",
-			wantMessage: "context canceled",
+			wantMessage: "context canceled (source: sub2api)",
 		},
 		{
 			name:        "deadline exceeded is service unavailable",
@@ -40,7 +40,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  http.StatusServiceUnavailable,
 			wantType:    "api_error",
-			wantMessage: "Service temporarily unavailable, please retry later",
+			wantMessage: "Service temporarily unavailable, please retry later (source: sub2api)",
 		},
 		{
 			name:        "redis acquire error is service unavailable",
@@ -48,7 +48,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  http.StatusServiceUnavailable,
 			wantType:    "api_error",
-			wantMessage: "Service temporarily unavailable, please retry later",
+			wantMessage: "Service temporarily unavailable, please retry later (source: sub2api)",
 		},
 	}
 

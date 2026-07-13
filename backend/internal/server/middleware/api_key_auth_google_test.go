@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -24,6 +25,7 @@ type fakeAPIKeyRepo struct {
 }
 
 type fakeGoogleSubscriptionRepo struct {
+	getByID        func(ctx context.Context, id int64) (*service.UserSubscription, error)
 	getActive      func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error)
 	updateStatus   func(ctx context.Context, subscriptionID int64, status string) error
 	activateWindow func(ctx context.Context, id int64, start time.Time) error
@@ -115,6 +117,9 @@ func (f fakeGoogleSubscriptionRepo) Create(ctx context.Context, sub *service.Use
 	return errors.New("not implemented")
 }
 func (f fakeGoogleSubscriptionRepo) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
+	if f.getByID != nil {
+		return f.getByID(ctx, id)
+	}
 	return nil, errors.New("not implemented")
 }
 func (f fakeGoogleSubscriptionRepo) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.UserSubscription, error) {
@@ -174,19 +179,22 @@ func (f fakeGoogleSubscriptionRepo) ActivateWindows(ctx context.Context, id int6
 	}
 	return errors.New("not implemented")
 }
-func (f fakeGoogleSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, start time.Time) error {
+func (f fakeGoogleSubscriptionRepo) ResetUsageWindows(context.Context, int64, bool, bool, bool, time.Time) error {
+	return errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ResetDailyUsage(ctx context.Context, id int64, _ *time.Time, start time.Time) error {
 	if f.resetDaily != nil {
 		return f.resetDaily(ctx, id, start)
 	}
 	return errors.New("not implemented")
 }
-func (f fakeGoogleSubscriptionRepo) ResetWeeklyUsage(ctx context.Context, id int64, start time.Time) error {
+func (f fakeGoogleSubscriptionRepo) ResetWeeklyUsage(ctx context.Context, id int64, _ *time.Time, start time.Time) error {
 	if f.resetWeekly != nil {
 		return f.resetWeekly(ctx, id, start)
 	}
 	return errors.New("not implemented")
 }
-func (f fakeGoogleSubscriptionRepo) ResetMonthlyUsage(ctx context.Context, id int64, start time.Time) error {
+func (f fakeGoogleSubscriptionRepo) ResetMonthlyUsage(ctx context.Context, id int64, _ *time.Time, start time.Time) error {
 	if f.resetMonthly != nil {
 		return f.resetMonthly(ctx, id, start)
 	}
@@ -203,8 +211,15 @@ type googleErrorResponse struct {
 	Error struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
+		Source  string `json:"source"`
 		Status  string `json:"status"`
 	} `json:"error"`
+}
+
+func requireGoogleErrorSource(t *testing.T, resp googleErrorResponse, message string) {
+	t.Helper()
+	require.Equal(t, clienterr.WithSource(message), resp.Error.Message)
+	require.Equal(t, clienterr.Source, resp.Error.Source)
 }
 
 func newTestAPIKeyService(repo service.APIKeyRepository) *service.APIKeyService {
@@ -240,6 +255,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_MissingKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
 	require.Equal(t, "【sub2freeApi限制】 API key is required", resp.Error.Message)
+
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
 
@@ -264,6 +280,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_QueryApiKeyRejected(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusBadRequest, resp.Error.Code)
 	require.Equal(t, "【sub2freeApi限制】 Query parameter api_key is deprecated. Use Authorization header or key instead.", resp.Error.Message)
+
 	require.Equal(t, "INVALID_ARGUMENT", resp.Error.Status)
 }
 
@@ -382,6 +399,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
 	require.Equal(t, "【sub2freeApi限制】 Invalid API key", resp.Error.Message)
+
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
 
@@ -443,6 +461,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "【sub2freeApi限制】 API Key 所属分组已删除", resp.Error.Message)
+
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
 }
@@ -469,6 +488,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusInternalServerError, resp.Error.Code)
 	require.Equal(t, "【sub2freeApi限制】 Failed to validate API key", resp.Error.Message)
+
 	require.Equal(t, "INTERNAL", resp.Error.Status)
 }
 
@@ -502,6 +522,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_DisabledKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
 	require.Equal(t, "【sub2freeApi限制】 API key is disabled", resp.Error.Message)
+
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
 
@@ -536,6 +557,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusForbidden, resp.Error.Code)
 	require.Equal(t, "【sub2freeApi限制】 Insufficient account balance", resp.Error.Message)
+
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
 

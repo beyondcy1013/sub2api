@@ -35,6 +35,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	// API Key 账号管理页要求明文展示
 	require.Equal(t, "sk-secret", got.Credentials["api_key"])
 	// 非高敏键保留
+
 	require.Equal(t, "https://api.example.com", got.Credentials["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, got.Credentials["model_mapping"])
 
@@ -43,6 +44,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.True(t, got.CredentialsStatus["has_refresh_token"])
 	require.True(t, got.CredentialsStatus["has_id_token"])
 	require.False(t, got.CredentialsStatus["has_api_key"])
+
 
 	// JSON 序列化校验：响应体里不会出现敏感子串
 	raw, err := json.Marshal(got)

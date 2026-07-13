@@ -36,6 +36,7 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.NotContains(t, out, "private_key")
 	require.Equal(t, "sk-secret", out["api_key"])
 
+	require.Equal(t, "sk-secret", out["api_key"])
 	require.Equal(t, "https://api.example.com", out["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, out["model_mapping"])
 	require.Equal(t, "proj-1", out["project_id"])
@@ -44,11 +45,13 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.True(t, status["has_refresh_token"])
 	require.True(t, status["has_access_token"])
 	require.False(t, status["has_api_key"])
+
 	require.True(t, status["has_aws_secret_access_key"])
 	require.True(t, status["has_service_account_json"])
 	require.True(t, status["has_private_key"])
 
 	// 状态 map 不应携带非敏感键的 has_*
+	require.NotContains(t, status, "has_api_key")
 	require.NotContains(t, status, "has_base_url")
 	require.NotContains(t, status, "has_project_id")
 }
@@ -64,6 +67,7 @@ func TestRedactCredentials_EmptyValuesNotMarkedPresent(t *testing.T) {
 	require.Equal(t, "sk-live", out["api_key"])
 	require.False(t, status["has_refresh_token"])
 	require.False(t, status["has_access_token"])
+
 	require.True(t, status["has_id_token"])
 }
 

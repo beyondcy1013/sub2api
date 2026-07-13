@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -1018,6 +1019,7 @@ func writeOpenAIImagesUpstreamErrorResponse(c *gin.Context, err *OpenAIImagesUps
 	errorObj := gin.H{
 		"type":    err.clientErrorType(),
 		"message": clienterror.Prefix(err.clientErrorType(), err.clientMessage()),
+
 	}
 	if code := strings.TrimSpace(err.Code); code != "" {
 		errorObj["code"] = code

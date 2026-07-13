@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -65,6 +66,7 @@ func GetForcePlatformFromContext(c *gin.Context) (string, bool) {
 type ErrorResponse struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Source  string `json:"source"`
 }
 
 // NewErrorResponse 创建错误响应
@@ -72,6 +74,7 @@ func NewErrorResponse(code, message string) ErrorResponse {
 	return ErrorResponse{
 		Code:    code,
 		Message: clienterror.Local(message),
+
 	}
 }
 
@@ -92,8 +95,12 @@ type GatewayErrorWriter func(c *gin.Context, status int, message string)
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
 	message = clienterror.Local(message)
 	c.JSON(status, gin.H{
-		"type":  "error",
-		"error": gin.H{"type": "permission_error", "message": message},
+		"type": "error",
+		"error": gin.H{
+			"type":    "permission_error",
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
+		},
 	})
 }
 
@@ -103,7 +110,8 @@ func GoogleErrorWriter(c *gin.Context, status int, message string) {
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
-			"message": message,
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})

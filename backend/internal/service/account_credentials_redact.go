@@ -7,6 +7,7 @@ var SensitiveCredentialKeys = []string{
 	// OAuth
 	"access_token", "refresh_token", "id_token",
 	// API Key 类
+
 	"session_key", "cookie",
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
@@ -15,6 +16,7 @@ var SensitiveCredentialKeys = []string{
 
 // PreserveOnMissingCredentialKeys 列出更新账号 credentials 时，incoming 未提供就保留 existing 的键。
 // 这和响应脱敏分开：api_key 可返回给管理员明文查看，但旧前端或局部更新未提交时仍不能被清空。
+
 var PreserveOnMissingCredentialKeys = append([]string{"api_key"}, SensitiveCredentialKeys...)
 
 var sensitiveCredentialKeySet = func() map[string]struct{} {

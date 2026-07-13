@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -73,6 +74,16 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 
 	if account.Platform == PlatformGrok {
+		if account.IsGrokOAuth() {
+			if eligible, reason := grokChatResponsesBridgeEligibility(body); eligible {
+				return s.forwardGrokChatCompletionsViaResponses(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+			} else {
+				logger.L().Debug("grok chat_completions: using raw fallback",
+					zap.Int64("account_id", account.ID),
+					zap.String("reason", reason),
+				)
+			}
+		}
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 
@@ -937,7 +948,8 @@ func writeChatCompletionsError(c *gin.Context, statusCode int, errType, message 
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": message,
+			"message": clienterr.WithSource(message),
+			"source":  clienterr.Source,
 		},
 	})
 }

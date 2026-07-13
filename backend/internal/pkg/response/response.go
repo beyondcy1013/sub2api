@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,7 @@ type Response struct {
 	Code     int               `json:"code"`
 	Message  string            `json:"message"`
 	Reason   string            `json:"reason,omitempty"`
+	Source   string            `json:"source,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 	Data     any               `json:"data,omitempty"`
 }
@@ -60,8 +62,9 @@ func Accepted(c *gin.Context, data any) {
 func Error(c *gin.Context, statusCode int, message string) {
 	c.JSON(statusCode, Response{
 		Code:     statusCode,
-		Message:  message,
+		Message:  clienterr.WithSource(message),
 		Reason:   "",
+		Source:   clienterr.Source,
 		Metadata: nil,
 	})
 }
@@ -71,8 +74,9 @@ func Error(c *gin.Context, statusCode int, message string) {
 func ErrorWithDetails(c *gin.Context, statusCode int, message, reason string, metadata map[string]string) {
 	c.JSON(statusCode, Response{
 		Code:     statusCode,
-		Message:  message,
+		Message:  clienterr.WithSource(message),
 		Reason:   reason,
+		Source:   clienterr.Source,
 		Metadata: metadata,
 	})
 }

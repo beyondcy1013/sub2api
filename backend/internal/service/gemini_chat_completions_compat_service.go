@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -818,7 +819,16 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 		"upstream_error",
 		"Upstream request failed",
 	); matched {
-		return s.writeChatCompletionsError(c, status, errType, errMsg)
+		MarkResponseCommitted(c)
+		// Passthrough path: emit the matched message verbatim. Do not self-attribute.
+		c.JSON(status, gin.H{
+			"error": gin.H{
+				"type":    errType,
+				"message": errMsg,
+				"source":  clienterr.Source,
+			},
+		})
+		return fmt.Errorf("upstream error: %d (passthrough rule matched)", status)
 	}
 
 	statusCode := http.StatusBadGateway
@@ -885,6 +895,7 @@ func (s *GeminiMessagesCompatService) writeChatCompletionsError(c *gin.Context, 
 		"error": gin.H{
 			"type":    errType,
 			"message": clientMessage,
+
 		},
 	})
 	return fmt.Errorf("%s", message)

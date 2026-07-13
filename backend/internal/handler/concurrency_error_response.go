@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 )
 
 const statusClientClosedRequest = 499
@@ -22,12 +24,13 @@ func concurrencyErrorResponse(err error, slotType string) (int, string, string) 
 			slotType = concurrencyErr.SlotType
 		}
 		return http.StatusTooManyRequests, "rate_limit_error",
-			fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType)
+			clienterr.WithSource(fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType))
 	}
 
 	if errors.Is(err, context.Canceled) {
-		return statusClientClosedRequest, "api_error", "context canceled"
+		return statusClientClosedRequest, "api_error", clienterr.WithSource("context canceled")
 	}
 
-	return http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable, please retry later"
+	return http.StatusServiceUnavailable, "api_error",
+		clienterr.WithSource("Service temporarily unavailable, please retry later")
 }
