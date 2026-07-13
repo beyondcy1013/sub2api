@@ -352,7 +352,7 @@
         </div>
       </div>
 
-      <!-- Account Type Selection (Grok - OAuth only) -->
+      <!-- Account Type Selection (Grok) -->
       <div v-if="form.platform === 'grok'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type">
@@ -381,10 +381,34 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.grokOauth') }}</span>
             </div>
           </button>
+
+          <button
+            type="button"
+            data-testid="grok-account-type-api-key"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? 'bg-purple-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.responsesApi') }}</span>
+            </div>
+          </button>
         </div>
-        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {{ t('admin.accounts.oauth.grok.oauthOnlyHint') }}
-        </p>
       </div>
 
       <!-- Account Type Selection (Gemini) -->
@@ -1088,13 +1112,15 @@
                   ? 'https://api.openai.com'
                   : form.platform === 'gemini'
                     ? 'https://generativelanguage.googleapis.com'
-                    : 'https://api.anthropic.com'
+                    : form.platform === 'grok'
+                      ? 'https://api.x.ai/v1'
+                      : 'https://api.anthropic.com'
               "
             />
             <button type="button" @click="apiKeyBaseUrl = 'http://wxapi.cxlsky.cn/v1'" class="btn btn-secondary text-xs px-2" title="CXL API">CXL</button>
             <button type="button" @click="apiKeyBaseUrl = 'https://pay.kxaug.xyz/v1'" class="btn btn-secondary text-xs px-2" title="Pay API">Pay</button>
           </div>
-          <p class="input-hint">{{ baseUrlHint }}</p>
+          <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
@@ -1108,10 +1134,12 @@
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
-                  : 'sk-ant-...'
+                  : form.platform === 'grok'
+                    ? 'xai-...'
+                    : 'sk-ant-...'
             "
           />
-          <p class="input-hint">{{ apiKeyHint }}</p>
+          <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -3487,14 +3515,14 @@ const oauthStepTitle = computed(() => {
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok') return t('admin.accounts.grok.baseUrlHint')
+  if (form.platform === 'grok') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok') return t('admin.accounts.grok.apiKeyHint')
+  if (form.platform === 'grok') return ''
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4900,7 +4928,9 @@ const handleSubmit = async () => {
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
-        : 'https://api.anthropic.com'
+        : form.platform === 'grok'
+          ? 'https://api.x.ai/v1'
+          : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
