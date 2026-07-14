@@ -4,6 +4,7 @@
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
+            v-if="showFilters"
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
@@ -13,6 +14,8 @@
           />
           <AccountTableActions
             :loading="loading"
+            :show-filters="showFilters"
+            @toggle-filters="showFilters = !showFilters"
             @refresh="handleManualRefresh"
             @create="openCreateAccount"
           >
@@ -509,6 +512,7 @@ const selTypes = computed<AccountType[]>(() => {
   return [...types]
 })
 const showCreate = ref(false)
+const showFilters = ref(false)
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
