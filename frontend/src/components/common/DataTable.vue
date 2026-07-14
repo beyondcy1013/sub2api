@@ -797,7 +797,7 @@ defineExpose({
 <style scoped>
 /* 表格横向滚动 */
 .table-wrapper {
-  --select-col-width: 52px; /* 勾选列宽度：px-6 (24px*2) + checkbox (16px) */
+  --select-col-width: 36px; /* 紧凑勾选列 */
   position: relative;
   overflow-x: auto;
   overflow-y: auto;
@@ -933,6 +933,16 @@ tbody tr:hover .sticky-col {
 
 .dark .is-scrollable .sticky-col-right::before {
   background: linear-gradient(to left, rgba(0, 0, 0, 0.2), transparent);
+}
+
+/* 首尾列不留空：减少左右内边距 */
+.table-wrapper :deep(td:first-child),
+.table-wrapper :deep(th:first-child) {
+  padding-left: 4px !important;
+}
+.table-wrapper :deep(td:last-child),
+.table-wrapper :deep(th:last-child) {
+  padding-right: 4px !important;
 }
 </style>
 
