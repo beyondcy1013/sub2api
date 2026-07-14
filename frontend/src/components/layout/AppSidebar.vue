@@ -2,7 +2,7 @@
   <aside
     class="sidebar"
     :class="[
-      sidebarCollapsed ? 'w-[72px]' : 'w-64',
+      sidebarCollapsed ? 'w-[56px]' : 'w-32',
       { '-translate-x-full lg:translate-x-0': !mobileOpen }
     ]"
   >
@@ -963,7 +963,7 @@ onBeforeUnmount(() => {
     max-width 0.22s ease,
     opacity 0.14s ease,
     transform 0.14s ease;
-  max-width: 12rem;
+  max-width: 7rem;
 }
 
 .sidebar-brand-collapsed {
@@ -1043,7 +1043,7 @@ onBeforeUnmount(() => {
     max-width 0.2s ease,
     opacity 0.12s ease,
     transform 0.12s ease;
-  max-width: 12rem;
+  max-width: 7rem;
 }
 
 .sidebar-label-flex {

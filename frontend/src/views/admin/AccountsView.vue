@@ -4,6 +4,7 @@
       <template #filters>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
+            v-if="showFilters"
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
@@ -13,6 +14,8 @@
           />
           <AccountTableActions
             :loading="loading"
+            :show-filters="showFilters"
+            @toggle-filters="showFilters = !showFilters"
             @refresh="handleManualRefresh"
             @create="showCreate = true"
           >
@@ -515,6 +518,7 @@ const selTypes = computed<AccountType[]>(() => {
   return [...types]
 })
 const showCreate = ref(false)
+const showFilters = ref(false)
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
@@ -818,6 +822,7 @@ const shouldIncludeSchedulerScore = () => isColumnVisible('scheduler_score')
 const syncAccountListDerivedParams = () => {
   // Keep every load path, including auto-refresh and sorting, aligned with the current column visibility.
   const requestParams = params as any
+
   requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
 }
 
