@@ -2,6 +2,42 @@
 
 This repository carries local `sub2freeApi` behavior that must be preserved when downloading or merging upgraded upstream source.
 
+## Complete State Preservation
+
+The customization list below is a behavioral verification checklist, not a file allowlist. Preserve all local commits and all working-tree state before upgrading:
+
+```bash
+TS=$(date +%Y%m%d-%H%M%S)
+BACKUP=/home/third_party/upgrade-backups/sub2freeApi-$TS
+mkdir -p "$BACKUP"
+git branch "backup-pre-upgrade-$TS" HEAD
+git bundle create "$BACKUP/repository.bundle" --all
+git log --reverse --oneline origin/main..HEAD > "$BACKUP/local-commits.txt"
+git status --porcelain=v1 > "$BACKUP/status.txt"
+git diff --binary > "$BACKUP/worktree.patch"
+git diff --cached --binary > "$BACKUP/index.patch"
+{
+  git ls-files --others --exclude-standard -z
+  [ -f AGENTS.md ] && printf 'AGENTS.md\0'
+  [ -d .codex/skills ] && find .codex/skills -type f -print0
+} | sort -zu > "$BACKUP/local-files.list"
+if [ -s "$BACKUP/local-files.list" ]; then
+  tar --null -czf "$BACKUP/local-files.tar.gz" -T "$BACKUP/local-files.list"
+fi
+STASH_CREATED=0
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  git stash push -m "pre-upgrade-$TS"
+  STASH_CREATED=1
+fi
+git fetch origin
+git merge --no-ff origin/main
+if [ "$STASH_CREATED" -eq 1 ]; then
+  git stash pop --index
+fi
+```
+
+Never use `git reset --hard`, `git clean`, rebase away local commits, or the WebUI one-click updater. The WebUI updater installs an official binary and does not preserve source customizations.
+
 ## Preserve These Behaviors
 
 - Admin account management shows account identifiers in plaintext.
@@ -13,6 +49,11 @@ This repository carries local `sub2freeApi` behavior that must be preserved when
   - `【上游错误】` for upstream-originated failures.
 - `/responses` streaming errors emit protocol-compatible `response.failed` events with prefixed messages.
 - The free service deploys only as `sub2freeApi.service` on port `18382`.
+- Account filters remain hidden by default behind the Filters toggle.
+- The sidebar remains 154px expanded and 67px collapsed.
+- Account table widths remain: select 36px, name 126px, status 80px, balance 70px, id 130px, platform/type 170px.
+- Table headers remain single-line/non-shrinking; fixed widths use width/minWidth/maxWidth.
+- Table outer edge padding remains 4px and non-final columns retain vertical separators.
 
 ## Files To Check After Upstream Refresh
 
@@ -23,6 +64,12 @@ Account/API Key plaintext:
 - `backend/internal/handler/dto/account_mapper_redact_test.go`
 - `frontend/src/components/account/EditAccountModal.vue`
 - `frontend/src/views/admin/AccountsView.vue`
+- `frontend/src/components/common/DataTable.vue`
+- `frontend/src/components/common/__tests__/DataTable.spec.ts`
+- `frontend/src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts`
+- `frontend/src/components/admin/account/AccountTableActions.vue`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/layout/AppLayout.vue`
 - `frontend/src/types/index.ts`
 - `frontend/src/i18n/locales/en.ts`
 - `frontend/src/i18n/locales/zh.ts`
