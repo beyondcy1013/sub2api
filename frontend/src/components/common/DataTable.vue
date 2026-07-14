@@ -81,7 +81,7 @@
             :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :class="[
-              'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              'sticky-header-cell whitespace-nowrap py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
               getAdaptivePaddingClass(),
               { 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700': column.sortable },
               getStickyColumnClass(column, index),
@@ -95,11 +95,11 @@
               :sort-key="sortKey"
               :sort-order="sortOrder"
             >
-              <div :class="['flex items-center space-x-1', getHeaderContentAlignmentClass(column)]">
-                <span>{{ column.label }}</span>
+              <div :class="['flex flex-nowrap items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+                <span class="shrink-0 whitespace-nowrap">{{ column.label }}</span>
                 <span
                   v-if="column.sortable"
-                  class="inline-flex h-5 w-4 flex-col items-center justify-center"
+                  class="inline-flex h-5 w-4 shrink-0 flex-col items-center justify-center"
                   aria-hidden="true"
                 >
                   <svg
