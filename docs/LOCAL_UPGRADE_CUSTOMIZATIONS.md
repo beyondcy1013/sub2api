@@ -9,8 +9,9 @@ The behavior checklist below is not a file allowlist. Before upgrading, preserve
 ```bash
 TS=$(date +%Y%m%d-%H%M%S)
 BACKUP=/home/third_party/upgrade-backups/sub2api-$TS
+BACKUP_BRANCH=backup-pre-upgrade-$TS
 mkdir -p "$BACKUP"
-git branch "backup-pre-upgrade-$TS" HEAD
+git branch "$BACKUP_BRANCH" HEAD
 git bundle create "$BACKUP/repository.bundle" --all
 git log --reverse --oneline origin/main..HEAD > "$BACKUP/local-commits.txt"
 git status --porcelain=v1 > "$BACKUP/status.txt"
@@ -71,3 +72,16 @@ pnpm build
 ```
 
 Build the deployable binary with `CGO_ENABLED=0 go build -tags embed`, restart only `sub2api.service`, and verify port 18381 plus the embedded frontend assets.
+
+After every test, build, deployment, live version, and behavior check succeeds, delete only this upgrade's temporary recovery data:
+
+```bash
+case "$BACKUP" in
+  /home/third_party/upgrade-backups/sub2api-*) ;;
+  *) echo "FATAL: refusing to delete unexpected backup path: $BACKUP"; exit 1 ;;
+esac
+git branch -d "$BACKUP_BRANCH" &&
+  rm -rf -- "$BACKUP"
+```
+
+If any merge, restore, test, deployment, or live check fails, keep the backup directory and branch.
