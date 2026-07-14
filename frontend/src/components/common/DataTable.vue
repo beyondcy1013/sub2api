@@ -78,7 +78,7 @@
             v-for="(column, index) in columns"
             :key="column.key"
             scope="col"
-            :style="column.width ? { width: column.width, minWidth: column.width } : undefined"
+            :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :class="[
               'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
@@ -127,7 +127,7 @@
       <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
         <!-- Loading skeleton -->
         <tr v-if="loading" v-for="i in 5" :key="i">
-          <td v-for="column in columns" :key="column.key" :style="column.width ? { width: column.width, minWidth: column.width } : undefined" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
+          <td v-for="column in columns" :key="column.key" :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
             <div class="animate-pulse">
               <div class="h-4 w-3/4 rounded bg-gray-200 dark:bg-dark-700"></div>
             </div>
@@ -181,7 +181,7 @@
                 getStickyColumnClass(column, colIndex),
                 column.class
               ]"
-             :style="column.width ? { width: column.width, minWidth: column.width } : undefined">
+             :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined">
               <slot :name="`cell-${column.key}`"
                     :row="item.row"
                     :value="item.row[column.key]"
@@ -730,7 +730,7 @@ const getAdaptivePaddingClass = () => {
 
   // 列数越多，内边距越小
   if (columnCount >= 10) {
-    return 'px-2' // 8px
+    return 'px-1' // 4px
   } else if (columnCount >= 7) {
     return 'px-3' // 12px
   } else if (columnCount >= 5) {
