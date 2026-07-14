@@ -77,7 +77,6 @@
             :key="column.key"
             scope="col"
             :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
-
             :class="[
               'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
               getAdaptivePaddingClass(),
