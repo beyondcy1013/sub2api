@@ -63,6 +63,24 @@ describe('DataTable', () => {
     expect(nameHeader.findAll('svg')[1].classes()).toContain('text-primary-600')
   })
 
+  it('keeps sortable header labels on one line within fixed-width columns', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'status', label: '状态', sortable: true, width: '80px' }],
+        data: [{ id: 1, status: 'active' }]
+      }
+    })
+
+    const statusHeader = wrapper.get('th')
+    const label = statusHeader.get('div > span')
+    const sortIndicator = statusHeader.get('div > span:nth-child(2)')
+
+    expect(statusHeader.classes()).toContain('whitespace-nowrap')
+    expect(statusHeader.attributes('style')).toContain('width: 80px')
+    expect(label.classes()).toEqual(expect.arrayContaining(['shrink-0', 'whitespace-nowrap']))
+    expect(sortIndicator.classes()).toContain('shrink-0')
+  })
+
   it('renders every row with no virtual padding spacer for small datasets (virtualization off)', async () => {
     const data = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
     const wrapper = mount(DataTable, {

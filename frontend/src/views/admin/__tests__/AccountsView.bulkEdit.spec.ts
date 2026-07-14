@@ -391,10 +391,13 @@ describe('admin AccountsView bulk edit scope', () => {
 
     const columnKeys = wrapper.findAll('[data-test="column-key"]').map(node => node.text())
     expect(columnKeys).toContain('today_cost')
-    const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; label: string; sortable: boolean }>
+    const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; label: string; sortable: boolean; width?: string }>
     expect(columns.find(column => column.key === 'today_cost')).toMatchObject({
       label: 'admin.accounts.columns.todayCost',
       sortable: false
+    })
+    expect(columns.find(column => column.key === 'status')).toMatchObject({
+      width: '80px'
     })
     expect(getBatchTodayStats).toHaveBeenCalledWith([7])
     expect(wrapper.get('[data-test="today-cost"]').text()).toBe('1.23')

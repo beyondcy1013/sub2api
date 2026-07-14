@@ -1247,7 +1247,7 @@ const allColumns = computed(() => {
     { key: 'select', label: '', sortable: false, width: '36px' },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '126px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
-    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '65px' },
+    { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },

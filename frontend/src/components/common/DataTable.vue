@@ -78,7 +78,7 @@
             scope="col"
             :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
             :class="[
-              'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              'sticky-header-cell whitespace-nowrap py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
               getAdaptivePaddingClass(),
               { 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700': column.sortable },
               getStickyColumnClass(column, index),
@@ -92,9 +92,9 @@
               :sort-key="sortKey"
               :sort-order="sortOrder"
             >
-              <div class="flex items-center space-x-1">
-                <span>{{ column.label }}</span>
-                <span v-if="column.sortable" class="text-gray-400 dark:text-dark-500">
+              <div class="flex flex-nowrap items-center space-x-1">
+                <span class="shrink-0 whitespace-nowrap">{{ column.label }}</span>
+                <span v-if="column.sortable" class="shrink-0 text-gray-400 dark:text-dark-500">
                   <svg
                     v-if="sortKey === column.key"
                     class="h-4 w-4"
