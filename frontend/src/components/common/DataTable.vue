@@ -913,6 +913,16 @@ tbody tr:hover .sticky-col {
 .table-wrapper :deep(th:last-child) {
   padding-right: 4px !important;
 }
+
+/* 表格竖线：列分隔 */
+.table-wrapper :deep(td:not(:last-child)),
+.table-wrapper :deep(th:not(:last-child)) {
+  border-right: 1px solid rgb(229 231 235) !important;
+}
+.dark .table-wrapper :deep(td:not(:last-child)),
+.dark .table-wrapper :deep(th:not(:last-child)) {
+  border-right: 1px solid rgb(55 65 81) !important;
+}
 </style>
 
 <style>
