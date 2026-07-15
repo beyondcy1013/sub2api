@@ -143,3 +143,7 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# Local build artifacts
+deploy/bin/
+deploy/release/
