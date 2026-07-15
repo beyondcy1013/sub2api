@@ -1,103 +1,81 @@
 # Fork Setup Guide
 
-## Why Fork?
+## Current Configuration (Completed 2026-07-16)
 
-Forking `Wei-Shaw/sub2api` on GitHub gives you a **remote backup** of every local commit. The current workflow relies on local bundle files under `/home/third_party/upgrade-backups/` for recovery — a fork moves that safety net to GitHub's servers.
+Both `sub2api` and `sub2freeApi` are now backed by a GitHub fork.
 
-**What changes with a fork:**
-- Local commits are pushed to your fork, giving a remote history.
-- Upstream sync becomes `git fetch upstream && git merge upstream/main` (same conflict resolution).
-- No more fragile `git bundle` for emergency recovery.
+- **Fork repo**: `https://github.com/beyondcy1013/sub2api`
+- **Upstream**: `https://github.com/Wei-Shaw/sub2api`
+- **GitHub account**: `beyondcy1013`
+- **Auth**: gh CLI configured with PAT token
 
-**What does NOT change:**
-- Conflict count and resolution difficulty stay the same (customizations still clash with upstream).
-- The merge / reapply / test / deploy flow is identical.
+### Remote Layout (both repos)
 
-## Step-by-Step Setup
-
-### Prerequisites
-
-- GitHub account with a personal access token (classic) that has `repo` scope.
-- Token stored securely (not in code).
-
-### 1. Fork the upstream repo on GitHub
-
-Do this in the GitHub web UI (or via API once token is provided):
-- Source: `https://github.com/Wei-Shaw/sub2api`
-- Fork target: `<your-username>/sub2api`
-
-### 2. Configure remotes
-
-```bash
-cd /home/third_party/sub2api
-
-# Rename current origin (upstream) to 'upstream'
-git remote rename origin upstream
-
-# Add your fork as the new 'origin'
-# Replace YOUR_USERNAME and YOUR_TOKEN
-git remote add origin https://YOUR_USERNAME:YOUR_TOKEN@github.com/YOUR_USERNAME/sub2api.git
-
-# Verify
-git remote -v
-# origin    https://YOUR_USERNAME:...@github.com/YOUR_USERNAME/sub2api.git (fetch)
-# origin    https://YOUR_USERNAME:...@github.com/YOUR_USERNAME/sub2api.git (push)
-# upstream  https://github.com/Wei-Shaw/sub2api.git (fetch)
-# upstream  https://github.com/Wei-Shaw/sub2api.git (push)
+```
+origin    -> beyondcy1013/sub2api (fork, push here)
+upstream  -> Wei-Shaw/sub2api (source, fetch only)
 ```
 
-### 3. Push local main to your fork
+### Branch Layout
+
+- **main** (on sub2api repo): full commit history with local customizations, 24+ commits ahead of upstream
+- **sub2freeApi** (on fork): squashed clean branch, sub2freeApi-specific customizations on v0.1.156
+
+## New Upgrade Flow
 
 ```bash
-git push origin main
-```
+cd /home/third_party/sub2api   # or /home/third_party/sub2freeApi
 
-### 4. Create a local-customization branch (optional but recommended)
+# Clear conflicting env proxies (IMPORTANT - env proxy 12111 causes 407)
+export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" all_proxy="" ALL_PROXY=""
+export HTTPS_PROXY="http://127.0.0.1:7890" HTTP_PROXY="http://127.0.0.1:7890"
 
-```bash
-git checkout -b local-customizations
-git push -u origin local-customizations
-```
+# 1. Fetch upstream changes
+git fetch upstream --no-tags
 
-Keep `main` as a clean upstream mirror and do customization work on `local-customizations`.
-
-## New Upgrade Flow (with fork)
-
-```bash
-# Fetch upstream changes
-git fetch upstream
-
-# Merge upstream into local main (or local-customizations branch)
+# 2. Merge (resolve conflicts as before)
+git stash push -m "pre-upgrade-$(date +%s)"   # if dirty
 git merge --no-ff upstream/main
+git stash pop --index                           # if stashed
 
-# Resolve conflicts (same as before)
-# Run tests
-# Build, deploy, verify
+# 3. Resolve conflicts, verify customizations, test, build, deploy
 
-# Push updated history to your fork
+# 4. Push to fork (remote backup)
 git push origin main
-# or: git push origin local-customizations
 ```
 
-## Token Management
-
-Store the token in an env file, NOT in the remote URL directly:
-
+Or use the automated script:
 ```bash
-# Better: use credential helper or env var
-git config credential.helper store
-# Or use ~/.netrc
-# machine github.com login YOUR_USERNAME password YOUR_TOKEN
+./scripts/upgrade-from-fork.sh /home/third_party/sub2api
 ```
 
-## Proxy Note
+## Recovery
 
-This machine's git uses proxy `127.0.0.1:7890`. The fork push/fetch will go through the same proxy:
-
+If local state is lost, restore from fork:
 ```bash
-# Ensure git proxy is set
-git config --global http.proxy http://127.0.0.1:7890
-git config --global https.proxy http://127.0.0.1:7890
-# BUT clear conflicting env vars for git commands:
+git clone https://github.com/beyondcy1013/sub2api.git
+cd sub2api
+git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+```
+
+For sub2freeApi:
+```bash
+git clone -b sub2freeApi https://github.com/beyondcy1013/sub2api.git sub2freeApi
+cd sub2freeApi
+git remote rename origin upstream  # careful: clone makes origin the fork
+git remote add upstream https://github.com/Wei-Shaw/sub2api.git
+```
+
+## Proxy Notes
+
+This machine uses two HTTP proxies:
+- `127.0.0.1:7890` — working proxy for GitHub (used by git config)
+- `127.0.0.1:12111` — env proxy that returns 407 for git operations
+
+**Always clear env proxy vars before git operations**, then set the working one:
+```bash
 export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY=""
+export HTTPS_PROXY="http://127.0.0.1:7890"
 ```
+
+Git config already has `https.proxy=http://127.0.0.1:7890`.
