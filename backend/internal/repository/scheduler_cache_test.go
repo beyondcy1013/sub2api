@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-<<<<<<< Updated upstream
 func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {
 	filtered := filterSchedulerCredentials(map[string]any{
 		"plan_type":     "plus",
@@ -35,7 +34,8 @@ func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {
 
 	require.True(t, metadata.IsOpenAIChatGPTSubscription())
 	require.Empty(t, metadata.GetCredential("access_token"))
-=======
+}
+
 func TestSchedulerCacheKeyPrefix(t *testing.T) {
 	cache := &schedulerCache{keyPrefix: normalizeRedisKeyPrefix("sub2freeApi:")}
 	bucket := service.SchedulerBucket{GroupID: 2, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
@@ -49,5 +49,4 @@ func TestSchedulerCacheKeyPrefix(t *testing.T) {
 	if got, want := normalizeRedisKeyPrefix(" sub2freeApi:: "), "sub2freeApi:"; got != want {
 		t.Fatalf("normalizeRedisKeyPrefix() = %q, want %q", got, want)
 	}
->>>>>>> Stashed changes
 }

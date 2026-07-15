@@ -182,7 +182,6 @@ export async function duplicate(id: number): Promise<Account> {
 
 /**
  * Clone an existing account. Sensitive credentials are copied server-side.
- * @param id - Source account ID
  * @param accountData - Fields to override on the cloned account
  * @returns Created cloned account
  */
@@ -219,6 +218,24 @@ export async function checkMixedChannelRisk(
  */
 export async function deleteAccount(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.delete<{ message: string }>(`/admin/accounts/${id}`)
+  return data
+}
+
+/**
+ * Recycle account (move to trash)
+ * @param id - Account ID
+ */
+export async function recycleAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/recycle`)
+  return data
+}
+
+/**
+ * Restore account (un-trash)
+ * @param id - Account ID
+ */
+export async function restoreAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/restore`)
   return data
 }
 
@@ -863,9 +880,12 @@ export const accountsAPI = {
   getById,
   create,
   duplicate,
+  clone,
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,
+  recycle: recycleAccount,
+  restore: restoreAccount,
   toggleStatus,
   testAccount,
   refreshCredentials,
@@ -903,8 +923,7 @@ export const accountsAPI = {
   revertProxyFallback,
   queryOpenAIQuota,
   resetOpenAIQuota,
-  createSparkShadow,
-  clone
+  createSparkShadow
 }
 
 export default accountsAPI

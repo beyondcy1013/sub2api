@@ -205,6 +205,7 @@ func (s *BalanceCheckService) listTempUnschedulableAccounts(ctx context.Context)
 			"",
 			0,
 			"",
+			false,
 		)
 		if err != nil {
 			logger.LegacyPrintf("service.balance_check", "[BalanceCheck] ListWithFilters temp_unschedulable error: %v", err)

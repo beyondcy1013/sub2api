@@ -2,13 +2,13 @@
   <div class="flex items-center gap-2">
     <!-- Rate Limit Display (429) - Two-line layout -->
     <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
-      <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
+      <span class="text-xs font-medium text-amber-600 dark:text-amber-400">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
 
     <!-- Overload Display (529) - Two-line layout -->
     <div v-else-if="isOverloaded" class="flex flex-col items-center gap-1">
-      <span class="badge text-xs badge-danger">{{ t('admin.accounts.status.overloaded') }}</span>
+      <span class="text-xs font-medium text-red-600 dark:text-red-400">{{ t('admin.accounts.status.overloaded') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ overloadCountdown }}</span>
     </div>
 
@@ -17,13 +17,13 @@
       <button
         v-if="isTempUnschedulable"
         type="button"
-        :class="['badge text-xs', statusClass, 'cursor-pointer']"
+        :class="['text-xs font-medium cursor-pointer underline', statusTextClass]"
         :title="t('admin.accounts.status.viewTempUnschedDetails')"
         @click="handleTempUnschedClick"
       >
         {{ statusText }}
       </button>
-      <span v-else :class="['badge text-xs', statusClass]">
+      <span v-else :class="['text-xs font-medium', statusTextClass]">
         {{ statusText }}
       </span>
     </template>
@@ -59,12 +59,7 @@
 
     <!-- Rate Limit Indicator (429) -->
     <div v-if="isRateLimited" class="group relative">
-      <span
-        class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-      >
-        <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
-        429
-      </span>
+      <span class="text-xs text-amber-600 dark:text-amber-400">429</span>
       <!-- Tooltip -->
       <div
         class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
@@ -89,29 +84,17 @@
     >
       <div v-for="item in activeModelStatuses" :key="`${item.kind}-${item.model}`" class="group relative mb-1 break-inside-avoid">
         <!-- 积分已用尽 -->
-        <span
-          v-if="item.kind === 'credits_exhausted'"
-          class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
-        >
-          <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
+        <span v-if="item.kind === 'credits_exhausted'" class="text-xs text-red-600 dark:text-red-400">
           {{ t('admin.accounts.status.creditsExhausted') }}
           <span class="text-[10px] opacity-70">{{ formatModelResetTime(item.reset_at) }}</span>
         </span>
         <!-- 正在走积分（模型限流但积分可用）-->
-        <span
-          v-else-if="item.kind === 'credits_active'"
-          class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-        >
-          <span>⚡</span>
-          {{ formatScopeName(item.model) }}
+        <span v-else-if="item.kind === 'credits_active'" class="text-xs text-amber-600 dark:text-amber-400">
+          <span>⚡</span> {{ formatScopeName(item.model) }}
           <span class="text-[10px] opacity-70">{{ formatModelResetTime(item.reset_at) }}</span>
         </span>
         <!-- 普通模型限流 -->
-        <span
-          v-else
-          class="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
-        >
-          <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
+        <span v-else class="text-xs text-purple-600 dark:text-purple-400">
           {{ formatScopeName(item.model) }}
           <span class="text-[10px] opacity-70">{{ formatModelResetTime(item.reset_at) }}</span>
         </span>
@@ -135,12 +118,7 @@
 
     <!-- Overload Indicator (529) -->
     <div v-if="isOverloaded" class="group relative">
-      <span
-        class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
-      >
-        <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
-        529
-      </span>
+      <span class="text-xs text-red-600 dark:text-red-400">529</span>
       <!-- Tooltip -->
       <div
         class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
@@ -157,7 +135,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Icon from '@/components/icons/Icon.vue'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
@@ -315,23 +292,26 @@ const overloadCountdown = computed(() => {
 })
 
 // Computed: status badge class
-const statusClass = computed(() => {
+// Plain-text color class for table display (no badge/card styling)
+const statusTextClass = computed(() => {
   if (hasError.value) {
-    return 'badge-danger'
+    return 'text-red-600 dark:text-red-400'
   }
   if (isTempUnschedulable.value) {
-    return 'badge-warning'
+    return 'text-amber-600 dark:text-amber-400'
   }
   if (props.account.status !== 'active') {
-    return props.account.status === 'error' ? 'badge-danger' : 'badge-gray'
+    return props.account.status === 'error'
+      ? 'text-red-600 dark:text-red-400'
+      : 'text-gray-500 dark:text-gray-400'
   }
   if (isQuotaExceeded.value) {
-    return 'badge-warning'
+    return 'text-amber-600 dark:text-amber-400'
   }
   if (!props.account.schedulable) {
-    return 'badge-gray'
+    return 'text-gray-500 dark:text-gray-400'
   }
-  return 'badge-success'
+  return 'text-emerald-600 dark:text-emerald-400'
 })
 
 // Computed: status text

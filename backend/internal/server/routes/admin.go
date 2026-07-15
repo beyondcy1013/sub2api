@@ -304,6 +304,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/sync/crs/preview", h.Admin.Account.PreviewFromCRS)
 		accounts.PUT("/:id", h.Admin.Account.Update)
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
+		accounts.POST("/:id/recycle", h.Admin.Account.Recycle)
+		accounts.POST("/:id/restore", h.Admin.Account.Restore)
 		accounts.POST("/:id/test", h.Admin.Account.Test)
 		accounts.POST("/:id/recover-state", h.Admin.Account.RecoverState)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)
@@ -493,9 +495,6 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.PUT("/web-search-emulation", h.Admin.Setting.UpdateWebSearchEmulationConfig)
 		adminSettings.POST("/web-search-emulation/test", h.Admin.Setting.TestWebSearchEmulation)
 		adminSettings.POST("/web-search-emulation/reset-usage", h.Admin.Setting.ResetWebSearchUsage)
-		// 本地自定义：余额检测配置（YAML-backed）
-		adminSettings.GET("/balance-check", h.Admin.Setting.GetBalanceCheckSettings)
-		adminSettings.PUT("/balance-check", h.Admin.Setting.UpdateBalanceCheckSettings)
 	}
 }
 
