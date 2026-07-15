@@ -50,7 +50,31 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - Table headers remain single-line/non-shrinking; fixed widths use width/minWidth/maxWidth.
 - Table outer edge padding remains 4px and non-final columns retain vertical separators.
 - `id` and `platform_type` remain near the end before actions.
+- OpenAI historical `session_hash` affinity remains capacity-aware: when the bound account cannot acquire a real concurrency slot, the current connection spills to another eligible account in the same group without rewriting the historical binding.
+- Concurrency-full spillover remains independent of the advanced scheduler's TTFT/error health-escape switch. Strict, non-movable `previous_response_id` affinity is not migrated across accounts.
 - The service remains isolated on `sub2api.service`, port 18381, database `sub2api`, and Redis DB 0.
+
+## OpenAI Sticky Concurrency Spillover
+
+This is a local scheduling customization introduced by commits `22f4263a0` (RED regression tests) and `adae405d0` (implementation). Preserve the behavior when merging upstream scheduler changes.
+
+Behavior contract:
+
+1. Honor a historical `session_hash -> account_id` binding only when the bound account acquires a real `account.Concurrency` slot.
+2. If that slot is full, immediately continue through the normal same-group candidate selection and acquire another eligible account instead of returning the bound account's sticky wait plan.
+3. Preserve the original Redis sticky binding when a single connection spills over, so later requests can return to the original account after capacity recovers.
+4. If no eligible account has capacity, retain the bounded fallback `AccountWaitPlan` behavior.
+5. Apply concurrency spillover in both OpenAI paths:
+   - Legacy load-aware scheduling in `backend/internal/service/openai_gateway_scheduling.go`.
+   - Advanced hard-sticky scheduling in `backend/internal/service/openai_account_scheduler.go`, even when `sticky_escape_enabled` is false for TTFT/error health escape.
+6. Keep strict, non-movable `previous_response_id` response-chain affinity on its original account; moving it can break upstream continuation state.
+
+Upgrade review anchors:
+
+- `OpenAIGatewayService.selectAccountWithLoadAwareness` uses `preserveStickyBinding` after a full sticky-account slot and guards subsequent sticky writes.
+- `defaultOpenAIAccountScheduler.selectBySessionHash` returns to load balancing whenever slot acquisition reports `Acquired=false`, without requiring the health-escape switch.
+- `TestOpenAISelectAccountWithLoadAwareness_StickyFullSpillsToAvailableAccountAndPreservesBinding` covers the locally active legacy path.
+- `TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusySpillsOverEvenWhenHealthEscapeDisabled` and `TestOpenAIGatewayService_SelectAccountWithScheduler_HealthEscapeDisabledStillSpillsOnConcurrency` cover the advanced path.
 
 ## Verification
 
@@ -61,6 +85,9 @@ git diff --stat origin/main...HEAD
 cd /home/third_party/sub2api/backend
 go test -tags unit ./internal/handler/dto ./internal/service \
   -run 'TestRedactCredentials|TestAccountFromServiceShallow|TestMergePreservingSensitiveCreds|TestIsSensitiveCredentialKey'
+
+go test ./internal/service \
+  -run 'TestOpenAISelectAccountWithLoadAwareness_StickyFullSpillsToAvailableAccountAndPreservesBinding|TestOpenAIGatewayService_SelectAccountWithScheduler_(SessionStickyBusySpillsOverEvenWhenHealthEscapeDisabled|HealthEscapeDisabledStillSpillsOnConcurrency)'
 
 cd /home/third_party/sub2api/frontend
 pnpm vitest run \
