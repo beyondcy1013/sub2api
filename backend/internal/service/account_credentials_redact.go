@@ -5,7 +5,7 @@ package service
 // 注意：账号管理页需要完整显示上游 API Key，api_key 不属于响应脱敏键。
 var SensitiveCredentialKeys = []string{
 	// OAuth
-	"access_token", "refresh_token", "id_token",
+	"access_token", "refresh_token", "id_token", "agent_private_key",
 	// API Key 类
 
 	"session_key", "cookie",
