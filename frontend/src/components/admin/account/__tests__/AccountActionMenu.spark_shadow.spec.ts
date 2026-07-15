@@ -173,4 +173,56 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
 
     wrapper.unmount()
   })
+
+  it('OpenAI 普通账号显示迁入粘性会话操作', () => {
+    const account = makeAccount({ platform: 'openai', type: 'apikey', parent_account_id: null })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).toContain('admin.accounts.stickySessions.action')
+    wrapper.unmount()
+  })
+
+  it('非 OpenAI 账号不显示迁入粘性会话操作', () => {
+    const account = makeAccount({ platform: 'gemini', type: 'oauth', parent_account_id: null })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).not.toContain('admin.accounts.stickySessions.action')
+    wrapper.unmount()
+  })
+
+  it('不可调度的 OpenAI 账号不显示迁入粘性会话操作', () => {
+    const account = makeAccount({ platform: 'openai', status: 'active', schedulable: false })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).not.toContain('admin.accounts.stickySessions.action')
+    wrapper.unmount()
+  })
+
+  it('正常账号也始终显示恢复状态操作并可触发', async () => {
+    const account = makeAccount({ status: 'active', schedulable: true })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const recoverButton = getBodyButtons().find(button =>
+      button.textContent?.includes('admin.accounts.recoverState')
+    )
+    expect(recoverButton).toBeDefined()
+
+    recoverButton!.click()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('recover-state')?.[0]?.[0]).toMatchObject({ id: account.id })
+    wrapper.unmount()
+  })
 })

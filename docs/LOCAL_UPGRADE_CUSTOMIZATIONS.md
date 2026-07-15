@@ -50,9 +50,14 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - Table headers remain single-line/non-shrinking; fixed widths use width/minWidth/maxWidth.
 - Table outer edge padding remains 4px and non-final columns retain vertical separators.
 - `id` and `platform_type` remain near the end before actions.
+- New/imported account form initialization and reset keep default concurrency at `4`, not upstream `10`.
+- The account `更多` menu always includes `恢复状态`, is vertically scrollable within the viewport, and uses the 320px positioning estimate on short screens.
+- Active/schedulable OpenAI targets expose `迁入粘性会话`; the dialog defaults to the last 5 minutes and moves only recent bindings.
+- `Concurrency limit exceeded for user` remains correctly described as sub2api's local caller-concurrency timeout. Do not direct operators to user management or claim sticky reassignment cannot help.
 - OpenAI historical `session_hash` affinity remains capacity-aware: when the bound account cannot acquire a real concurrency slot, the current connection spills to another eligible account in the same group without rewriting the historical binding.
 - Concurrency-full spillover remains independent of the advanced scheduler's TTFT/error health-escape switch. Strict, non-movable `previous_response_id` affinity is not migrated across accounts.
 - The service remains isolated on `sub2api.service`, port 18381, database `sub2api`, and Redis DB 0.
+- Usage auto-load on page mount skips accounts whose status is not `active`. `AccountUsageCell.vue` `shouldAutoLoadUsageOnMount` must return true only when `props.account.status === 'active'`. Non-active (`inactive`/`error`) accounts must not trigger automatic `/usage` upstream queries on mount; manual refresh via `usageManualRefreshToken` is unaffected.
 
 ## OpenAI Sticky Concurrency Spillover
 
@@ -76,6 +81,21 @@ Upgrade review anchors:
 - `TestOpenAISelectAccountWithLoadAwareness_StickyFullSpillsToAvailableAccountAndPreservesBinding` covers the locally active legacy path.
 - `TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusySpillsOverEvenWhenHealthEscapeDisabled` and `TestOpenAIGatewayService_SelectAccountWithScheduler_HealthEscapeDisabledStillSpillsOnConcurrency` cover the advanced path.
 
+## Active Sticky-Session Reassignment
+
+The account action menu provides an administrative redistribution tool for active OpenAI `session_hash` bindings. Preserve these boundaries when upstream changes account management, Redis keys, or scheduling:
+
+1. Routes remain `GET /api/v1/admin/accounts/:id/sticky-sessions` and `POST /api/v1/admin/accounts/:id/sticky-sessions/reassign`.
+2. The target must be OpenAI, active, schedulable, and in the selected group; source and target must share platform and group.
+3. The UI defaults to 5 minutes and offers exactly 1, 5, 15, and 60 minute windows. It shows recent/all counts and up to 100 anonymized recent session suffixes.
+4. Recency is `configured sticky TTL - Redis PTTL`, using `gateway.openai_ws.sticky_session_ttl_seconds`. The backend rechecks the selected window and moves the most recently active candidates first.
+5. Scan only the validated `sticky_session:<group>:<platform>:*` namespace. Move only 16-character lowercase-hex current session keys; ignore 64-character compatibility copies.
+6. Never move `response:` / `previous_response_id` continuation bindings. Count them separately for the operator.
+7. Redis changes use compare-and-set against the source account plus `SET ... KEEPTTL`. A race must not overwrite a newer assignment or extend session lifetime.
+8. A single operation accepts 1 through 100 bindings. It affects subsequent requests and does not interrupt an in-flight upstream request.
+
+The full restore contract is in `.codex/skills/sub2api-account-modal-enhancer/references/sticky-session-reassignment.md`. The skill's `apply.sh` is a read-only audit and must never be changed back into a broad `sed -i` source rewriter.
+
 ## Verification
 
 ```bash
@@ -89,9 +109,15 @@ go test -tags unit ./internal/handler/dto ./internal/service \
 go test ./internal/service \
   -run 'TestOpenAISelectAccountWithLoadAwareness_StickyFullSpillsToAvailableAccountAndPreservesBinding|TestOpenAIGatewayService_SelectAccountWithScheduler_(SessionStickyBusySpillsOverEvenWhenHealthEscapeDisabled|HealthEscapeDisabledStillSpillsOnConcurrency)'
 
+go test ./internal/repository ./internal/handler/admin ./internal/service -count=1
+
 cd /home/third_party/sub2api/frontend
 pnpm vitest run \
   src/components/account/__tests__/EditAccountModal.spec.ts \
+  src/components/account/__tests__/AccountUsageCell.spec.ts \
+  src/components/account/__tests__/CreateAccountModal.spec.ts \
+  src/components/admin/account/__tests__/StickySessionReassignModal.spec.ts \
+  src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts \
   src/components/common/__tests__/DataTable.spec.ts \
   src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts
 pnpm typecheck

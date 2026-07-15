@@ -719,7 +719,8 @@ const hasOpenAIUsageFallback = computed(() => {
 const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
 
 const shouldAutoLoadUsageOnMount = computed(() => {
-  return shouldFetchUsage.value
+  // 账号状态不正常（inactive / error）时，进入页面不自动刷新用量，避免对已知不可用账号发起无意义的上游查询。
+  return shouldFetchUsage.value && props.account.status === 'active'
 })
 
 const shouldLazyLoadOnMobile = computed(() => {

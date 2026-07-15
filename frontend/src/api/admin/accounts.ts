@@ -214,6 +214,71 @@ export async function deleteAccount(id: number): Promise<{ message: string }> {
 }
 
 /**
+ * Recycle account (move to trash)
+ * @param id - Account ID
+ */
+export async function recycleAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/recycle`)
+  return data
+}
+
+/**
+ * Restore account (un-trash)
+ * @param id - Account ID
+ */
+export async function restoreAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/restore`)
+  return data
+}
+
+export interface StickySessionSource {
+  account_id: number
+  account_name: string
+  count: number
+  current_concurrency: number
+  concurrency: number
+  recent_counts: Record<string, number>
+  recent_sessions: Array<{
+    session_suffix: string
+    active_ago_seconds: number
+  }>
+}
+
+export interface StickySessionGroupSummary {
+  group_id: number
+  group_name: string
+  total: number
+  protected_response_bindings: number
+  sources: StickySessionSource[]
+}
+
+export interface StickySessionSummary {
+  target_account_id: number
+  groups: StickySessionGroupSummary[]
+}
+
+export interface StickySessionReassignResult {
+  moved: number
+  remaining_source_bindings: number
+}
+
+export async function getStickySessionSummary(id: number): Promise<StickySessionSummary> {
+  const { data } = await apiClient.get<StickySessionSummary>(`/admin/accounts/${id}/sticky-sessions`)
+  return data
+}
+
+export async function reassignStickySessions(
+  id: number,
+  payload: { group_id: number; source_account_id: number; count: number; active_within_seconds: number }
+): Promise<StickySessionReassignResult> {
+  const { data } = await apiClient.post<StickySessionReassignResult>(
+    `/admin/accounts/${id}/sticky-sessions/reassign`,
+    payload
+  )
+  return data
+}
+
+/**
  * Toggle account status
  * @param id - Account ID
  * @param status - New status
@@ -857,6 +922,8 @@ export const accountsAPI = {
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,
+  recycle: recycleAccount,
+  restore: restoreAccount,
   toggleStatus,
   testAccount,
   refreshCredentials,
@@ -894,7 +961,9 @@ export const accountsAPI = {
   revertProxyFallback,
   queryOpenAIQuota,
   resetOpenAIQuota,
-  createSparkShadow
+  createSparkShadow,
+  getStickySessionSummary,
+  reassignStickySessions
 }
 
 export default accountsAPI

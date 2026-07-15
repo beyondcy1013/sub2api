@@ -548,12 +548,39 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
-	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
+// RecycleAccount marks an account as recycled by setting extra.recycled=true.
+func (r *accountRepository) RecycleAccount(ctx context.Context, id int64) error {
+	return r.UpdateExtra(ctx, id, map[string]any{"recycled": true})
 }
 
-func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
+// RestoreAccount removes the recycled mark by setting extra.recycled=false.
+func (r *accountRepository) RestoreAccount(ctx context.Context, id int64) error {
+	return r.UpdateExtra(ctx, id, map[string]any{"recycled": false})
+}
+
+func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
+	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", false)
+}
+
+func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) *dbent.AccountQuery {
 	q := r.client.Account.Query()
+
+	// recycled filter: extra.recycled flag controls trash/restore visibility
+	recycledPath := sqljson.Path("recycled")
+	if recycled {
+		// Only show accounts marked as recycled
+		q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
+			s.Where(sqljson.ValueEQ(dbaccount.FieldExtra, true, recycledPath))
+		}))
+	} else {
+		// Exclude recycled accounts by default
+		q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
+			s.Where(entsql.Or(
+				entsql.Not(sqljson.HasKey(dbaccount.FieldExtra, recycledPath)),
+				sqljson.ValueNEQ(dbaccount.FieldExtra, true, recycledPath),
+			))
+		}))
+	}
 
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
@@ -648,8 +675,8 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 	return q
 }
 
-func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, recycled)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -678,8 +705,8 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
-func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, recycled).All(ctx)
 	if err != nil {
 		return nil, err
 	}

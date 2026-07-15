@@ -72,6 +72,49 @@ describe('AccountUsageCell', () => {
     })
   })
 
+  it('状态不正常的账号在挂载时不会自动刷新用量', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9,
+          platform: 'openai',
+          type: 'oauth',
+          status: 'error'
+        })
+      },
+      global: {
+        stubs: { UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('状态为 active 的账号在挂载时会自动刷新用量', async () => {
+    getUsage.mockResolvedValue({})
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 10,
+          platform: 'openai',
+          type: 'oauth',
+          status: 'active'
+        })
+      },
+      global: {
+        stubs: { UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).toHaveBeenCalledWith(10)
+    wrapper.unmount()
+  })
+
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
       antigravity_quota: {

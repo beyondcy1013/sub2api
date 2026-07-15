@@ -115,7 +115,7 @@ async function submitApiKeyAccount(platform: 'openai' | 'anthropic', enableLongC
     await selectButtonByText(wrapper, 'API Key')
   }
   await wrapper.get('form#create-account-form input[type="text"]').setValue(`${platform} account`)
-  await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+  await wrapper.get('form#create-account-form input[placeholder^="sk-"]').setValue('test-api-key')
   if (enableLongContextBilling) {
     await wrapper.get('[data-testid="openai-long-context-billing-toggle"]').trigger('click')
   }
@@ -181,6 +181,14 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses four connections by default when importing or creating an account', async () => {
+    await submitApiKeyAccount('openai')
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.concurrency).toBe(4)
+  })
   })
 
   it('sends true explicitly when OpenAI long-context billing is enabled', async () => {

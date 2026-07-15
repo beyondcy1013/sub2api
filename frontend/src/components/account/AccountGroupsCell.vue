@@ -1,29 +1,21 @@
 <template>
-  <div v-if="groups && groups.length > 0" class="relative max-w-56">
-    <!-- 分组容器：固定最大宽度，最多显示2行 -->
-    <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
-      <GroupBadge
-        v-for="group in displayGroups"
-        :key="group.id"
-        :name="group.name"
-        :platform="group.platform"
-        :subscription-type="group.subscription_type"
-        :rate-multiplier="group.rate_multiplier"
-        :show-rate="false"
-        class="max-w-24"
-      />
-      <!-- 更多数量徽章 -->
+  <div v-if="groups && groups.length > 0" class="relative">
+    <!-- Plain text group names (comma-separated), truncated to fit -->
+    <div class="flex items-center gap-1">
+      <span class="text-xs text-gray-700 dark:text-gray-300 truncate max-w-44">
+        {{ displayGroups.map(g => g.name).join(', ') }}
+      </span>
       <button
         v-if="hiddenCount > 0"
         ref="moreButtonRef"
         @click.stop="showPopover = !showPopover"
-        class="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500 transition-colors cursor-pointer whitespace-nowrap"
+        class="inline-flex items-center gap-0.5 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors cursor-pointer whitespace-nowrap"
       >
         <span>+{{ hiddenCount }}</span>
       </button>
     </div>
 
-    <!-- Popover 显示完整列表 -->
+    <!-- Popover showing full list -->
     <Teleport to="body">
       <Transition
         enter-active-class="transition duration-150 ease-out"
@@ -52,35 +44,32 @@
               </svg>
             </button>
           </div>
-          <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto">
-            <GroupBadge
+          <div class="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
+            <span
               v-for="group in groups"
               :key="group.id"
-              :name="group.name"
-              :platform="group.platform"
-              :subscription-type="group.subscription_type"
-              :rate-multiplier="group.rate_multiplier"
-              :show-rate="false"
-            />
+              class="text-xs text-gray-700 dark:text-gray-300"
+            >
+              {{ group.name }}
+            </span>
           </div>
         </div>
       </Transition>
     </Teleport>
 
-    <!-- 点击外部关闭 popover -->
+    <!-- Click outside to close popover -->
     <div
       v-if="showPopover"
       class="fixed inset-0 z-40"
       @click="showPopover = false"
     />
   </div>
-  <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+  <span v-else class="text-xs text-gray-400 dark:text-dark-500">-</span>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import GroupBadge from '@/components/common/GroupBadge.vue'
 import type { Group } from '@/types'
 
 interface Props {

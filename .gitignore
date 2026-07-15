@@ -142,3 +142,8 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# Local build artifacts
+backend/backend/
+deploy/bin/
+backend/cmd/server/sub2api

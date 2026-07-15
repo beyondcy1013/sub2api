@@ -4041,7 +4041,7 @@ const form = reactive({
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
   proxy_id: null as number | null,
-  concurrency: 10,
+  concurrency: 4,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
@@ -4589,7 +4589,7 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
-  form.concurrency = 10
+  form.concurrency = 4
   form.load_factor = null
   form.priority = 1
   form.rate_multiplier = 1
