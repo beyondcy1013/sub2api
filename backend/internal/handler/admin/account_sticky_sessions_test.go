@@ -79,7 +79,7 @@ func newStickySessionTestRouter(t *testing.T, sourceGroupID int64) (*gin.Engine,
 		adminService.byID[account.ID] = account
 	}
 	store := &stickySessionAdminStoreStub{}
-	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler.stickySessionAdminStore = store
 	router := gin.New()
 	router.POST("/accounts/:id/sticky-sessions/reassign", handler.ReassignStickySessions)
@@ -123,7 +123,7 @@ func TestGetStickySessionSummaryRejectsUnschedulableTarget(t *testing.T) {
 		stubAdminService: base,
 		byID:             map[int64]service.Account{target.ID: target},
 	}
-	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler.stickySessionAdminStore = store
 	router = gin.New()
 	router.GET("/accounts/:id/sticky-sessions", handler.GetStickySessionSummary)
@@ -157,7 +157,7 @@ func TestGetStickySessionSummaryOnlyReturnsMovableSources(t *testing.T) {
 			},
 		},
 	}}
-	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler.stickySessionAdminStore = store
 	router := gin.New()
 	router.GET("/accounts/:id/sticky-sessions", handler.GetStickySessionSummary)
