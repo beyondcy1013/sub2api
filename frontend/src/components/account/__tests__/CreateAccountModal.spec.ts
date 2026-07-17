@@ -189,7 +189,6 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.concurrency).toBe(4)
   })
-  })
 
   it('sends true explicitly when OpenAI long-context billing is enabled', async () => {
     await submitApiKeyAccount('openai', true)
