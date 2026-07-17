@@ -48,7 +48,8 @@ export default {
       editProxy: '编辑代理',
       deleteProxy: '删除代理',
       ad: {
-        inline: '正在寻找合适的代理 IP？'
+        inline: 'Sub2API 增强版：调度更均衡，账号运维更高效',
+        details: '并发满载自动分流可减少单账号拥堵，并提供近期粘性会话迁移、账号回收/恢复、非活跃账号用量刷新优化和更紧凑的账号管理界面。'
       },
       deleteConfirmMessage: "确定要删除代理 '{name}' 吗？",
       testProxy: '测试代理',

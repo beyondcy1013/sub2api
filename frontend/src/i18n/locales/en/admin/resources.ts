@@ -48,7 +48,8 @@ export default {
       editProxy: 'Edit Proxy',
       deleteProxy: 'Delete Proxy',
       ad: {
-        inline: 'Need proxy IP?'
+        inline: 'Sub2API Enhanced: balanced routing and efficient account operations',
+        details: 'Concurrency-aware spillover reduces overloaded-account bottlenecks, with recent sticky-session reassignment, account recycle and restore, optimized usage refreshes for inactive accounts, and a compact account-management UI.'
       },
       deleteConfirmMessage: "Are you sure you want to delete proxy '{name}'?",
       testProxy: 'Test Proxy',
