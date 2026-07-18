@@ -150,3 +150,27 @@ func TestHandle429_FallbackUsesDefaultSecondsWhenSettingServiceMissing(t *testin
 	require.Equal(t, int64(44), accountRepo.lastRateLimitID)
 	require.True(t, !accountRepo.lastRateLimitReset.Before(before.Add(5*time.Second)) && !accountRepo.lastRateLimitReset.After(after.Add(5*time.Second)))
 }
+
+// TestHandle429_PersistsRateLimitDespiteCanceledContext 是 2026-07-17 账号 53 事故的回归:
+// 入参 ctx 被取消(超大请求 21~43s 超时 / 客户端断连 / OpenAI fastpath 的 5s stateCtx)时,
+// handle429 必须仍把限流状态落库。否则内存熔断已生效而 DB 未记录,造成
+// "DB/Redis 显示干净,但调度被进程内内存熔断挡住" 的分裂,对外 503。
+// 修复:handle429 用 context.WithoutCancel(ctx)+rateLimitPersistTimeout 派生 persistCtx 落库。
+func TestHandle429_PersistsRateLimitDespiteCanceledContext(t *testing.T) {
+	accountRepo := &rateLimit429AccountRepoStub{}
+	svc := NewRateLimitService(accountRepo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 53, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	// 模拟请求已被取消(超时/断连)。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+
+	// usage_limit_reached + resets_at 触发 handle429 的 OpenAI body 解析分支 → SetRateLimited。
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"usage limit reached","resets_at":7950000000}}`)
+	svc.handle429(ctx, account, http.Header{}, body)
+
+	require.Equal(t, 1, accountRepo.rateLimitCalls, "限流落库必须在入参 ctx 取消后仍生效(persistCtx 解耦)")
+	require.Equal(t, int64(53), accountRepo.lastRateLimitID)
+}
+

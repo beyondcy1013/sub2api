@@ -307,3 +307,35 @@ func TestRateLimitService_RecoverAccountState_InvalidatesOAuthTokenOnErrorRecove
 	require.Len(t, invalidator.accounts, 1)
 	require.Equal(t, int64(21), invalidator.accounts[0].ID)
 }
+
+// TestRateLimitService_RecoverAccountAfterSuccessfulTest_ClearsRuntimeBlockDespiteCleanDB
+// 是 2026-07-17 账号 53 事故的回归:DB 全干净(hasRecoverableRuntimeState=false,因限流落库
+// 被 ctx 取消而未写入)但进程内内存熔断残留时,一次成功的账号测试后必须清掉内存熔断,
+// 否则 "经测试可用,可始终不被调度选中",对外 503。
+// 修复:RecoverAccountState 末尾无条件调 notifyAccountSchedulingBlockCleared。
+func TestRateLimitService_RecoverAccountAfterSuccessfulTest_ClearsRuntimeBlockDespiteCleanDB(t *testing.T) {
+	repo := &rateLimitClearRepoStub{
+		getByIDAccount: &Account{
+			ID:          53,
+			Status:      StatusActive,
+			Schedulable: true,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Extra:       map[string]any{},
+		},
+	}
+	blocker := &runtimeBlockRecorder{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetAccountRuntimeBlocker(blocker)
+
+	result, err := svc.RecoverAccountAfterSuccessfulTest(context.Background(), 53)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// DB 本就干净,落库类清理不应发生。
+	require.False(t, result.ClearedError)
+	require.False(t, result.ClearedRateLimit)
+	require.Equal(t, 0, repo.clearRateLimitCalls)
+	require.Equal(t, 0, repo.clearTempUnschedCalls)
+	// 关键断言:进程内内存熔断必须被清除。
+	require.Equal(t, []int64{53}, blocker.clearedIDs)
+}

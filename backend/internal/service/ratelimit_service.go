@@ -67,6 +67,13 @@ const (
 	maxRateLimit429CooldownSeconds     = 7200
 )
 
+// rateLimitPersistTimeout 是 handle429 把限流状态落库时使用的独立 context 超时。
+// 落库必须独立于请求生命周期：超大请求(数十秒)、客户端断连、或 OpenAI fastpath 的 5s
+// stateCtx 都会取消入参 ctx，导致 SetRateLimited 写失败——此时内存熔断已生效而 DB 未记录，
+// 造成 "DB 干净但调度被内存熔断挡住" 的分裂（2026-07-17 账号 53 对外 503 事故根因）。
+// 用 context.WithoutCancel(ctx) + 本超时，让限流落库在 DB 高压下仍可靠完成。
+const rateLimitPersistTimeout = 15 * time.Second
+
 const (
 	openAIImageRateLimitDefaultCooldown = time.Minute
 	openAIImageRateLimitReason          = "openai_image_rate_limited"
@@ -924,6 +931,14 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	if account.IsShadow() {
 		return
 	}
+	// 限流状态落库必须独立于请求生命周期：把 ctx 替换为分离的 persistCtx，使后续所有
+	// SetRateLimited / UpdateSessionWindow / persist* 写入不受入参 ctx 取消的影响
+	// （超大请求数十秒、客户端断连、OpenAI fastpath 5s stateCtx 都会取消入参 ctx）。
+	// 否则内存熔断已生效而 DB 未记录，造成 "DB 干净但调度被内存熔断挡住" 的分裂。
+	// 详见 rateLimitPersistTimeout 注释（2026-07-17 账号 53 事故）。
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), rateLimitPersistTimeout)
+	defer persistCancel()
+	ctx = persistCtx
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
@@ -1784,6 +1799,14 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}
+	} else {
+		// DB 字段全干净(hasRecoverableRuntimeState=false):常见于限流落库因 ctx 取消而失败
+		// (见 handle429 的 persistCtx 修复)——此时 DB 显示干净,但进程内 OpenAI 内存熔断
+		// (openAIAccountRuntimeBlockUntil)可能残留,导致 "经测试可用却始终不被调度选中"
+		// (2026-07-17 账号 53 事故根因)。本方法由"账号测试成功"与管理端 recover-state 调用,
+		// 二者均代表账号可用,内存熔断没有保留理由,清一次。幂等且 nil-safe。
+		// (ClearRateLimit/ClearedError 分支已在上面清过,这里只补"啥都没清"的缺口,避免重复。)
+		s.notifyAccountSchedulingBlockCleared(accountID)
 	}
 
 	return result, nil
