@@ -44,7 +44,7 @@ func (r *balanceCheckRepoStub) ListSchedulable(context.Context) ([]Account, erro
 	return r.schedulableAccounts, nil
 }
 
-func (r *balanceCheckRepoStub) ListWithFilters(_ context.Context, _ pagination.PaginationParams, _, _, status, _ string, _ int64, _ string) ([]Account, *pagination.PaginationResult, error) {
+func (r *balanceCheckRepoStub) ListWithFilters(_ context.Context, _ pagination.PaginationParams, _, _, status, _ string, _ int64, _ string, _ bool) ([]Account, *pagination.PaginationResult, error) {
 	if status == "temp_unschedulable" {
 		return r.tempAccounts, &pagination.PaginationResult{Total: int64(len(r.tempAccounts)), Page: 1, PageSize: len(r.tempAccounts)}, nil
 	}

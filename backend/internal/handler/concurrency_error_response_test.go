@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  http.StatusTooManyRequests,
 			wantType:    "rate_limit_error",
-			wantMessage: "Concurrency limit exceeded for account, please retry later (source: sub2api)",
+			wantMessage: clienterror.WithSource("Concurrency limit exceeded for account, please retry later"),
 		},
 		{
 			name:        "client cancellation is not classified as concurrency limit",
@@ -32,7 +33,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  statusClientClosedRequest,
 			wantType:    "api_error",
-			wantMessage: "context canceled (source: sub2api)",
+			wantMessage: clienterror.WithSource("context canceled"),
 		},
 		{
 			name:        "deadline exceeded is service unavailable",
@@ -40,7 +41,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  http.StatusServiceUnavailable,
 			wantType:    "api_error",
-			wantMessage: "Service temporarily unavailable, please retry later (source: sub2api)",
+			wantMessage: clienterror.WithSource("Service temporarily unavailable, please retry later"),
 		},
 		{
 			name:        "redis acquire error is service unavailable",
@@ -48,7 +49,7 @@ func TestConcurrencyErrorResponse(t *testing.T) {
 			slotType:    "user",
 			wantStatus:  http.StatusServiceUnavailable,
 			wantType:    "api_error",
-			wantMessage: "Service temporarily unavailable, please retry later (source: sub2api)",
+			wantMessage: clienterror.WithSource("Service temporarily unavailable, please retry later"),
 		},
 	}
 

@@ -719,11 +719,11 @@ const hasOpenAIUsageFallback = computed(() => {
 const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
 
 const shouldAutoLoadUsageOnMount = computed(() => {
-  return shouldFetchUsage.value
+  return props.account.status === 'active' && shouldFetchUsage.value
 })
 
 const shouldLazyLoadOnMobile = computed(() => {
-  return shouldFetchUsage.value && !isDesktopViewport.value
+  return props.account.status === 'active' && shouldFetchUsage.value && !isDesktopViewport.value
 })
 
 // Antigravity quota types (用于 API 返回的数据)
