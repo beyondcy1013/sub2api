@@ -56,6 +56,7 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - `Concurrency limit exceeded for user` remains correctly described as sub2api's local caller-concurrency timeout. Do not direct operators to user management or claim sticky reassignment cannot help.
 - OpenAI historical `session_hash` affinity remains capacity-aware: when the bound account cannot acquire a real concurrency slot, the current connection spills to another eligible account in the same group without rewriting the historical binding.
 - Concurrency-full spillover remains independent of the advanced scheduler's TTFT/error health-escape switch. Strict, non-movable `previous_response_id` affinity is not migrated across accounts.
+- Global OpenAI 5h/7d quota auto-pause defaults remain disabled: `default_threshold_5h=0` and `default_threshold_7d=0`. Zero means no global threshold; do not replace it with `0.9` or `1.0` because the inclusive `utilization >= threshold` comparison would filter accounts again. Account-level thresholds remain explicit per-account overrides.
 - The service remains isolated on `sub2api.service`, port 18381, database `sub2api`, and Redis DB 0.
 - Usage auto-load on page mount skips accounts whose status is not `active`. `AccountUsageCell.vue` `shouldAutoLoadUsageOnMount` must return true only when `props.account.status === 'active'`. Non-active (`inactive`/`error`) accounts must not trigger automatic `/usage` upstream queries on mount; manual refresh via `usageManualRefreshToken` is unaffected.
 
@@ -107,7 +108,7 @@ go test -tags unit ./internal/handler/dto ./internal/service \
   -run 'TestRedactCredentials|TestAccountFromServiceShallow|TestMergePreservingSensitiveCreds|TestIsSensitiveCredentialKey'
 
 go test ./internal/service \
-  -run 'TestOpenAISelectAccountWithLoadAwareness_StickyFullSpillsToAvailableAccountAndPreservesBinding|TestOpenAIGatewayService_SelectAccountWithScheduler_(SessionStickyBusySpillsOverEvenWhenHealthEscapeDisabled|HealthEscapeDisabledStillSpillsOnConcurrency)'
+  -run 'TestGetOpsAdvancedSettings_DefaultDisablesOpenAIQuotaAutoPause|TestOpenAISelectAccountWithLoadAwareness_StickyFullSpillsToAvailableAccountAndPreservesBinding|TestOpenAIGatewayService_SelectAccountWithScheduler_(SessionStickyBusySpillsOverEvenWhenHealthEscapeDisabled|HealthEscapeDisabledStillSpillsOnConcurrency)'
 
 go test ./internal/repository ./internal/handler/admin ./internal/service -count=1
 
@@ -122,6 +123,15 @@ pnpm vitest run \
   src/views/admin/__tests__/AccountsView.bulkEdit.spec.ts
 pnpm typecheck
 pnpm build
+```
+
+Verify the persisted main-service policy after every upgrade or deployment. This query must return `0|0`:
+
+```sql
+SELECT value::jsonb #>> '{openai_account_quota_auto_pause,default_threshold_5h}',
+       value::jsonb #>> '{openai_account_quota_auto_pause,default_threshold_7d}'
+FROM settings
+WHERE key = 'ops_advanced_settings';
 ```
 
 Build the deployable binary with `CGO_ENABLED=0 go build -tags embed`, restart only `sub2api.service`, and verify port 18381 plus the embedded frontend assets.

@@ -28,6 +28,20 @@ func TestGetOpsAdvancedSettings_DefaultHidesOpenAITokenStats(t *testing.T) {
 	}
 }
 
+func TestGetOpsAdvancedSettings_DefaultDisablesOpenAIQuotaAutoPause(t *testing.T) {
+	repo := newRuntimeSettingRepoStub()
+	svc := &OpsService{settingRepo: repo}
+
+	cfg, err := svc.GetOpsAdvancedSettings(context.Background())
+	if err != nil {
+		t.Fatalf("GetOpsAdvancedSettings() error = %v", err)
+	}
+	if cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold5h != 0 ||
+		cfg.OpenAIAccountQuotaAutoPause.DefaultThreshold7d != 0 {
+		t.Fatalf("OpenAIAccountQuotaAutoPause = %+v, want both global defaults disabled", cfg.OpenAIAccountQuotaAutoPause)
+	}
+}
+
 func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing.T) {
 	repo := newRuntimeSettingRepoStub()
 	svc := &OpsService{settingRepo: repo}
