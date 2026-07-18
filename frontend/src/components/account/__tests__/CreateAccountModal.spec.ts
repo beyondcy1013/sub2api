@@ -81,9 +81,9 @@ const OAuthAuthorizationFlowStub = defineComponent({
   `,
 })
 
-function mountModal() {
+function mountModal(props: { show?: boolean; proxies?: any[]; groups?: any[] } = {}) {
   return mount(CreateAccountModal, {
-    props: { show: true, proxies: [], groups: [] },
+    props: { show: props.show ?? true, proxies: props.proxies ?? [], groups: props.groups ?? [] },
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
@@ -188,6 +188,32 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.concurrency).toBe(4)
+  })
+
+  it('defaults a new account to the last proxy and the first group', async () => {
+    const wrapper = mountModal({
+      show: false,
+      proxies: [
+        { id: 11, name: 'proxy-first' },
+        { id: 22, name: 'proxy-last' },
+      ],
+      groups: [
+        { id: 31, name: 'group-first' },
+        { id: 32, name: 'group-second' },
+      ],
+    })
+
+    await wrapper.setProps({ show: true })
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('default routing')
+    await wrapper.get('form#create-account-form input[placeholder^="sk-"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBe(22)
+    expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([31])
   })
 
   it('sends true explicitly when OpenAI long-context billing is enabled', async () => {
