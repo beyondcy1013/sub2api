@@ -75,10 +75,13 @@ const DataTableStub = {
 }
 
 const AccountBulkActionsBarStub = {
-  props: ['selectedIds'],
-  emits: ['edit-filtered', 'probe-upstream-billing'],
+  props: ['selectedIds', 'selectingAllPages'],
+  emits: ['edit-selected', 'edit-filtered', 'probe-upstream-billing', 'select-all-pages'],
   template: `
     <div>
+      <span data-test="selected-ids">{{ selectedIds.join(',') }}</span>
+      <button data-test="select-all-pages" @click="$emit('select-all-pages')">select all pages</button>
+      <button data-test="edit-selected" @click="$emit('edit-selected')">edit selected</button>
       <button data-test="edit-filtered" @click="$emit('edit-filtered')">edit filtered</button>
       <button data-test="probe-upstream-billing" @click="$emit('probe-upstream-billing')">probe</button>
     </div>
@@ -161,6 +164,42 @@ describe('admin AccountsView bulk edit scope', () => {
 
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-show')).toBe('true')
     expect(wrapper.get('[data-test="bulk-edit-modal"]').attributes('data-target-mode')).toBe('filtered')
+  })
+
+  it('selects account IDs from every filtered page', async () => {
+    const account = (id: number) => ({
+      id,
+      name: `account-${id}`,
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active',
+      schedulable: true,
+      created_at: '2026-07-13T00:00:00Z',
+      updated_at: '2026-07-13T00:00:00Z'
+    })
+    listAccounts
+      .mockResolvedValueOnce({ items: [account(7)], total: 2, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [account(7)], total: 2, page: 1, page_size: 1000, pages: 2 })
+      .mockResolvedValueOnce({ items: [account(11)], total: 2, page: 2, page_size: 1000, pages: 2 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="select-all-pages"]').trigger('click')
+    await flushPromises()
+
+    expect(listAccounts).toHaveBeenNthCalledWith(
+      2,
+      1,
+      1000,
+      expect.objectContaining({ recycled: '' })
+    )
+    expect(listAccounts).toHaveBeenNthCalledWith(
+      3,
+      2,
+      1000,
+      expect.objectContaining({ recycled: '' })
+    )
+    expect(wrapper.get('[data-test="selected-ids"]').text()).toBe('7,11')
   })
 
   it('renders the created_at column by default', async () => {
