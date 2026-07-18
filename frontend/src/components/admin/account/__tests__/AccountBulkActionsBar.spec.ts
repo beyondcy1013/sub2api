@@ -12,9 +12,9 @@ vi.mock('vue-i18n', async () => {
 })
 
 describe('AccountBulkActionsBar', () => {
-  it('提供所有页全选按钮并发出事件', async () => {
+  it('零选择时仍提供所有页全选按钮并发出事件', async () => {
     const wrapper = mount(AccountBulkActionsBar, {
-      props: { selectedIds: [1] }
+      props: { selectedIds: [] }
     })
 
     const button = wrapper
