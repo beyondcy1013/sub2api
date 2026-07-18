@@ -32,12 +32,41 @@
     </template>
 
     <template v-else>
+      <div v-if="selectable" class="flex items-center justify-end gap-2 px-1">
+        <label class="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
+          <input
+            type="checkbox"
+            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+            :checked="allVisibleSelected"
+            :indeterminate="someVisibleSelected"
+            data-test="select-all-mobile"
+            @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+          />
+          <span>{{ t('common.selectAll') }}</span>
+        </label>
+      </div>
       <div
         v-for="(row, index) in sortedData"
         :key="resolveRowKey(row, index)"
         class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
+        :class="{
+          'cursor-pointer': clickableRows,
+          'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
+        }"
+        @click="clickableRows && emit('rowClick', row)"
       >
         <div class="space-y-3">
+          <div v-if="selectable" class="flex justify-end">
+            <input
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              :checked="isRowSelected(row, index)"
+              :aria-label="getRowSelectionLabel(row, index)"
+              data-test="select-row"
+              @click.stop
+              @change="toggleRowSelection(row, index, ($event.target as HTMLInputElement).checked)"
+            />
+          </div>
           <div
             v-for="column in dataColumns"
             :key="column.key"
@@ -73,9 +102,25 @@
       <thead class="table-header bg-gray-50 dark:bg-dark-800">
         <tr>
           <th
+            v-if="selectable"
+            scope="col"
+            class="sticky-header-cell w-11 min-w-11 px-3 py-3 text-center"
+          >
+            <input
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              :checked="allVisibleSelected"
+              :indeterminate="someVisibleSelected"
+              :aria-label="t('common.selectAll')"
+              data-test="select-all"
+              @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+            />
+          </th>
+          <th
             v-for="(column, index) in columns"
             :key="column.key"
             scope="col"
+            :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
             :class="[
               'sticky-header-cell whitespace-nowrap py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
@@ -86,42 +131,47 @@
             ]"
             @click="column.sortable && handleSort(column.key)"
           >
-            <slot
-              :name="`header-${column.key}`"
-              :column="column"
-              :sort-key="sortKey"
-              :sort-order="sortOrder"
-            >
-              <div class="flex flex-nowrap items-center space-x-1">
+            <div :class="['flex flex-nowrap items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+              <slot
+                :name="`header-${column.key}`"
+                :column="column"
+                :sort-key="sortKey"
+                :sort-order="sortOrder"
+              >
                 <span class="shrink-0 whitespace-nowrap">{{ column.label }}</span>
-                <span v-if="column.sortable" class="shrink-0 text-gray-400 dark:text-dark-500">
-                  <svg
-                    v-if="sortKey === column.key"
-                    class="h-4 w-4"
-                    :class="{ 'rotate-180 transform': sortOrder === 'desc' }"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                  <svg v-else class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                    />
-                  </svg>
-                </span>
-              </div>
-            </slot>
+              </slot>
+              <span
+                v-if="column.sortable"
+                class="inline-flex h-5 w-4 shrink-0 flex-col items-center justify-center"
+                aria-hidden="true"
+              >
+                <svg
+                  class="h-2.5 w-2.5"
+                  :class="getSortIndicatorClass(column.key, 'asc')"
+                  fill="currentColor"
+                  viewBox="0 0 10 10"
+                >
+                  <path d="M5 2L1.5 6.5h7L5 2z" />
+                </svg>
+                <svg
+                  class="-mt-0.5 h-2.5 w-2.5"
+                  :class="getSortIndicatorClass(column.key, 'desc')"
+                  fill="currentColor"
+                  viewBox="0 0 10 10"
+                >
+                  <path d="M5 8L1.5 3.5h7L5 8z" />
+                </svg>
+              </span>
+            </div>
           </th>
         </tr>
       </thead>
       <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
         <!-- Loading skeleton -->
         <tr v-if="loading" v-for="i in 5" :key="i">
+          <td v-if="selectable" class="w-11 min-w-11 px-3 py-4">
+            <div class="mx-auto h-4 w-4 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
+          </td>
           <td v-for="column in columns" :key="column.key" :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
             <div class="animate-pulse">
               <div class="h-4 w-3/4 rounded bg-gray-200 dark:bg-dark-700"></div>
@@ -132,7 +182,7 @@
         <!-- Empty state -->
         <tr v-else-if="!data || data.length === 0">
           <td
-            :colspan="columns.length"
+            :colspan="tableColumnCount"
             :class="['py-12 text-center text-gray-500 dark:text-dark-400', getAdaptivePaddingClass()]"
           >
             <slot name="empty">
@@ -153,7 +203,7 @@
         <!-- Data rows: windowed when large, fully rendered when small (shared row/cell template) -->
         <template v-else>
           <tr v-if="virtualPaddingTop > 0" aria-hidden="true">
-            <td :colspan="columns.length"
+            <td :colspan="tableColumnCount"
                 :style="{ height: virtualPaddingTop + 'px', padding: 0, border: 'none' }">
             </td>
           </tr>
@@ -164,7 +214,23 @@
             :data-index="item.index"
             :ref="item.measure ? measureElement : undefined"
             class="hover:bg-gray-50 dark:hover:bg-dark-800"
+            :class="{
+              'cursor-pointer': clickableRows,
+              'bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(item.row, item.index)
+            }"
+            @click="clickableRows && emit('rowClick', item.row)"
           >
+            <td v-if="selectable" class="w-11 min-w-11 px-3 py-4 text-center">
+              <input
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+                :checked="isRowSelected(item.row, item.index)"
+                :aria-label="getRowSelectionLabel(item.row, item.index)"
+                data-test="select-row"
+                @click.stop
+                @change="toggleRowSelection(item.row, item.index, ($event.target as HTMLInputElement).checked)"
+              />
+            </td>
             <td
               v-for="(column, colIndex) in columns"
               :key="column.key"
@@ -187,7 +253,7 @@
             </td>
           </tr>
           <tr v-if="virtualPaddingBottom > 0" aria-hidden="true">
-            <td :colspan="columns.length"
+            <td :colspan="tableColumnCount"
                 :style="{ height: virtualPaddingBottom + 'px', padding: 0, border: 'none' }">
             </td>
           </tr>
@@ -213,6 +279,9 @@ const isDesktopViewport = ref(
 
 const emit = defineEmits<{
   sort: [key: string, order: 'asc' | 'desc']
+  rowClick: [row: any]
+  'update:selectedKeys': [keys: Array<string | number>]
+  selectionChange: [keys: Array<string | number>]
 }>()
 
 // 表格容器引用
@@ -380,6 +449,8 @@ interface Props {
    * will emit 'sort' events instead of performing client-side sorting.
    */
   serverSideSort?: boolean
+  /** Emit 'rowClick' on row/card click and show pointer cursor. */
+  clickableRows?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
@@ -390,6 +461,12 @@ interface Props {
    * estimated-vs-actual row heights when rows have variable height.
    */
   virtualizeThreshold?: number
+  /** Enable controlled row selection. Stable row keys are strongly recommended. */
+  selectable?: boolean
+  /** Selected row keys. Keys outside the current data page are preserved. */
+  selectedKeys?: Array<string | number>
+  /** Accessible label for a row selection checkbox. */
+  selectionLabel?: string | ((row: any) => string)
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -398,7 +475,9 @@ const props = withDefaults(defineProps<Props>(), {
   stickyActionsColumn: true,
   expandableActions: true,
   defaultSortOrder: 'asc',
-  serverSideSort: false
+  serverSideSort: false,
+  selectable: false,
+  selectedKeys: () => []
 })
 
 const sortKey = ref<string>('')
@@ -470,6 +549,24 @@ const applySortState = (state: PersistedSortState | null) => {
   if (!state) return
   sortKey.value = state.key
   sortOrder.value = state.order
+}
+
+const getSortIndicatorClass = (key: string, order: 'asc' | 'desc') => {
+  return sortKey.value === key && sortOrder.value === order
+    ? 'text-primary-600 dark:text-primary-400'
+    : 'text-gray-300 transition-colors dark:text-dark-500'
+}
+
+const getColumnAriaSort = (key: string) => {
+  if (sortKey.value !== key) return 'none'
+  return sortOrder.value === 'asc' ? 'ascending' : 'descending'
+}
+
+const getHeaderContentAlignmentClass = (column: Column) => {
+  const className = column.class || ''
+  if (className.includes('text-center')) return 'justify-center'
+  if (className.includes('text-right')) return 'justify-end'
+  return 'justify-start'
 }
 
 const isNullishOrEmpty = (value: any) => value === null || value === undefined || value === ''
@@ -602,6 +699,52 @@ const sortedData = computed(() => {
     })
     .map(item => item.row)
 })
+
+const tableColumnCount = computed(() => props.columns.length + (props.selectable ? 1 : 0))
+const selectedKeySet = computed(() => new Set(props.selectedKeys))
+const visibleRowKeys = computed(() =>
+  (sortedData.value ?? []).map((row, index) => resolveRowKey(row, index))
+)
+const allVisibleSelected = computed(() =>
+  visibleRowKeys.value.length > 0
+  && visibleRowKeys.value.every((key) => selectedKeySet.value.has(key))
+)
+const someVisibleSelected = computed(() => {
+  if (allVisibleSelected.value) return false
+  return visibleRowKeys.value.some((key) => selectedKeySet.value.has(key))
+})
+
+const emitSelection = (next: Set<string | number>) => {
+  const keys = Array.from(next)
+  emit('update:selectedKeys', keys)
+  emit('selectionChange', keys)
+}
+
+const isRowSelected = (row: any, index: number) =>
+  selectedKeySet.value.has(resolveRowKey(row, index))
+
+const getRowSelectionLabel = (row: any, index: number) => {
+  if (typeof props.selectionLabel === 'function') return props.selectionLabel(row)
+  if (props.selectionLabel) return props.selectionLabel
+  return `${t('common.selectOption')} ${resolveRowKey(row, index)}`
+}
+
+const toggleRowSelection = (row: any, index: number, checked: boolean) => {
+  const next = new Set(props.selectedKeys)
+  const key = resolveRowKey(row, index)
+  if (checked) next.add(key)
+  else next.delete(key)
+  emitSelection(next)
+}
+
+const toggleAllVisible = (checked: boolean) => {
+  const next = new Set(props.selectedKeys)
+  for (const key of visibleRowKeys.value) {
+    if (checked) next.add(key)
+    else next.delete(key)
+  }
+  emitSelection(next)
+}
 
 // --- Virtual scrolling ---
 // 是否启用虚拟化:仅桌面端且行数超过阈值时开启。小列表全量渲染,彻底绕开虚拟器的

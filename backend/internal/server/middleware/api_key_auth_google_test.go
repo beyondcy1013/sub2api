@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,59 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGoogleAPIKeyAuthRejectsOversizedCredentialsBeforeLookup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var calls atomic.Int32
+	repo := fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+		calls.Add(1)
+		return nil, service.ErrAPIKeyNotFound
+	}}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	r := gin.New()
+	var reason IngressRejectReason
+	var rejected bool
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		reason, rejected = GetIngressRejectReason(c)
+	})
+	r.Use(APIKeyAuthGoogle(svc, cfg))
+	r.GET("/v1beta/models", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", strings.Repeat("x", service.MaxAPIKeyCredentialBytes+1))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Zero(t, calls.Load())
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectInvalidAPIKey, reason)
+}
+
+func TestGoogleAPIKeyAuthMarksLookupBulkheadRejection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+		return nil, service.ErrAPIKeyAuthOverloaded
+	}}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	r := gin.New()
+	var reason IngressRejectReason
+	var rejected bool
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		reason, rejected = GetIngressRejectReason(c)
+	})
+	r.Use(APIKeyAuthGoogle(svc, cfg))
+	r.GET("/v1beta/models", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", "valid-shape")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectAPIKeyAuthOverloaded, reason)
+}
 
 type fakeAPIKeyRepo struct {
 	getByKey       func(ctx context.Context, key string) (*service.APIKey, error)
@@ -254,7 +309,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_MissingKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	require.Equal(t, "【sub2freeApi限制】 API key is required", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 API key is required (source: sub2freeApi)", resp.Error.Message)
 
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
@@ -279,7 +334,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_QueryApiKeyRejected(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusBadRequest, resp.Error.Code)
-	require.Equal(t, "【sub2freeApi限制】 Query parameter api_key is deprecated. Use Authorization header or key instead.", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 Query parameter api_key is deprecated. Use Authorization header or key instead. (source: sub2freeApi)", resp.Error.Message)
 
 	require.Equal(t, "INVALID_ARGUMENT", resp.Error.Status)
 }
@@ -386,6 +441,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
 			return nil, service.ErrAPIKeyNotFound
 		},
 	})
+	var rejectReason IngressRejectReason
+	var rejected bool
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		rejectReason, rejected = GetIngressRejectReason(c)
+	})
 	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, &config.Config{}))
 	r.GET("/v1beta/test", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
@@ -398,9 +459,11 @@ func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	require.Equal(t, "【sub2freeApi限制】 Invalid API key", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 Invalid API key (source: sub2freeApi)", resp.Error.Message)
 
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectInvalidAPIKey, rejectReason)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t *testing.T) {
@@ -433,9 +496,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	r := gin.New()
 	var markedBusinessLimited bool
 	var businessLimitedReason string
+	var rejectReason IngressRejectReason
+	var rejected bool
 	r.Use(func(c *gin.Context) {
 		c.Next()
 		markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
+		rejectReason, rejected = GetIngressRejectReason(c)
 		if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
 			businessLimitedReason, _ = v.(string)
 		}
@@ -460,10 +526,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "【sub2freeApi限制】 API Key 所属分组已删除", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 API Key 所属分组已删除 (source: sub2freeApi)", resp.Error.Message)
 
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectGroupDeleted, rejectReason)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {
@@ -487,7 +555,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusInternalServerError, resp.Error.Code)
-	require.Equal(t, "【sub2freeApi限制】 Failed to validate API key", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 Failed to validate API key (source: sub2freeApi)", resp.Error.Message)
 
 	require.Equal(t, "INTERNAL", resp.Error.Status)
 }
@@ -521,7 +589,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_DisabledKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	require.Equal(t, "【sub2freeApi限制】 API key is disabled", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 API key is disabled (source: sub2freeApi)", resp.Error.Message)
 
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
@@ -556,7 +624,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusForbidden, resp.Error.Code)
-	require.Equal(t, "【sub2freeApi限制】 Insufficient account balance", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 Insufficient account balance (source: sub2freeApi)", resp.Error.Message)
 
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
@@ -625,7 +693,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_RejectsExhaustedBalance(t *testing.T) 
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusForbidden, resp.Error.Code)
-	require.Equal(t, "Insufficient account balance", resp.Error.Message)
+	require.Equal(t, "【sub2freeApi限制】 Insufficient account balance (source: sub2freeApi)", resp.Error.Message)
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
 

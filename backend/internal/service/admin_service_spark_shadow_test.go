@@ -107,13 +107,17 @@ func (s *sparkShadowRepoStub) Delete(_ context.Context, id int64) error {
 	delete(s.mockAccountRepoForGemini.accountsByID, id)
 	return nil
 }
+
+func (s *sparkShadowRepoStub) RecycleAccount(context.Context, int64) error { return nil }
+
+func (s *sparkShadowRepoStub) RestoreAccount(context.Context, int64) error { return nil }
 func (s *sparkShadowRepoStub) BatchUpdateLastUsed(_ context.Context, _ map[int64]time.Time) error {
 	return nil
 }
 func (s *sparkShadowRepoStub) ListByGroup(_ context.Context, _ int64) ([]Account, error) {
 	return nil, nil
 }
-func (s *sparkShadowRepoStub) ListWithFilters(_ context.Context, _ pagination.PaginationParams, _, _, _, _ string, _ int64, _ string) ([]Account, *pagination.PaginationResult, error) {
+func (s *sparkShadowRepoStub) ListWithFilters(_ context.Context, _ pagination.PaginationParams, _, _, _, _ string, _ int64, _ string, _ bool) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
 

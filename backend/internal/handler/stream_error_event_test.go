@@ -76,7 +76,7 @@ func TestOpenAIHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(t
 	id, _ := resp["id"].(string)
 	assert.True(t, strings.HasPrefix(id, "resp_"), "id should start with resp_, got %q", id)
 	assert.Equal(t, "rate_limit_exceeded", errObj["code"])
-	assert.Equal(t, "【sub2freeApi限制】 Concurrency limit exceeded for user, please retry later", errObj["message"])
+	assert.Equal(t, "【sub2freeApi限制】 Concurrency limit exceeded for user, please retry later (source: sub2freeApi)", errObj["message"])
 
 }
 
@@ -140,7 +140,7 @@ func TestOpenAIHandleStreamingAwareError_ResponsesStreamingJSONEscaping(t *testi
 			h.handleStreamingAwareError(c, http.StatusBadGateway, tc.errType, tc.message, true)
 
 			_, errObj := parseResponsesFailedSSE(t, w.Body.String())
-			assert.Equal(t, clienterror.Prefix(tc.errType, tc.message), errObj["message"], "message 必须保留原内容并带来源前缀")
+			assert.Equal(t, clienterror.WithSource(clienterror.Prefix(tc.errType, tc.message)), errObj["message"], "message 必须保留原内容并带来源前缀")
 
 		})
 	}
@@ -165,7 +165,7 @@ func TestGatewayHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(
 
 	_, errObj := parseResponsesFailedSSE(t, w.Body.String())
 	assert.Equal(t, "upstream_error", errObj["code"])
-	assert.Equal(t, "【上游错误】 upstream gone", errObj["message"])
+	assert.Equal(t, "【上游错误】 upstream gone (source: sub2freeApi)", errObj["message"])
 
 }
 

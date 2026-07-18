@@ -33,6 +33,7 @@ type stubAdminService struct {
 	createSparkShadowErr                error
 	updateAccountErr                    error
 	bulkUpdateAccountErr                error
+	lastBulkUpdateAccountInput          *service.BulkUpdateAccountsInput
 	getAccountResult                    *service.Account
 	updateAccountCalls                  int
 	updateAccountExtraCalls             int
@@ -51,6 +52,7 @@ type stubAdminService struct {
 		privacyMode string
 		sortBy      string
 		sortOrder   string
+		recycled    bool
 		calls       int
 	}
 	lastListUsers struct {
@@ -195,6 +197,10 @@ func (s *stubAdminService) BatchUpdateConcurrency(ctx context.Context, userIDs [
 	return len(userIDs), nil
 }
 
+func (s *stubAdminService) BatchUpdateLimits(ctx context.Context, userIDs []int64, concurrency, rpmLimit *int) (int, error) {
+	return len(userIDs), nil
+}
+
 func (s *stubAdminService) GetUserAPIKeys(ctx context.Context, userID int64, page, pageSize int, sortBy, sortOrder string) ([]service.APIKey, int64, error) {
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
@@ -293,6 +299,15 @@ func (s *stubAdminService) CreateGroup(ctx context.Context, input *service.Creat
 	return &group, nil
 }
 
+func (s *stubAdminService) DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*service.Group, error) {
+	group := service.Group{ID: 201, Name: "group (Copy)", Status: "inactive"}
+	return &group, nil
+}
+
+func (s *stubAdminService) RecoverDuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*service.Group, error) {
+	return nil, nil
+}
+
 func (s *stubAdminService) UpdateGroup(ctx context.Context, id int64, input *service.UpdateGroupInput) (*service.Group, error) {
 	group := service.Group{ID: id, Name: input.Name, Status: service.StatusActive}
 	return &group, nil
@@ -326,7 +341,7 @@ func (s *stubAdminService) BatchSetGroupRPMOverrides(_ context.Context, _ int64,
 	return nil
 }
 
-func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]service.Account, int64, error) {
+func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled bool) ([]service.Account, int64, error) {
 	s.lastListAccounts.platform = platform
 	s.lastListAccounts.accountType = accountType
 	s.lastListAccounts.status = status
@@ -335,6 +350,7 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	s.lastListAccounts.privacyMode = privacyMode
 	s.lastListAccounts.sortBy = sortBy
 	s.lastListAccounts.sortOrder = sortOrder
+	s.lastListAccounts.recycled = recycled
 	s.lastListAccounts.calls++
 	accounts := s.accounts
 	total := len(accounts)
@@ -355,13 +371,17 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	return accounts[start:end], int64(total), nil
 }
 
-func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
+func (s *stubAdminService) ListAccountsForSchedulerScoreFilter(_ context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]service.Account, error) {
 	s.schedulerScoreFilterCalls++
 	if s.accountSchedulerScoreFilterAccounts != nil {
 		return s.accountSchedulerScoreFilterAccounts, nil
 	}
 	return s.accounts, nil
 }
+
+func (s *stubAdminService) RecycleAccount(context.Context, int64) error { return nil }
+
+func (s *stubAdminService) RestoreAccount(context.Context, int64) error { return nil }
 
 func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ context.Context, groupID *int64) ([]service.Account, error) {
 	s.openAISchedulerScorePoolCalls++
@@ -465,6 +485,7 @@ func (s *stubAdminService) SetAccountSchedulable(ctx context.Context, id int64, 
 }
 
 func (s *stubAdminService) BulkUpdateAccounts(ctx context.Context, input *service.BulkUpdateAccountsInput) (*service.BulkUpdateAccountsResult, error) {
+	s.lastBulkUpdateAccountInput = input
 	if s.bulkUpdateAccountErr != nil {
 		return nil, s.bulkUpdateAccountErr
 	}

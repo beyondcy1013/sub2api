@@ -32,7 +32,7 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errorObj["type"])
-	assert.Equal(t, "【上游错误】 Upstream request failed", errorObj["message"])
+	assert.Equal(t, "【上游错误】 Upstream request failed (source: sub2freeApi)", errorObj["message"])
 
 }
 
