@@ -9,14 +9,16 @@ const {
   getBatchTodayStats,
   getAllProxies,
   getAllGroups,
-  probeUpstreamBillingBatch
+  probeUpstreamBillingBatch,
+  bulkUpdateAccounts
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
-  probeUpstreamBillingBatch: vi.fn()
+  probeUpstreamBillingBatch: vi.fn(),
+  bulkUpdateAccounts: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -30,6 +32,7 @@ vi.mock('@/api/admin', () => ({
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
       probeUpstreamBillingBatch,
+      bulkUpdate: bulkUpdateAccounts,
       toggleSchedulable: vi.fn()
     },
     proxies: {
@@ -79,12 +82,14 @@ const DataTableStub = {
 }
 
 const AccountBulkActionsBarStub = {
-  props: ['selectedIds', 'selectingAllPages'],
-  emits: ['edit-selected', 'edit-filtered', 'probe-upstream-billing', 'select-all-pages'],
+  props: ['selectedIds', 'selectingAllPages', 'quickUpdating', 'proxies', 'groups'],
+  emits: ['edit-selected', 'edit-filtered', 'probe-upstream-billing', 'select-all-pages', 'quick-set-proxy', 'quick-set-group'],
   template: `
     <div>
       <span data-test="selected-ids">{{ selectedIds.join(',') }}</span>
       <button data-test="select-all-pages" @click="$emit('select-all-pages')">select all pages</button>
+      <button data-test="quick-set-proxy" @click="$emit('quick-set-proxy', 9)">proxy</button>
+      <button data-test="quick-set-group" @click="$emit('quick-set-group', 5)">group</button>
       <button data-test="edit-selected" @click="$emit('edit-selected')">edit selected</button>
       <button data-test="edit-filtered" @click="$emit('edit-filtered')">edit filtered</button>
       <button data-test="probe-upstream-billing" @click="$emit('probe-upstream-billing')">probe</button>
@@ -151,6 +156,7 @@ describe('admin AccountsView bulk edit scope', () => {
     getAllProxies.mockReset()
     getAllGroups.mockReset()
     probeUpstreamBillingBatch.mockReset()
+    bulkUpdateAccounts.mockReset()
 
     listAccounts.mockResolvedValue({
       items: [],
@@ -168,6 +174,7 @@ describe('admin AccountsView bulk edit scope', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     probeUpstreamBillingBatch.mockResolvedValue([])
+    bulkUpdateAccounts.mockResolvedValue({ success: 1, failed: 0, results: [] })
   })
 
   it('opens bulk edit in filtered-results mode from the bulk actions dropdown', async () => {
@@ -250,6 +257,22 @@ describe('admin AccountsView bulk edit scope', () => {
       expect.objectContaining({ recycled: '' })
     )
     expect(wrapper.get('[data-test="selected-ids"]').text()).toBe('7,11')
+  })
+
+  it('directly applies a proxy and group to selected accounts', async () => {
+    const account = { id: 7, name: 'account-7', platform: 'openai', type: 'apikey', status: 'active', schedulable: true, created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z' }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="select-row"] input').trigger('change')
+    await wrapper.get('[data-test="quick-set-proxy"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="quick-set-group"]').trigger('click')
+    await flushPromises()
+
+    expect(bulkUpdateAccounts).toHaveBeenNthCalledWith(1, [7], { proxy_id: 9 })
+    expect(bulkUpdateAccounts).toHaveBeenNthCalledWith(2, [7], { group_ids: [5] })
   })
 
   it('renders the created_at column by default', async () => {
