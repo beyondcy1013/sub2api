@@ -215,6 +215,9 @@
         <AccountBulkActionsBar
           :selected-ids="selIds"
           :selecting-all-pages="selectingAllPages"
+          :quick-updating="quickBulkUpdating"
+          :proxies="proxies"
+          :groups="groups"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
@@ -224,6 +227,8 @@
           @clear="clearSelection"
           @select-page="selectPage"
           @select-all-pages="selectAllPages"
+          @quick-set-proxy="handleQuickSetProxy"
+          @quick-set-group="handleQuickSetGroup"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -628,6 +633,7 @@ const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const selectingAllPages = ref(false)
+const quickBulkUpdating = ref<'proxy' | 'group' | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
@@ -1716,6 +1722,46 @@ const selectAllPages = async () => {
   } finally {
     selectingAllPages.value = false
   }
+}
+
+const applyQuickBulkUpdate = async (
+  kind: 'proxy' | 'group',
+  updates: { proxy_id: number } | { group_ids: number[] }
+) => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0 || quickBulkUpdating.value !== null) return
+
+  quickBulkUpdating.value = kind
+  try {
+    const result = await adminAPI.accounts.bulkUpdate(accountIds, updates)
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.partialSuccess', {
+        success: result.success,
+        failed: result.failed
+      }))
+    } else {
+      appStore.showSuccess(t(
+        kind === 'proxy'
+          ? 'admin.accounts.bulkActions.proxyUpdated'
+          : 'admin.accounts.bulkActions.groupUpdated',
+        { count: result.success }
+      ))
+    }
+    await reload()
+  } catch (error) {
+    console.error(`Failed to quick-update account ${kind}:`, error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+  } finally {
+    quickBulkUpdating.value = null
+  }
+}
+
+const handleQuickSetProxy = (proxyId: number) => {
+  void applyQuickBulkUpdate('proxy', { proxy_id: proxyId })
+}
+
+const handleQuickSetGroup = (groupId: number) => {
+  void applyQuickBulkUpdate('group', { group_ids: groupId === 0 ? [] : [groupId] })
 }
 
 const collectSelectionMetadata = (rows: Account[]) => {
