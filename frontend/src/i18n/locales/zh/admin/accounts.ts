@@ -475,6 +475,8 @@ export default {
       bulkActions: {
         selected: '已选择 {count} 个账号',
         selectCurrentPage: '本页全选',
+        selectAllPages: '所有页全选',
+        selectingAllPages: '正在全选...',
         clear: '清除选择',
         edit: '批量编辑账号',
         delete: '批量删除',
@@ -492,6 +494,8 @@ export default {
         selectionInfo: '已选择 {count} 个账号。只更新您勾选或填写的字段，未勾选的字段保持不变。',
         baseUrlPlaceholder: 'https://api.anthropic.com 或 https://api.openai.com',
         baseUrlNotice: '适用于 API Key 账号及 Grok OAuth 账号的转发端点，留空则不修改',
+        proxyApply: '统一设置代理',
+        proxyApplyHint: '开启后会将所选代理应用到全部目标账号；选择“无代理”可统一清空代理。',
         submit: '批量更新',
         updating: '更新中...',
         success: '成功更新 {count} 个账号',

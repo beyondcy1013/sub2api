@@ -214,6 +214,7 @@
       <template #table>
         <AccountBulkActionsBar
           :selected-ids="selIds"
+          :selecting-all-pages="selectingAllPages"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
@@ -222,6 +223,7 @@
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
           @select-page="selectPage"
+          @select-all-pages="selectAllPages"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -625,6 +627,7 @@ const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
+const selectingAllPages = ref(false)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
@@ -1683,6 +1686,35 @@ const buildBulkEditFilterSnapshot = () => {
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
+  }
+}
+
+const selectAllPages = async () => {
+  if (selectingAllPages.value) return
+
+  selectingAllPages.value = true
+  try {
+    const pageSize = 1000
+    const filters = {
+      ...buildBulkEditFilterSnapshot(),
+      recycled: recycled.value ? '1' : '',
+      lite: '1',
+      include_scheduler_score: '0'
+    }
+    const firstPage = await adminAPI.accounts.list(1, pageSize, filters)
+    const ids = firstPage.items.map(account => account.id)
+
+    for (let page = 2; page <= firstPage.pages; page += 1) {
+      const result = await adminAPI.accounts.list(page, pageSize, filters)
+      ids.push(...result.items.map(account => account.id))
+    }
+
+    setSelectedIds(ids)
+  } catch (error) {
+    console.error('Failed to select accounts from all pages:', error)
+    appStore.showError(t('common.error'))
+  } finally {
+    selectingAllPages.value = false
   }
 }
 
