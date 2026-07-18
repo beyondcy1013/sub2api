@@ -216,6 +216,46 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([31])
   })
 
+  it('applies routing defaults when proxy and group candidates arrive after opening', async () => {
+    const wrapper = mountModal({ show: false })
+
+    await wrapper.setProps({ show: true })
+    await wrapper.setProps({
+      proxies: [
+        { id: 41, name: 'proxy-first' },
+        { id: 42, name: 'proxy-last' },
+      ],
+      groups: [
+        { id: 51, name: 'group-first' },
+        { id: 52, name: 'group-second' },
+      ],
+    })
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('late defaults')
+    await wrapper.get('form#create-account-form input[placeholder^="sk-"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBe(42)
+    expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([51])
+  })
+
+  it('keeps routing unassigned when no proxy or group exists', async () => {
+    const wrapper = mountModal({ show: false })
+
+    await wrapper.setProps({ show: true })
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('no defaults')
+    await wrapper.get('form#create-account-form input[placeholder^="sk-"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBeNull()
+    expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([])
+  })
+
   it('sends true explicitly when OpenAI long-context billing is enabled', async () => {
     await submitApiKeyAccount('openai', true)
 
