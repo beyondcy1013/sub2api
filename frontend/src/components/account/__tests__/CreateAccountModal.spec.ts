@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   createAccountMock,
+  cloneAccountMock,
   probeUpstreamBillingMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
+  cloneAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       create: createAccountMock,
+      clone: cloneAccountMock,
       probeUpstreamBilling: probeUpstreamBillingMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       importCodexSession: importCodexSessionMock,
@@ -84,9 +87,16 @@ const OAuthAuthorizationFlowStub = defineComponent({
   `,
 })
 
-function mountModal() {
+function mountModal(
+  props: { show?: boolean; proxies?: any[]; groups?: any[]; cloneSource?: any } = {}
+) {
   return mount(CreateAccountModal, {
-    props: { show: true, proxies: [], groups: [] },
+    props: {
+      show: props.show ?? true,
+      proxies: props.proxies ?? [],
+      groups: props.groups ?? [],
+      cloneSource: props.cloneSource,
+    },
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
@@ -109,6 +119,18 @@ async function selectButtonByText(wrapper: ReturnType<typeof mountModal>, text: 
   const button = wrapper.findAll('button').find((candidate) => candidate.text().includes(text))
   expect(button).toBeDefined()
   await button?.trigger('click')
+}
+
+async function submitOpenAIAPIKeyAccount(
+  wrapper: ReturnType<typeof mountModal>,
+  name: string
+) {
+  await selectButtonByText(wrapper, 'OpenAI')
+  await selectButtonByText(wrapper, 'API Key')
+  await wrapper.get('form#create-account-form input[type="text"]').setValue(name)
+  await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+  await wrapper.get('form#create-account-form').trigger('submit.prevent')
+  await flushPromises()
 }
 
 async function submitApiKeyAccount(
@@ -148,6 +170,7 @@ async function openCodexImportStep(toggleClicks = 0) {
 describe('CreateAccountModal OpenAI long-context billing', () => {
   beforeEach(() => {
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
+    cloneAccountMock.mockReset().mockResolvedValue({ id: 43, platform: 'openai', type: 'apikey' })
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
     importCodexSessionMock.mockReset().mockResolvedValue({
       created: 1,
@@ -225,6 +248,106 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('defaults a new account to the last proxy and the first group', async () => {
+    const wrapper = mountModal({
+      show: false,
+      proxies: [
+        { id: 11, name: 'proxy-first' },
+        { id: 22, name: 'proxy-last' },
+      ],
+      groups: [
+        { id: 31, name: 'group-first' },
+        { id: 32, name: 'group-second' },
+      ],
+    })
+
+    await wrapper.setProps({ show: true })
+    await submitOpenAIAPIKeyAccount(wrapper, 'default routing')
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBe(22)
+    expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([31])
+  })
+
+  it('applies routing defaults when proxy and group candidates arrive after opening', async () => {
+    const wrapper = mountModal({ show: false })
+
+    await wrapper.setProps({ show: true })
+    await wrapper.setProps({
+      proxies: [
+        { id: 41, name: 'proxy-first' },
+        { id: 42, name: 'proxy-last' },
+      ],
+      groups: [
+        { id: 51, name: 'group-first' },
+        { id: 52, name: 'group-second' },
+      ],
+    })
+    await submitOpenAIAPIKeyAccount(wrapper, 'late defaults')
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBe(42)
+    expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([51])
+  })
+
+  it('keeps routing unassigned when no proxy or group exists', async () => {
+    const wrapper = mountModal({ show: false })
+
+    await wrapper.setProps({ show: true })
+    await submitOpenAIAPIKeyAccount(wrapper, 'no defaults')
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBeNull()
+    expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([])
+  })
+
+  it('does not apply new-account routing defaults to a clone with unassigned routing', async () => {
+    const wrapper = mountModal({
+      show: false,
+      proxies: [
+        { id: 61, name: 'proxy-first' },
+        { id: 62, name: 'proxy-last' },
+      ],
+      groups: [
+        { id: 71, name: 'group-first' },
+        { id: 72, name: 'group-second' },
+      ],
+      cloneSource: {
+        id: 81,
+        name: 'clone source',
+        platform: 'openai',
+        type: 'apikey',
+        credentials: {},
+        extra: {},
+        proxy_id: null,
+        concurrency: 6,
+        priority: 1,
+        rate_multiplier: 1,
+        group_ids: [],
+        expires_at: null,
+        auto_pause_on_expired: true,
+      },
+    })
+
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await wrapper.setProps({
+      proxies: [
+        { id: 61, name: 'proxy-first' },
+        { id: 63, name: 'proxy-new-last' },
+      ],
+      groups: [
+        { id: 73, name: 'group-new-first' },
+        { id: 72, name: 'group-second' },
+      ],
+    })
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(cloneAccountMock).toHaveBeenCalledTimes(1)
+    expect(cloneAccountMock.mock.calls[0]?.[0]).toBe(81)
+    expect(cloneAccountMock.mock.calls[0]?.[1]?.proxy_id).toBeNull()
+    expect(cloneAccountMock.mock.calls[0]?.[1]?.group_ids).toEqual([])
   })
 
   it('sends true explicitly when OpenAI long-context billing is enabled', async () => {
