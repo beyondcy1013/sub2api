@@ -65,7 +65,23 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
             </select>
           `
         },
-        ProxySelector: true,
+        ProxySelector: {
+          props: ['modelValue', 'proxies', 'disabled'],
+          emits: ['update:modelValue'],
+          template: `
+            <select
+              data-test="bulk-proxy-selector"
+              :value="modelValue ?? ''"
+              :disabled="disabled"
+              @change="$emit('update:modelValue', $event.target.value ? Number($event.target.value) : null)"
+            >
+              <option value="">no proxy</option>
+              <option v-for="proxy in proxies" :key="proxy.id" :value="proxy.id">
+                {{ proxy.name }}
+              </option>
+            </select>
+          `
+        },
         GroupSelector: true,
         Icon: true
       }
@@ -86,6 +102,40 @@ describe('BulkEditAccountModal', () => {
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({
       has_risk: false
     } as any)
+  })
+
+  it('明确提供统一设置代理入口，并仅在开启后启用代理选择器', async () => {
+    const wrapper = mountModal()
+
+    expect(wrapper.text()).toContain('admin.accounts.bulkEdit.proxyApply')
+    expect(wrapper.get('[data-test="bulk-proxy-selector"]').attributes()).toHaveProperty('disabled')
+
+    await wrapper.get('#bulk-edit-proxy-enabled').setValue(true)
+
+    expect(wrapper.get('[data-test="bulk-proxy-selector"]').attributes()).not.toHaveProperty('disabled')
+  })
+
+  it('可为选中账号统一设置代理', async () => {
+    const wrapper = mountModal({
+      proxies: [{ id: 9, name: 'proxy-9', protocol: 'http', host: '127.0.0.1', port: 8080 }]
+    })
+
+    await wrapper.get('#bulk-edit-proxy-enabled').setValue(true)
+    await wrapper.get('[data-test="bulk-proxy-selector"]').setValue('9')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { proxy_id: 9 })
+  })
+
+  it('选择无代理时可统一清空账号代理', async () => {
+    const wrapper = mountModal()
+
+    await wrapper.get('#bulk-edit-proxy-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { proxy_id: 0 })
   })
 
   it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {
