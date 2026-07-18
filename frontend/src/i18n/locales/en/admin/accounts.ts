@@ -346,6 +346,8 @@ export default {
       bulkActions: {
         selected: '{count} account(s) selected',
         selectCurrentPage: 'Select this page',
+        selectAllPages: 'Select all pages',
+        selectingAllPages: 'Selecting all...',
         clear: 'Clear selection',
         edit: 'Bulk Edit',
         delete: 'Bulk Delete',
@@ -364,6 +366,8 @@ export default {
           '{count} account(s) selected. Only checked or filled fields will be updated; others stay unchanged.',
         baseUrlPlaceholder: 'https://api.anthropic.com or https://api.openai.com',
         baseUrlNotice: 'Applies to API Key accounts and the forwarding endpoint of Grok OAuth accounts; leave empty to keep existing value',
+        proxyApply: 'Set proxy for all',
+        proxyApplyHint: 'Applies the selected proxy to every target account. Select No Proxy to clear proxies for all targets.',
         submit: 'Update Accounts',
         updating: 'Updating...',
         success: 'Updated {count} account(s)',

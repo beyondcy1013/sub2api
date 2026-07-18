@@ -16,6 +16,18 @@
       </button>
       <span class="text-gray-300 dark:text-primary-800">•</span>
       <button
+        @click="$emit('select-all-pages')"
+        :disabled="selectingAllPages"
+        class="text-xs font-medium text-primary-700 hover:text-primary-800 disabled:cursor-wait disabled:opacity-60 dark:text-primary-300 dark:hover:text-primary-200"
+      >
+        {{
+          selectingAllPages
+            ? t('admin.accounts.bulkActions.selectingAllPages')
+            : t('admin.accounts.bulkActions.selectAllPages')
+        }}
+      </button>
+      <span class="text-gray-300 dark:text-primary-800">•</span>
+      <button
         @click="$emit('clear')"
         class="text-xs font-medium text-primary-700 hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
       >
@@ -43,13 +55,16 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
-defineProps<{ selectedIds: number[] }>()
+withDefaults(defineProps<{ selectedIds: number[]; selectingAllPages?: boolean }>(), {
+  selectingAllPages: false
+})
 defineEmits([
   'delete',
   'edit-selected',
   'edit-filtered',
   'clear',
   'select-page',
+  'select-all-pages',
   'toggle-schedulable',
   'reset-status',
   'refresh-token',
