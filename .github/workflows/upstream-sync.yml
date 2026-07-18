@@ -24,6 +24,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Merge upstream main
         id: merge
@@ -96,4 +97,8 @@ jobs:
 
       - name: Push tested merge
         if: steps.merge.outputs.changed == 'true'
-        run: git push origin HEAD:main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 --wrap=0)"
+          git -c "http.extraheader=AUTHORIZATION: basic $auth_header" push origin HEAD:main
