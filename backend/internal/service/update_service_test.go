@@ -31,9 +31,11 @@ type updateServiceGitHubClientStub struct {
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
+	latestCalls    int
 }
 
 func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+	s.latestCalls++
 	return s.release, nil
 }
 
@@ -67,6 +69,30 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
+}
+
+func TestUpdateServiceCheckUpdateIsDisabledForCustomizedBuild(t *testing.T) {
+	githubClient := &updateServiceGitHubClientStub{
+		release: &GitHubRelease{
+			TagName: "v9.9.9",
+			Name:    "v9.9.9",
+		},
+	}
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		githubClient,
+		"0.1.160",
+		"release",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "0.1.160", info.CurrentVersion)
+	require.Equal(t, "0.1.160", info.LatestVersion)
+	require.False(t, info.HasUpdate)
+	require.Nil(t, info.ReleaseInfo)
+	require.Zero(t, githubClient.latestCalls)
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {

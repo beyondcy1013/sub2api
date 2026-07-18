@@ -2,6 +2,8 @@
 
 This repository carries local `sub2freeApi` behavior that must be preserved when downloading or merging upgraded upstream source.
 
+The canonical end-to-end procedure is [UPGRADE_RUNBOOK.md](UPGRADE_RUNBOOK.md). This document is the behavior checklist used during its customization-audit stage; it is not a substitute for the runbook.
+
 ## Complete State Preservation
 
 The customization list below is a behavioral verification checklist, not a file allowlist. Preserve all local commits and all working-tree state before upgrading:
@@ -13,7 +15,7 @@ BACKUP_BRANCH=backup-pre-upgrade-$TS
 mkdir -p "$BACKUP"
 git branch "$BACKUP_BRANCH" HEAD
 git bundle create "$BACKUP/repository.bundle" --all
-git log --reverse --oneline origin/main..HEAD > "$BACKUP/local-commits.txt"
+git log --reverse --oneline upstream/main..HEAD > "$BACKUP/local-commits.txt"
 git status --porcelain=v1 > "$BACKUP/status.txt"
 git diff --binary > "$BACKUP/worktree.patch"
 git diff --cached --binary > "$BACKUP/index.patch"
@@ -30,8 +32,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   git stash push -m "pre-upgrade-$TS"
   STASH_CREATED=1
 fi
-git fetch origin
-git merge --no-ff origin/main
+git fetch upstream --tags
+git merge --no-ff upstream/main
 if [ "$STASH_CREATED" -eq 1 ]; then
   git stash pop --index
 fi
@@ -45,6 +47,7 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - Admin account management shows upstream `credentials.api_key` fully in plaintext.
 - Backend admin account DTOs do not redact `api_key`, but still redact OAuth tokens, cookies, private keys, refresh tokens, and similar secrets.
 - Account updates preserve an existing `api_key` when the update payload omits it.
+- New account creation defaults to the last available proxy and the first available group. Late-arriving candidates fill only empty selections; empty lists remain unassigned, and clone mode always preserves the source account's proxy/group assignments, including empty assignments.
 - Client-facing errors include a source prefix:
   - `【sub2freeApi限制】` for local/auth/quota/concurrency/config limits.
   - `【上游错误】` for upstream-originated failures.
@@ -64,6 +67,8 @@ Account/API Key plaintext:
 - `backend/internal/handler/dto/credentials_redact.go`
 - `backend/internal/handler/dto/account_mapper_redact_test.go`
 - `frontend/src/components/account/EditAccountModal.vue`
+- `frontend/src/components/account/CreateAccountModal.vue`
+- `frontend/src/components/account/__tests__/CreateAccountModal.spec.ts`
 - `frontend/src/views/admin/AccountsView.vue`
 - `frontend/src/components/common/DataTable.vue`
 - `frontend/src/components/common/__tests__/DataTable.spec.ts`
@@ -111,19 +116,11 @@ pnpm typecheck
 pnpm build
 ```
 
-## Deploy
+## Deployment And Fork Backup
 
-```bash
-cd /home/third_party/sub2freeApi/backend
-CGO_ENABLED=0 go build -tags embed -o /home/third_party/bin/sub2freeApi/sub2freeApi ./cmd/server/
-systemctl restart sub2freeApi.service
-systemctl status sub2freeApi.service --no-pager
-ss -ltnp | rg ':18382'
-curl -fsS http://127.0.0.1:18382/ >/dev/null
-curl -sS -X POST http://127.0.0.1:18382/v1/responses -H 'Content-Type: application/json' -d '{"model":"gpt-5","input":"hi"}'
-```
+Build, atomic binary replacement, live verification, the `origin/sub2freeApi` clean-snapshot push, cleanup, and rollback must follow [UPGRADE_RUNBOOK.md](UPGRADE_RUNBOOK.md). Restart only `sub2freeApi.service`; never use a shorter direct-overwrite deployment command.
 
-The missing-auth response should contain `【sub2freeApi限制】`.
+The live missing-auth `/v1/responses` response must contain `【sub2freeApi限制】`.
 
 After every test, build, deployment, live version, and behavior check succeeds, delete only this upgrade's temporary recovery data:
 

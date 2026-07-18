@@ -557,13 +557,18 @@
       <!-- Proxy -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
-          <label
-            id="bulk-edit-proxy-label"
-            class="input-label mb-0"
-            for="bulk-edit-proxy-enabled"
-          >
-            {{ t('admin.accounts.proxy') }}
-          </label>
+          <div class="flex-1 pr-4">
+            <label
+              id="bulk-edit-proxy-label"
+              class="input-label mb-0"
+              for="bulk-edit-proxy-enabled"
+            >
+              {{ t('admin.accounts.bulkEdit.proxyApply') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.bulkEdit.proxyApplyHint') }}
+            </p>
+          </div>
           <input
             v-model="enableProxy"
             id="bulk-edit-proxy-enabled"
@@ -576,6 +581,7 @@
           <ProxySelector
             v-model="proxyId"
             :proxies="proxies"
+            :disabled="!enableProxy"
             aria-labelledby="bulk-edit-proxy-label"
           />
         </div>

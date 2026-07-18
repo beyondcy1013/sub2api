@@ -4060,20 +4060,36 @@ const tempUnschedPresets = computed(() => [
   }
 ])
 
+const getDefaultProxyId = (): number | null =>
+  props.proxies[props.proxies.length - 1]?.id ?? null
+
+const getDefaultGroupIds = (): number[] =>
+  props.groups[0] ? [props.groups[0].id] : []
+
 const form = reactive({
   name: '',
   notes: '',
   platform: 'anthropic' as AccountPlatform,
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
-  proxy_id: null as number | null,
+  proxy_id: isCloneMode.value ? null : getDefaultProxyId(),
   concurrency: 10,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
-  group_ids: [] as number[],
+  group_ids: isCloneMode.value ? [] : getDefaultGroupIds(),
   expires_at: null as number | null
 })
+
+const applyNewAccountRoutingDefaults = () => {
+  if (isCloneMode.value) return
+  if (form.proxy_id === null) {
+    form.proxy_id = getDefaultProxyId()
+  }
+  if (form.group_ids.length === 0) {
+    form.group_ids = getDefaultGroupIds()
+  }
+}
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
@@ -4135,10 +4151,7 @@ watch(
       } else {
         allowedModels.value = [...getModelsByPlatform(form.platform)]
       }
-      // Auto-select single group if only one exists
-      if (props.groups.length === 1) {
-        form.group_ids = [props.groups[0].id]
-      }
+      applyNewAccountRoutingDefaults()
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -4156,6 +4169,18 @@ watch(
       }
     } else {
       resetForm()
+    }
+  }
+)
+
+watch(
+  [
+    () => props.proxies.map(proxy => proxy.id).join(','),
+    () => props.groups.map(group => group.id).join(',')
+  ],
+  () => {
+    if (props.show) {
+      applyNewAccountRoutingDefaults()
     }
   }
 )
@@ -4794,12 +4819,12 @@ const resetForm = () => {
   form.platform = 'anthropic'
   form.type = 'oauth'
   form.credentials = {}
-  form.proxy_id = null
+  form.proxy_id = isCloneMode.value ? null : getDefaultProxyId()
   form.concurrency = 10
   form.load_factor = null
   form.priority = 1
   form.rate_multiplier = 1
-  form.group_ids = []
+  form.group_ids = isCloneMode.value ? [] : getDefaultGroupIds()
   form.expires_at = null
   accountCategory.value = 'oauth-based'
   addMethod.value = 'oauth'

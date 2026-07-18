@@ -185,6 +185,10 @@
       <template #table>
         <AccountBulkActionsBar
           :selected-ids="selIds"
+          :selecting-all-pages="selectingAllPages"
+          :quick-updating="quickBulkUpdating"
+          :proxies="proxies"
+          :groups="groups"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
@@ -193,6 +197,9 @@
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
           @select-page="selectPage"
+          @select-all-pages="selectAllPages"
+          @quick-set-proxy="handleQuickSetProxy"
+          @quick-set-group="handleQuickSetGroup"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -600,6 +607,8 @@ const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
+const selectingAllPages = ref(false)
+const quickBulkUpdating = ref<'proxy' | 'group' | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
@@ -1682,6 +1691,75 @@ const buildBulkEditFilterSnapshot = () => {
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
+}
+
+const selectAllPages = async () => {
+  if (selectingAllPages.value) return
+
+  selectingAllPages.value = true
+  try {
+    const pageSize = 1000
+    const filters = {
+      ...buildBulkEditFilterSnapshot(),
+      recycled: recycled.value ? '1' : '',
+      lite: '1',
+      include_scheduler_score: '0'
+    }
+    const firstPage = await adminAPI.accounts.list(1, pageSize, filters)
+    const ids = firstPage.items.map(account => account.id)
+
+    for (let page = 2; page <= firstPage.pages; page += 1) {
+      const result = await adminAPI.accounts.list(page, pageSize, filters)
+      ids.push(...result.items.map(account => account.id))
+    }
+
+    setSelectedIds(ids)
+  } catch (error) {
+    console.error('Failed to select accounts from all pages:', error)
+    appStore.showError(t('common.error'))
+  } finally {
+    selectingAllPages.value = false
+  }
+}
+
+const applyQuickBulkUpdate = async (
+  kind: 'proxy' | 'group',
+  updates: { proxy_id: number } | { group_ids: number[] }
+) => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0 || quickBulkUpdating.value !== null) return
+
+  quickBulkUpdating.value = kind
+  try {
+    const result = await adminAPI.accounts.bulkUpdate(accountIds, updates)
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.partialSuccess', {
+        success: result.success,
+        failed: result.failed
+      }))
+    } else {
+      appStore.showSuccess(t(
+        kind === 'proxy'
+          ? 'admin.accounts.bulkActions.proxyUpdated'
+          : 'admin.accounts.bulkActions.groupUpdated',
+        { count: result.success }
+      ))
+    }
+    await reload()
+  } catch (error) {
+    console.error(`Failed to quick-update account ${kind}:`, error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+  } finally {
+    quickBulkUpdating.value = null
+  }
+}
+
+const handleQuickSetProxy = (proxyId: number) => {
+  void applyQuickBulkUpdate('proxy', { proxy_id: proxyId })
+}
+
+const handleQuickSetGroup = (groupId: number) => {
+  void applyQuickBulkUpdate('group', { group_ids: groupId === 0 ? [] : [groupId] })
 }
 
 const collectSelectionMetadata = (rows: Account[]) => {
