@@ -52,6 +52,63 @@ func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	require.Equal(t, 0, offset)
 }
 
+func TestAccountHandlerListExposesOpenAIQuotaAutoPauseAsRateLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	adminSvc := newStubAdminService()
+	now := time.Now().UTC().Truncate(time.Second)
+	resetAt := now.Add(2 * time.Hour)
+	adminSvc.accounts = []service.Account{
+		{
+			ID:          701,
+			Name:        "quota-limited-openai",
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeOAuth,
+			Status:      service.StatusActive,
+			Schedulable: true,
+			Concurrency: 3,
+			Extra: map[string]any{
+				"codex_7d_used_percent":   91.0,
+				"codex_7d_reset_at":       resetAt.Format(time.RFC3339),
+				"codex_usage_updated_at":  now.Format(time.RFC3339),
+				"auto_pause_7d_threshold": 0.9,
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}
+	rateLimitService := service.NewRateLimitService(nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, rateLimitService, nil, nil, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/accounts", handler.List)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&platform=openai", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var payload struct {
+		Data struct {
+			Items []struct {
+				ID             int64 `json:"id"`
+				QuotaRateLimit *struct {
+					Window      string     `json:"window"`
+					Threshold   float64    `json:"threshold"`
+					Utilization float64    `json:"utilization"`
+					ResetAt     *time.Time `json:"reset_at"`
+				} `json:"quota_rate_limit"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 1)
+	require.Equal(t, int64(701), payload.Data.Items[0].ID)
+	require.NotNil(t, payload.Data.Items[0].QuotaRateLimit)
+	require.Equal(t, "7d", payload.Data.Items[0].QuotaRateLimit.Window)
+	require.InDelta(t, 0.91, payload.Data.Items[0].QuotaRateLimit.Utilization, 0.0001)
+	require.NotNil(t, payload.Data.Items[0].QuotaRateLimit.ResetAt)
+	require.WithinDuration(t, resetAt, *payload.Data.Items[0].QuotaRateLimit.ResetAt, time.Second)
+}
+
 func TestAccountHandlerListReturnsSchedulerScoresPerGroup(t *testing.T) {
 	router, adminSvc := setupAccountListRouter()
 	now := time.Now().UTC()

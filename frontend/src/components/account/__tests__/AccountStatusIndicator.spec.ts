@@ -51,6 +51,38 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  it('OpenAI Codex 自动暂停直接显示为额度限流', () => {
+    const account = makeAccount({
+      platform: 'openai',
+    }) as Account & {
+      quota_rate_limit: {
+        window: '7d'
+        threshold: number
+        utilization: number
+        reset_at: string
+      }
+    }
+    account.quota_rate_limit = {
+      window: '7d',
+      threshold: 0.9,
+      utilization: 0.91,
+      reset_at: '2099-07-11T13:00:00Z'
+    }
+
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.quotaRateLimited')
+    expect(wrapper.text()).toContain('admin.accounts.status.rateLimitedAutoResume')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.active')
+  })
+
   it('Grok 账号额度限流时显示自动恢复时间而非临时不可调度', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
