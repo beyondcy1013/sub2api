@@ -303,7 +303,8 @@ func TestOpenAIEnsureForwardErrorResponse_ImageJSONKeepaliveWritesSingleJSONFall
 	require.NoError(t, decoder.Decode(&payload))
 	require.ErrorIs(t, decoder.Decode(&payload), io.EOF)
 	require.Equal(t, "upstream_error", gjson.Get(w.Body.String(), "error.type").String())
-	require.Equal(t, "Upstream request failed", gjson.Get(w.Body.String(), "error.message").String())
+	require.Equal(t, clienterr.WithSource("Upstream request failed"), gjson.Get(w.Body.String(), "error.message").String())
+	require.Equal(t, clienterr.Source, gjson.Get(w.Body.String(), "error.source").String())
 }
 
 func TestOpenAIEnsureForwardErrorResponse_ImageJSONKeepalivePreservesCompletedJSON(t *testing.T) {
@@ -1684,7 +1685,8 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 	require.Equal(t, []int64{9910, 9910, 9911}, upstream.calls())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-	require.Equal(t, "Upstream service temporarily unavailable", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.Equal(t, clienterr.WithSource("Upstream service temporarily unavailable"), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.Equal(t, clienterr.Source, gjson.GetBytes(rec.Body.Bytes(), "error.source").String())
 }
 
 func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T) {

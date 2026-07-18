@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -79,7 +80,8 @@ func TestOpenAICompatibleHandlersRejectInvalidStreamFieldType(t *testing.T) {
 			tt.run(c)
 
 			require.Equal(t, http.StatusBadRequest, rec.Code)
-			require.Equal(t, invalidStreamFieldTypeMessage, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+			require.Equal(t, clienterr.WithSource(invalidStreamFieldTypeMessage), gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+			require.Equal(t, clienterr.Source, gjson.GetBytes(rec.Body.Bytes(), "error.source").String())
 			require.Contains(t, rec.Body.String(), "invalid_request_error")
 		})
 	}
