@@ -131,6 +131,7 @@ export default {
       schedulableHint: 'Enable to include this account in API request scheduling',
       schedulableEnabled: 'Scheduling enabled',
       schedulableDisabled: 'Scheduling disabled',
+      schedulableQuotaRateLimited: 'Scheduling is enabled, but the account is excluded by its {window} quota limit',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
@@ -165,6 +166,8 @@ export default {
         paused: 'Paused',
         limited: 'Limited',
         rateLimited: 'Rate Limited',
+        quotaRateLimited: 'Quota Limited',
+        quotaRateLimitedDetail: '{window} usage {utilization}% reached the {threshold}% auto-pause threshold; excluded from scheduling until {time}',
         overloaded: 'Overloaded',
         tempUnschedulable: 'Temp Unschedulable',
         quotaExceeded: 'Quota Exceeded',

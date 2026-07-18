@@ -264,6 +264,39 @@ type openAIQuotaAutoPauseDecision struct {
 	utilization float64
 }
 
+// OpenAIQuotaRateLimitStatus is the request-time quota gate exposed to admin clients.
+// It mirrors scheduling eligibility without mutating the account's persisted status.
+type OpenAIQuotaRateLimitStatus struct {
+	Window      string     `json:"window"`
+	Threshold   float64    `json:"threshold"`
+	Utilization float64    `json:"utilization"`
+	ResetAt     *time.Time `json:"reset_at,omitempty"`
+}
+
+// GetOpenAIQuotaRateLimitStatus reports the same quota auto-pause decision used by
+// OpenAI request scheduling so the admin UI does not present a filtered account as normal.
+func (s *RateLimitService) GetOpenAIQuotaRateLimitStatus(ctx context.Context, account *Account) *OpenAIQuotaRateLimitStatus {
+	if account == nil || !account.IsOpenAI() {
+		return nil
+	}
+	if s != nil && s.settingService != nil {
+		ctx = withOpenAIQuotaAutoPauseSettings(ctx, s.settingService.GetOpenAIQuotaAutoPauseSettings(ctx))
+	}
+	paused, decision := shouldAutoPauseOpenAIAccountByQuota(ctx, account)
+	if !paused {
+		return nil
+	}
+	status := &OpenAIQuotaRateLimitStatus{
+		Window:      decision.window,
+		Threshold:   decision.threshold,
+		Utilization: decision.utilization,
+	}
+	if resetAt, ok := resolveOpenAIQuotaResetAt(account.Extra, decision.window, time.Now()); ok {
+		status.ResetAt = &resetAt
+	}
+	return status
+}
+
 func shouldAutoPauseGrokAccountByQuota(account *Account) (bool, openAIQuotaAutoPauseDecision) {
 	if account == nil || !account.IsGrok() || account.Type != AccountTypeOAuth {
 		return false, openAIQuotaAutoPauseDecision{}
@@ -488,17 +521,22 @@ func openAICodexSnapshotStaleForPause(extra map[string]any, now time.Time) bool 
 // timestamp and falls back to codex_<window>_reset_after_seconds anchored at
 // codex_usage_updated_at, mirroring AccountUsageService's window-progress logic.
 func openAIQuotaWindowReset(extra map[string]any, window string, now time.Time) bool {
+	resetAt, ok := resolveOpenAIQuotaResetAt(extra, window, now)
+	return ok && !now.Before(resetAt)
+}
+
+func resolveOpenAIQuotaResetAt(extra map[string]any, window string, now time.Time) (time.Time, bool) {
 	if len(extra) == 0 {
-		return false
+		return time.Time{}, false
 	}
 	if resetAtRaw, ok := extra["codex_"+window+"_reset_at"]; ok {
 		if resetAt, err := parseTime(fmt.Sprint(resetAtRaw)); err == nil {
-			return !now.Before(resetAt)
+			return resetAt, true
 		}
 	}
 	resetAfter := parseExtraInt(extra["codex_"+window+"_reset_after_seconds"])
 	if resetAfter <= 0 {
-		return false
+		return time.Time{}, false
 	}
 	base := now
 	if updatedRaw, ok := extra["codex_usage_updated_at"]; ok {
@@ -506,8 +544,7 @@ func openAIQuotaWindowReset(extra map[string]any, window string, now time.Time) 
 			base = updatedAt
 		}
 	}
-	resetAt := base.Add(time.Duration(resetAfter) * time.Second)
-	return !now.Before(resetAt)
+	return base.Add(time.Duration(resetAfter) * time.Second), true
 }
 
 func readOpenAIQuotaUsedPercent(extra map[string]any, window string) float64 {

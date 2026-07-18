@@ -182,9 +182,10 @@ type CheckMixedChannelRequest struct {
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
 	*dto.Account
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
+	CurrentConcurrency int                                 `json:"current_concurrency"`
+	QuotaRateLimit     *service.OpenAIQuotaRateLimitStatus `json:"quota_rate_limit,omitempty"`
+	SchedulerScore     *AccountSchedulerScore              `json:"scheduler_score,omitempty"`
+	SchedulerScores    []AccountSchedulerGroupScore        `json:"scheduler_scores,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -211,6 +212,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	item := AccountWithConcurrency{
 		Account:            dto.AccountFromService(account),
 		CurrentConcurrency: 0,
+		QuotaRateLimit:     h.openAIQuotaRateLimitStatus(ctx, account),
 	}
 	if account == nil {
 		return item
@@ -251,6 +253,13 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
 
 	return item
+}
+
+func (h *AccountHandler) openAIQuotaRateLimitStatus(ctx context.Context, account *service.Account) *service.OpenAIQuotaRateLimitStatus {
+	if h == nil || h.rateLimitService == nil || account == nil {
+		return nil
+	}
+	return h.rateLimitService.GetOpenAIQuotaRateLimitStatus(ctx, account)
 }
 
 // scoreOpenAIAccountSchedulerPool 对池内 OpenAI 账号计算调度分数快照。
@@ -629,6 +638,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		item := AccountWithConcurrency{
 			Account:            dto.AccountFromService(acc),
 			CurrentConcurrency: concurrencyCounts[acc.ID],
+			QuotaRateLimit:     h.openAIQuotaRateLimitStatus(c.Request.Context(), acc),
 			SchedulerScore:     schedulerScores[acc.ID],
 			SchedulerScores:    schedulerGroupScores[acc.ID],
 		}

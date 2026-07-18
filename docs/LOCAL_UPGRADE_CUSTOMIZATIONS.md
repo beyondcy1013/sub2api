@@ -59,6 +59,7 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - Global OpenAI 5h/7d quota auto-pause defaults remain disabled: `default_threshold_5h=0` and `default_threshold_7d=0`. Zero means no global threshold; do not replace it with `0.9` or `1.0` because the inclusive `utilization >= threshold` comparison would filter accounts again. Account-level thresholds remain explicit per-account overrides.
 - The service remains isolated on `sub2api.service`, port 18381, database `sub2api`, and Redis DB 0.
 - Usage auto-load on page mount skips accounts whose status is not `active`. `AccountUsageCell.vue` `shouldAutoLoadUsageOnMount` must return true only when `props.account.status === 'active'`. Non-active (`inactive`/`error`) accounts must not trigger automatic `/usage` upstream queries on mount; manual refresh via `usageManualRefreshToken` is unaffected.
+- OpenAI quota auto-pause is surfaced as a derived `quota_rate_limit` in admin account responses and as `额度限流` in the account table. The scheduling toggle is amber while its stored setting remains enabled but the quota gate excludes the account. Preserve the shared scheduler decision logic and never persist the derived state into `status`, `schedulable`, or `rate_limit_reset_at`.
 
 ## OpenAI Sticky Concurrency Spillover
 

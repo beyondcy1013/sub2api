@@ -81,6 +81,7 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.quotaRateLimited')
     expect(wrapper.text()).toContain('admin.accounts.status.rateLimitedAutoResume')
     expect(wrapper.text()).not.toContain('admin.accounts.status.active')
+    expect(wrapper.text()).not.toContain('429')
   })
 
   it('Grok 账号额度限流时显示自动恢复时间而非临时不可调度', () => {

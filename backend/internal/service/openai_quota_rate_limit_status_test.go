@@ -54,3 +54,30 @@ func TestRateLimitServiceGetOpenAIQuotaRateLimitStatusHonorsDisableFlag(t *testi
 
 	require.Nil(t, service.GetOpenAIQuotaRateLimitStatus(context.Background(), account))
 }
+
+func TestRateLimitServiceGetOpenAIQuotaRateLimitStatusUsesGlobalThreshold(t *testing.T) {
+	now := time.Now().UTC()
+	settingService := &SettingService{}
+	settingService.SetOpenAIQuotaAutoPauseSettings(OpsOpenAIAccountQuotaAutoPauseSettings{
+		DefaultThreshold5h: 0.95,
+	})
+	rateLimitService := NewRateLimitService(nil, nil, nil, nil, nil)
+	rateLimitService.SetSettingService(settingService)
+	account := &Account{
+		ID:       703,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent":  96.0,
+			"codex_5h_reset_at":      now.Add(time.Hour).Format(time.RFC3339),
+			"codex_usage_updated_at": now.Format(time.RFC3339),
+		},
+	}
+
+	status := rateLimitService.GetOpenAIQuotaRateLimitStatus(context.Background(), account)
+
+	require.NotNil(t, status)
+	require.Equal(t, "5h", status.Window)
+	require.InDelta(t, 0.95, status.Threshold, 0.0001)
+	require.InDelta(t, 0.96, status.Utilization, 0.0001)
+}

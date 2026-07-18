@@ -1,8 +1,8 @@
 <template>
   <div class="flex items-center gap-2">
-    <!-- Rate Limit Display (429) - Two-line layout -->
+    <!-- Explicit 429 or derived quota limiting - two-line layout -->
     <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
-      <span class="text-xs font-medium text-amber-600 dark:text-amber-400">{{ t('admin.accounts.status.rateLimited') }}</span>
+      <span class="text-xs font-medium text-amber-600 dark:text-amber-400">{{ rateLimitLabel }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
 
@@ -58,13 +58,13 @@
     </div>
 
     <!-- Rate Limit Indicator (429) -->
-    <div v-if="isRateLimited" class="group relative">
+    <div v-if="isExplicitRateLimited" class="group relative">
       <span class="text-xs text-amber-600 dark:text-amber-400">429</span>
       <!-- Tooltip -->
       <div
         class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 whitespace-normal rounded bg-gray-900 px-3 py-2 text-center text-xs leading-relaxed text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
       >
-        {{ t('admin.accounts.status.rateLimitedUntil', { time: formatDateTime(account.rate_limit_reset_at) }) }}
+        {{ rateLimitDetail }}
         <div
           class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700"
         ></div>
@@ -148,10 +148,37 @@ const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
 
-// Computed: is rate limited (429)
-const isRateLimited = computed(() => {
+const quotaRateLimit = computed(() => props.account.quota_rate_limit ?? null)
+
+const rateLimitResetAt = computed(() => {
+  return quotaRateLimit.value?.reset_at || props.account.rate_limit_reset_at
+})
+
+const isExplicitRateLimited = computed(() => {
   if (!props.account.rate_limit_reset_at) return false
   return new Date(props.account.rate_limit_reset_at) > new Date()
+})
+
+// Includes explicit upstream 429 and the derived OpenAI quota auto-pause gate.
+const isRateLimited = computed(() => !!quotaRateLimit.value || isExplicitRateLimited.value)
+
+const rateLimitLabel = computed(() => {
+  return quotaRateLimit.value
+    ? t('admin.accounts.status.quotaRateLimited')
+    : t('admin.accounts.status.rateLimited')
+})
+
+const rateLimitDetail = computed(() => {
+  const quota = quotaRateLimit.value
+  if (quota) {
+    return t('admin.accounts.status.quotaRateLimitedDetail', {
+      window: quota.window,
+      utilization: Math.round(quota.utilization * 100),
+      threshold: Math.round(quota.threshold * 100),
+      time: quota.reset_at ? formatDateTime(quota.reset_at) : '-'
+    })
+  }
+  return t('admin.accounts.status.rateLimitedUntil', { time: formatDateTime(props.account.rate_limit_reset_at) })
 })
 
 type AccountModelStatusItem = {
@@ -278,7 +305,7 @@ const isQuotaExceeded = computed(() => {
 
 // Computed: countdown text for rate limit (429)
 const rateLimitCountdown = computed(() => {
-  return formatCountdown(props.account.rate_limit_reset_at)
+  return formatCountdown(rateLimitResetAt.value)
 })
 
 const rateLimitResumeText = computed(() => {

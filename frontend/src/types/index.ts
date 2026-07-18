@@ -932,6 +932,12 @@ export interface Account {
   concurrency: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
+  quota_rate_limit?: {
+    window: '5h' | '7d'
+    threshold: number
+    utilization: number
+    reset_at?: string | null
+  } | null
   scheduler_score?: {
     base_score: number
     sticky_score?: number
