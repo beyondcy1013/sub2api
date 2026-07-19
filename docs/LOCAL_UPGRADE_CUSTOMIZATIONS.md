@@ -72,6 +72,19 @@ Both profiles must preserve all of the following:
   styling.
 - Usage auto-load runs only for active accounts; manual refresh remains
   available for every status.
+- Usage progress bars remain compact and contain only window label, progress,
+  utilization, and reset state. Request/token and `A`/`U` cost totals stay in
+  their dedicated account-table columns.
+- Valid zero-valued window statistics render as `0`; only genuinely missing
+  window data renders as `-`, so newly added and lightly used accounts expose
+  the same complete fields after a usage query.
+- The parent account table consumes `AccountUsageCell`'s `usage-loaded` payload
+  for the 5h/7d request, token, utilization, reset, and cost columns.
+- `批量更新额度` remains immediately before `批量更新`. It queries the current
+  selection, or the complete filtered result when nothing is selected; limits
+  targets to OpenAI OAuth and Anthropic OAuth/Setup Token; calls active usage
+  with `force=true`; runs no more than four calls concurrently; continues after
+  individual failures; and applies each successful result immediately.
 - `handle429` persists rate-limit state with a detached, bounded context.
 - Successful recover-state clears the in-memory scheduling block even when the
   database contains no recoverable state.
@@ -89,7 +102,10 @@ Both profiles must preserve all of the following:
 - Custom header slots do not suppress sortable-column indicators.
 - First and last cells use `4px` outer padding.
 - Non-final columns retain vertical separators in light and dark modes.
-- Account ID and platform/type remain near the end before actions.
+- Leading columns keep `schedulable -> usage -> platform/type`. After created
+  time, keep today cost -> groups (when visible) -> balance -> 5h/7d
+  request/token -> window cost. The ending order is account ID -> upstream
+  declared rate -> actions.
 - Filters are hidden by default behind the filters toggle.
 - Sidebar width remains `154px` expanded and `67px` collapsed.
 
@@ -174,6 +190,8 @@ Frontend focused tests must cover:
 - active-only usage auto-load;
 - DataTable width/header/sort contracts;
 - account table columns and bulk actions;
+- compact usage windows, complete zero-valued usage columns, reset labels, and
+  bulk active-usage refresh scope/concurrency/partial-failure behavior;
 - main-only sticky reassignment visibility;
 - free-only balance-check navigation and route access.
 
