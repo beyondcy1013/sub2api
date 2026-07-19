@@ -54,6 +54,14 @@
               <Icon name="sync" size="sm" />
               {{ t('admin.accounts.recoverState') }}
             </button>
+            <button @click="$emit('scheduled-action', account, 'enable_and_recover'); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm leading-5 text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="clock" size="sm" />
+              {{ t('admin.accounts.scheduledAction.enableAndRecover') }}
+            </button>
+            <button @click="$emit('scheduled-action', account, 'pause'); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm leading-5 text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="clock" size="sm" />
+              {{ t('admin.accounts.scheduledAction.pause') }}
+            </button>
             <button v-if="hasQuotaLimit" @click="$emit('reset-quota', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-teal-600 hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="refresh" size="sm" />
               {{ t('admin.accounts.resetQuota') }}
@@ -77,7 +85,7 @@ import type { Account } from '@/types'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete'])
 const { t } = useI18n()
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false

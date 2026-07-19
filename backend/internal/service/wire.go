@@ -501,6 +501,21 @@ func ProvideScheduledTestRunnerService(
 	return svc
 }
 
+func ProvideScheduledAccountActionService(
+	repo ScheduledAccountActionRepository,
+	adminService AdminService,
+	rateLimitService *RateLimitService,
+) *ScheduledAccountActionService {
+	performer := newScheduledAccountActionPerformer(adminService, rateLimitService)
+	return NewScheduledAccountActionService(repo, performer)
+}
+
+func ProvideScheduledAccountActionRunner(service *ScheduledAccountActionService) *ScheduledAccountActionRunner {
+	runner := NewScheduledAccountActionRunner(service)
+	runner.Start()
+	return runner
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -757,6 +772,8 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
+	ProvideScheduledAccountActionService,
+	ProvideScheduledAccountActionRunner,
 	NewGroupCapacityService,
 	NewChannelService,
 	NewModelPricingResolver,

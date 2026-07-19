@@ -588,6 +588,42 @@ export async function setSchedulable(id: number, schedulable: boolean): Promise<
   return data
 }
 
+export type ScheduledAccountActionType = 'enable_and_recover' | 'pause'
+
+export interface ScheduledAccountAction {
+  id: number
+  account_id: number
+  action: ScheduledAccountActionType
+  execute_at: string
+  status: 'pending' | 'processing' | 'completed'
+  attempts: number
+  lease_until?: string | null
+  last_error?: string | null
+  created_at: string
+  updated_at: string
+  completed_at?: string | null
+}
+
+export interface ScheduleAccountActionRequest {
+  action: ScheduledAccountActionType
+  hours: number
+  minutes: number
+}
+
+export async function getScheduledAction(id: number): Promise<ScheduledAccountAction | null> {
+  const { data } = await apiClient.get<ScheduledAccountAction | null>(`/admin/accounts/${id}/scheduled-action`)
+  return data
+}
+
+export async function scheduleAction(id: number, request: ScheduleAccountActionRequest): Promise<ScheduledAccountAction> {
+  const { data } = await apiClient.put<ScheduledAccountAction>(`/admin/accounts/${id}/scheduled-action`, request)
+  return data
+}
+
+export async function cancelScheduledAction(id: number): Promise<void> {
+  await apiClient.delete(`/admin/accounts/${id}/scheduled-action`)
+}
+
 /**
  * Get available models for an account
  * @param id - Account ID
@@ -993,6 +1029,9 @@ export const accountsAPI = {
   getTempUnschedulableStatus,
   resetTempUnschedulable,
   setSchedulable,
+  getScheduledAction,
+  scheduleAction,
+  cancelScheduledAction,
   getAvailableModels,
   syncUpstreamModels,
   syncUpstreamModelsPreview,

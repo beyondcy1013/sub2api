@@ -531,8 +531,9 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
+    <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -592,8 +593,10 @@ import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vu
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
+import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
+import type { ScheduledAccountActionType } from '@/api/admin/accounts'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayCostCell from '@/components/account/AccountTodayCostCell.vue'
@@ -689,6 +692,7 @@ const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
+const showScheduledAction = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -699,6 +703,8 @@ const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const stickySessionsAcc = ref<Account | null>(null)
+const scheduledActionAcc = ref<Account | null>(null)
+const scheduledActionType = ref<ScheduledAccountActionType>('pause')
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
@@ -1333,6 +1339,7 @@ const isAnyModalOpen = computed(() => {
     showTest.value ||
     showStats.value ||
     showStickySessions.value ||
+    showScheduledAction.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
@@ -2321,6 +2328,15 @@ const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = nul
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
 const handleStickySessions = (a: Account) => { stickySessionsAcc.value = a; showStickySessions.value = true }
+const handleScheduledAction = (a: Account, action: ScheduledAccountActionType) => {
+  scheduledActionAcc.value = a
+  scheduledActionType.value = action
+  showScheduledAction.value = true
+}
+const closeScheduledActionModal = () => {
+  showScheduledAction.value = false
+  scheduledActionAcc.value = null
+}
 const handleStickySessionsReassigned = () => {
   enterAutoRefreshSilentWindow()
   refreshTodayStatsBatch().catch(() => undefined)
