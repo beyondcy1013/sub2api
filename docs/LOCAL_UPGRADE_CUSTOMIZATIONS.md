@@ -53,6 +53,10 @@ Both profiles must preserve all of the following:
 - A new account selects the last available proxy and first available group.
   Late candidate arrival fills only empty selections and never overwrites an
   operator choice.
+- Bulk-edit value controls are usable without first selecting a field checkbox.
+  A value change automatically selects that field, and untouched defaults stay
+  out of the update payload. Field checkboxes remain as the explicit path for
+  applying a value equal to the form default or clearing an existing value.
 - Clone mode preserves the source proxy/group assignments, including explicit
   unassigned values, and never applies new-account routing defaults.
 - Account recycle/restore uses `extra.recycled`; it does not use soft delete.

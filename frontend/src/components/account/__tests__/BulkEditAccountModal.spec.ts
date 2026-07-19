@@ -168,6 +168,24 @@ describe('BulkEditAccountModal', () => {
     expect(wrapper.text()).not.toContain('gpt-5.3-codex')
   })
 
+  it('直接选择模型白名单时自动提交模型限制', async () => {
+    const wrapper = mountModal()
+    const selector = wrapper.findComponent(ModelWhitelistSelector)
+
+    selector.vm.$emit('update:modelValue', ['gemini-3.1-flash-image'])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        model_mapping: {
+          'gemini-3.1-flash-image': 'gemini-3.1-flash-image'
+        }
+      }
+    })
+  })
+
   it('antigravity 映射预设包含图片映射并过滤 OpenAI 预设', async () => {
     const wrapper = mountModal()
 
@@ -310,7 +328,6 @@ describe('BulkEditAccountModal', () => {
       selectedTypes: ['oauth']
     })
 
-    await wrapper.get('#bulk-edit-openai-ws-mode-enabled').setValue(true)
     await wrapper.get('[data-testid="bulk-edit-openai-ws-mode-select"]').setValue('http_bridge')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -339,7 +356,6 @@ describe('BulkEditAccountModal', () => {
       selectedTypes: ['oauth']
     })
 
-    await wrapper.get('#bulk-edit-openai-codex-cli-only-enabled').setValue(true)
     await wrapper.get('#bulk-edit-openai-codex-cli-only-toggle').trigger('click')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -359,9 +375,7 @@ describe('BulkEditAccountModal', () => {
     })
 
     // 子开关从属于 codex_cli_only：必须同时批量开启父开关才写入
-    await wrapper.get('#bulk-edit-openai-codex-cli-only-enabled').setValue(true)
     await wrapper.get('#bulk-edit-openai-codex-cli-only-toggle').trigger('click')
-    await wrapper.get('#bulk-edit-openai-codex-app-server-enabled').setValue(true)
     await wrapper.get('#bulk-edit-openai-codex-app-server-toggle').trigger('click')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -396,7 +410,6 @@ describe('BulkEditAccountModal', () => {
       selectedTypes: ['apikey']
     })
 
-    await wrapper.get('#bulk-edit-openai-apikey-ws-mode-enabled').setValue(true)
     await wrapper.get('[data-testid="bulk-edit-openai-apikey-ws-mode-select"]').setValue('ctx_pool')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -432,7 +445,6 @@ describe('BulkEditAccountModal', () => {
       selectedTypes: ['apikey']
     })
 
-    await wrapper.get('#bulk-edit-upstream-billing-auto-probe-enabled').setValue(true)
     await wrapper.get('[data-testid="bulk-edit-upstream-billing-auto-probe-select"]').setValue('disabled')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -491,9 +503,7 @@ describe('BulkEditAccountModal', () => {
       }
     })
 
-    await wrapper.get('#bulk-edit-openai-compact-mode-enabled').setValue(true)
     await wrapper.get('[data-testid="bulk-edit-openai-compact-mode-select"]').setValue('force_on')
-    await wrapper.get('#bulk-edit-openai-compact-model-mapping-enabled').setValue(true)
     await wrapper.get('[data-testid="bulk-edit-openai-compact-model-mapping-add"]').trigger('click')
     const inputs = wrapper.findAll('[data-testid="bulk-edit-openai-compact-model-mapping-input"]')
     await inputs[0].setValue('gpt-5.4')

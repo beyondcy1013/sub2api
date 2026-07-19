@@ -59,7 +59,6 @@
         </div>
         <div
           id="bulk-edit-openai-passthrough-body"
-          :class="!enableOpenAIPassthrough && 'pointer-events-none opacity-50'"
           role="group"
           aria-labelledby="bulk-edit-openai-passthrough-label"
         >
@@ -104,9 +103,7 @@
           v-model="baseUrl"
           id="bulk-edit-base-url"
           type="text"
-          :disabled="!enableBaseUrl"
           class="input"
-          :class="!enableBaseUrl && 'cursor-not-allowed opacity-50'"
           :placeholder="t('admin.accounts.bulkEdit.baseUrlPlaceholder')"
           aria-labelledby="bulk-edit-base-url-label"
         />
@@ -141,7 +138,6 @@
 
         <div
           id="bulk-edit-model-restriction-body"
-          :class="!enableModelRestriction && 'pointer-events-none opacity-50'"
           role="group"
           aria-labelledby="bulk-edit-model-restriction-label"
         >
@@ -375,7 +371,7 @@
           />
         </div>
 
-        <div v-if="enableCustomErrorCodes" id="bulk-edit-custom-error-codes-body" class="space-y-3">
+        <div id="bulk-edit-custom-error-codes-body" class="space-y-3">
           <div class="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
             <p class="text-xs text-amber-700 dark:text-amber-400">
               <Icon name="exclamationTriangle" size="sm" class="mr-1 inline" :stroke-width="2" />
@@ -472,7 +468,7 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div v-if="enableInterceptWarmup" id="bulk-edit-intercept-warmup-body" class="mt-3">
+        <div id="bulk-edit-intercept-warmup-body" class="mt-3">
           <button
             type="button"
             :class="[
@@ -514,7 +510,7 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div v-if="enableHeaderOverride" id="bulk-edit-header-override-body" class="mt-3 space-y-3">
+        <div id="bulk-edit-header-override-body" class="mt-3 space-y-3">
           <button
             type="button"
             :class="[
@@ -577,11 +573,10 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div id="bulk-edit-proxy-body" :class="!enableProxy && 'pointer-events-none opacity-50'">
+        <div id="bulk-edit-proxy-body">
           <ProxySelector
             v-model="proxyId"
             :proxies="proxies"
-            :disabled="!enableProxy"
             aria-labelledby="bulk-edit-proxy-label"
           />
         </div>
@@ -611,9 +606,7 @@
             id="bulk-edit-concurrency"
             type="number"
             min="1"
-            :disabled="!enableConcurrency"
             class="input"
-            :class="!enableConcurrency && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-concurrency-label"
             @input="concurrency = Math.max(1, concurrency || 1)"
           />
@@ -640,9 +633,7 @@
             id="bulk-edit-load-factor"
             type="number"
             min="1"
-            :disabled="!enableLoadFactor"
             class="input"
-            :class="!enableLoadFactor && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-load-factor-label"
             @input="loadFactor = (loadFactor &amp;&amp; loadFactor >= 1) ? loadFactor : null"
           />
@@ -670,9 +661,7 @@
             id="bulk-edit-priority"
             type="number"
             min="1"
-            :disabled="!enablePriority"
             class="input"
-            :class="!enablePriority && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-priority-label"
           />
         </div>
@@ -699,9 +688,7 @@
             type="number"
             min="0"
             step="0.01"
-            :disabled="!enableRateMultiplier"
             class="input"
-            :class="!enableRateMultiplier && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-rate-multiplier-label"
           />
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
@@ -726,7 +713,7 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div id="bulk-edit-status" :class="!enableStatus && 'pointer-events-none opacity-50'">
+        <div id="bulk-edit-status">
           <Select
             v-model="status"
             :options="statusOptions"
@@ -755,7 +742,6 @@
         </div>
         <div
           id="bulk-edit-openai-ws-mode"
-          :class="!enableOpenAIWSMode && 'pointer-events-none opacity-50'"
         >
           <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.wsModeDesc') }}
@@ -792,7 +778,6 @@
         </div>
         <div
           id="bulk-edit-openai-codex-cli-only"
-          :class="!enableCodexCLIOnly && 'pointer-events-none opacity-50'"
         >
           <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.codexCLIOnlyDesc') }}
@@ -836,7 +821,6 @@
         </div>
         <div
           id="bulk-edit-openai-codex-app-server"
-          :class="!enableCodexCLIOnlyAppServer && 'pointer-events-none opacity-50'"
         >
           <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.codexCLIOnlyAppServerDesc') }}
@@ -885,13 +869,11 @@
         </div>
         <div
           id="bulk-edit-upstream-billing-auto-probe"
-          :class="!enableUpstreamBillingAutoProbe && 'pointer-events-none opacity-50'"
           role="group"
           aria-labelledby="bulk-edit-upstream-billing-auto-probe-label"
         >
           <Select
             v-model="upstreamBillingAutoProbeMode"
-            :disabled="!enableUpstreamBillingAutoProbe"
             data-testid="bulk-edit-upstream-billing-auto-probe-select"
             :options="upstreamBillingAutoProbeOptions"
             aria-labelledby="bulk-edit-upstream-billing-auto-probe-label"
@@ -919,7 +901,6 @@
         </div>
         <div
           id="bulk-edit-openai-apikey-ws-mode"
-          :class="!enableOpenAIAPIKeyWSMode && 'pointer-events-none opacity-50'"
         >
           <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.wsModeDesc') }}
@@ -961,7 +942,6 @@
         </div>
         <div
           id="bulk-edit-openai-compact-mode"
-          :class="!enableOpenAICompactMode && 'pointer-events-none opacity-50'"
         >
           <Select
             v-model="openAICompactMode"
@@ -997,7 +977,6 @@
         </div>
         <div
           id="bulk-edit-openai-compact-model-mapping"
-          :class="!enableOpenAICompactModelMapping && 'pointer-events-none opacity-50'"
         >
           <div v-if="openAICompactModelMappings.length > 0" class="mb-3 space-y-2">
             <div
@@ -1061,7 +1040,6 @@
 
         <div
           id="bulk-edit-rpm-limit-body"
-          :class="!enableRpmLimit && 'pointer-events-none opacity-50'"
           role="group"
           aria-labelledby="bulk-edit-rpm-limit-label"
         >
@@ -1184,7 +1162,7 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <div id="bulk-edit-groups" :class="!enableGroups && 'pointer-events-none opacity-50'">
+        <div id="bulk-edit-groups">
           <GroupSelector
             v-model="groupIds"
             :groups="groups"
@@ -1246,7 +1224,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -1447,11 +1425,87 @@ const bulkBaseRpm = ref<number | null>(null)
 const bulkRpmStrategy = ref<'tiered' | 'sticky_exempt'>('tiered')
 const bulkRpmStickyBuffer = ref<number | null>(null)
 const userMsgQueueMode = ref<string | null>(null)
+const resettingBulkFields = ref(false)
 const umqModeOptions = computed(() => [
   { value: '', label: t('admin.accounts.quotaControl.rpmLimit.umqModeOff') },
   { value: 'throttle', label: t('admin.accounts.quotaControl.rpmLimit.umqModeThrottle') },
   { value: 'serialize', label: t('admin.accounts.quotaControl.rpmLimit.umqModeSerialize') },
 ])
+
+// The checkboxes remain an explicit way to apply defaults or clear values. Any
+// actual value change also selects that field automatically for submission.
+const markBulkFieldChanged = (enabled: Ref<boolean>) => () => {
+  if (!resettingBulkFields.value) {
+    enabled.value = true
+  }
+}
+const bulkFieldTrackingOptions = { deep: true, flush: 'sync' as const }
+
+watch(baseUrl, markBulkFieldChanged(enableBaseUrl), bulkFieldTrackingOptions)
+watch(
+  [modelRestrictionMode, allowedModels, modelMappings],
+  markBulkFieldChanged(enableModelRestriction),
+  bulkFieldTrackingOptions
+)
+watch(
+  selectedErrorCodes,
+  markBulkFieldChanged(enableCustomErrorCodes),
+  bulkFieldTrackingOptions
+)
+watch(
+  interceptWarmupRequests,
+  markBulkFieldChanged(enableInterceptWarmup),
+  bulkFieldTrackingOptions
+)
+watch(
+  [headerOverrideEnabled, headerOverrideRows],
+  markBulkFieldChanged(enableHeaderOverride),
+  bulkFieldTrackingOptions
+)
+watch(proxyId, markBulkFieldChanged(enableProxy), bulkFieldTrackingOptions)
+watch(concurrency, markBulkFieldChanged(enableConcurrency), bulkFieldTrackingOptions)
+watch(loadFactor, markBulkFieldChanged(enableLoadFactor), bulkFieldTrackingOptions)
+watch(priority, markBulkFieldChanged(enablePriority), bulkFieldTrackingOptions)
+watch(rateMultiplier, markBulkFieldChanged(enableRateMultiplier), bulkFieldTrackingOptions)
+watch(status, markBulkFieldChanged(enableStatus), bulkFieldTrackingOptions)
+watch(groupIds, markBulkFieldChanged(enableGroups), bulkFieldTrackingOptions)
+watch(
+  openaiPassthroughEnabled,
+  markBulkFieldChanged(enableOpenAIPassthrough),
+  bulkFieldTrackingOptions
+)
+watch(
+  openaiOAuthResponsesWebSocketV2Mode,
+  markBulkFieldChanged(enableOpenAIWSMode),
+  bulkFieldTrackingOptions
+)
+watch(
+  openaiAPIKeyResponsesWebSocketV2Mode,
+  markBulkFieldChanged(enableOpenAIAPIKeyWSMode),
+  bulkFieldTrackingOptions
+)
+watch(
+  upstreamBillingAutoProbeMode,
+  markBulkFieldChanged(enableUpstreamBillingAutoProbe),
+  bulkFieldTrackingOptions
+)
+watch(codexCLIOnlyEnabled, markBulkFieldChanged(enableCodexCLIOnly), bulkFieldTrackingOptions)
+watch(
+  codexCLIOnlyAppServerEnabled,
+  markBulkFieldChanged(enableCodexCLIOnlyAppServer),
+  bulkFieldTrackingOptions
+)
+watch(openAICompactMode, markBulkFieldChanged(enableOpenAICompactMode), bulkFieldTrackingOptions)
+watch(
+  openAICompactModelMappings,
+  markBulkFieldChanged(enableOpenAICompactModelMapping),
+  bulkFieldTrackingOptions
+)
+watch(
+  [rpmLimitEnabled, bulkBaseRpm, bulkRpmStrategy, bulkRpmStickyBuffer],
+  markBulkFieldChanged(enableRpmLimit),
+  bulkFieldTrackingOptions
+)
 
 // Common HTTP error codes
 const commonErrorCodes = [
@@ -1938,6 +1992,8 @@ watch(
   () => props.show,
   (newShow) => {
     if (!newShow) {
+      resettingBulkFields.value = true
+
       // Reset all enable flags
       enableBaseUrl.value = false
       enableModelRestriction.value = false
@@ -1997,6 +2053,7 @@ watch(
       mixedChannelWarningMessage.value = ''
       pendingUpdatesForConfirm.value = null
       mixedChannelConfirmed.value = false
+      resettingBulkFields.value = false
     }
   }
 )
