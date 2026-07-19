@@ -109,4 +109,121 @@ describe('EnhancedImportDataModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.enhancedImportUnsupportedProvider')
     expect(adminAPI.accounts.importData).not.toHaveBeenCalled()
   })
+
+  it('requires a selected file in file mode', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.accounts.dataImportSelectFile')
+    expect(adminAPI.accounts.importData).not.toHaveBeenCalled()
+  })
+
+  it('reports malformed pasted JSON', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+
+    await wrapper.find('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue('{')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.accounts.enhancedImportInvalidJson')
+    expect(adminAPI.accounts.importData).not.toHaveBeenCalled()
+  })
+
+  it('opens the hidden file picker from the choose-file button', async () => {
+    const wrapper = mountModal()
+    const input = wrapper.find('input[type="file"]')
+    const click = vi.spyOn(input.element as HTMLInputElement, 'click')
+
+    await wrapper.findAll('button.btn-secondary')[0]!.trigger('click')
+
+    expect(click).toHaveBeenCalledTimes(1)
+  })
+
+  it('imports multiple JSON files dropped on the file target', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+    const dropTarget = wrapper.find('.border-dashed')
+    const files = [
+      makeJsonFile('codex.json', {
+        type: 'codex',
+        email: 'codex@example.com',
+        refresh_token: 'codex-refresh'
+      }),
+      makeJsonFile('claude.json', {
+        type: 'claude',
+        email: 'claude@example.com',
+        access_token: 'claude-access'
+      })
+    ]
+
+    await dropTarget.trigger('dragenter')
+    expect(dropTarget.classes()).toContain('border-primary-400')
+
+    await dropTarget.trigger('dragleave')
+    expect(dropTarget.classes()).not.toContain('border-primary-400')
+
+    await dropTarget.trigger('drop', { dataTransfer: { files } })
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accounts: [
+          expect.objectContaining({ platform: 'openai', type: 'oauth' }),
+          expect.objectContaining({ platform: 'anthropic', type: 'oauth' })
+        ]
+      }),
+      skip_default_group_bind: true
+    })
+  })
+
+  it('keeps partial import results refreshable when the modal closes', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.accounts.importData).mockResolvedValueOnce({
+      proxy_created: 0,
+      proxy_reused: 0,
+      proxy_failed: 0,
+      account_created: 1,
+      account_failed: 1
+    })
+    const wrapper = mountModal()
+
+    await wrapper.find('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify({
+      exported_at: '2026-07-19T00:00:00Z',
+      proxies: [],
+      accounts: [{ name: 'created' }, { name: 'failed' }]
+    }))
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.accounts.dataImportCompletedWithErrors')
+    expect(wrapper.emitted('imported')).toBeUndefined()
+
+    await wrapper.find('button.btn-secondary').trigger('click')
+    expect(wrapper.emitted('imported')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('surfaces an unexpected import API error', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.accounts.importData).mockRejectedValueOnce(new Error('import unavailable'))
+    const wrapper = mountModal()
+
+    await wrapper.find('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify({
+      exported_at: '2026-07-19T00:00:00Z',
+      proxies: [],
+      accounts: [{ name: 'native-account' }]
+    }))
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('import unavailable')
+  })
 })
