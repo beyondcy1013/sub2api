@@ -14,12 +14,46 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewErrorResponseAppliesDeploymentProfilePolicy(t *testing.T) {
+	t.Cleanup(func() { require.NoError(t, clienterror.Configure(config.DeploymentProfileMain)) })
+
+	tests := []struct {
+		profile     string
+		wantMessage string
+		wantSource  string
+	}{
+		{
+			profile:     config.DeploymentProfileMain,
+			wantMessage: "Invalid API key",
+			wantSource:  "sub2api",
+		},
+		{
+			profile:     config.DeploymentProfileFree,
+			wantMessage: "【sub2freeApi限制】 Invalid API key (source: sub2freeApi)",
+			wantSource:  "sub2freeApi",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.profile, func(t *testing.T) {
+			require.NoError(t, clienterror.Configure(tt.profile))
+
+			got := NewErrorResponse("INVALID_API_KEY", "Invalid API key")
+
+			require.Equal(t, "INVALID_API_KEY", got.Code)
+			require.Equal(t, tt.wantMessage, got.Message)
+			require.Equal(t, tt.wantSource, got.Source)
+		})
+	}
+}
 
 func TestAPIKeyAuthRejectsOversizedCredentialsBeforeLookup(t *testing.T) {
 	gin.SetMode(gin.TestMode)

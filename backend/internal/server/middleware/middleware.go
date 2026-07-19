@@ -73,8 +73,8 @@ type ErrorResponse struct {
 func NewErrorResponse(code, message string) ErrorResponse {
 	return ErrorResponse{
 		Code:    code,
-		Message: clienterror.Local(message),
-
+		Message: clienterror.WithSource(clienterror.Local(message)),
+		Source:  clienterror.Source,
 	}
 }
 
