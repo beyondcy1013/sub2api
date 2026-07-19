@@ -51,6 +51,7 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - Table outer edge padding remains 4px and non-final columns retain vertical separators.
 - `id` and `platform_type` remain near the end before actions.
 - New/imported account form initialization and reset keep default concurrency at `4`, not upstream `10`.
+- Account management keeps `增强导入` directly below `导入`. It accepts CLIProxyAPI `codex`, `claude`, `gemini`, and `antigravity` auth JSON plus native sub2api export JSON from either files or pasted JSON text.
 - The account `更多` menu always includes `恢复状态`, is vertically scrollable within the viewport, and uses the 320px positioning estimate on short screens.
 - Active/schedulable OpenAI targets expose `迁入粘性会话`; the dialog defaults to the last 5 minutes and moves only recent bindings.
 - `Concurrency limit exceeded for user` remains correctly described as sub2api's local caller-concurrency timeout. Do not direct operators to user management or claim sticky reassignment cannot help.
