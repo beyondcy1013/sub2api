@@ -46,7 +46,6 @@
           label="5h"
           :utilization="usageInfo.five_hour.utilization"
           :resets-at="usageInfo.five_hour.resets_at"
-          :window-stats="usageInfo.five_hour.window_stats"
           color="indigo"
         />
 
@@ -126,7 +125,6 @@
           label="5h"
           :utilization="usageInfo.five_hour.utilization"
           :resets-at="usageInfo.five_hour.resets_at"
-          :window-stats="usageInfo.five_hour.window_stats"
           :show-now-when-idle="true"
           color="indigo"
         />
@@ -135,7 +133,6 @@
           label="7d"
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
-          :window-stats="usageInfo.seven_day.window_stats"
           :show-now-when-idle="true"
           color="emerald"
         />
@@ -526,7 +523,6 @@
             :label="bar.label"
             :utilization="bar.utilization"
             :resets-at="bar.resetsAt"
-            :window-stats="bar.windowStats"
             :color="bar.color"
           />
           <p class="mt-1 text-[9px] leading-tight text-gray-400 dark:text-gray-500 italic">
@@ -1012,7 +1008,6 @@ const geminiUsageBars = computed(() => {
     label: string
     utilization: number
     resetsAt: string | null
-    windowStats?: WindowStats | null
     color: 'indigo' | 'emerald'
   }> = []
 
@@ -1024,7 +1019,6 @@ const geminiUsageBars = computed(() => {
         label: '1d',
         utilization: sharedDaily.utilization,
         resetsAt: sharedDaily.resets_at,
-        windowStats: sharedDaily.window_stats,
         color: 'indigo'
       })
     }
@@ -1038,7 +1032,6 @@ const geminiUsageBars = computed(() => {
       label: 'pro',
       utilization: pro.utilization,
       resetsAt: pro.resets_at,
-      windowStats: pro.window_stats,
       color: 'indigo'
       })
   }
@@ -1050,7 +1043,6 @@ const geminiUsageBars = computed(() => {
       label: 'flash',
       utilization: flash.utilization,
       resetsAt: flash.resets_at,
-      windowStats: flash.window_stats,
       color: 'emerald'
     })
   }

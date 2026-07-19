@@ -324,6 +324,58 @@
               :error="todayStatsError"
             />
           </template>
+          <template #cell-five_hour_requests="{ row }">
+            <span class="font-mono text-xs text-gray-700 dark:text-gray-300">
+              {{ formatUsageWindowStat(row, 'five_hour', 'requests') }}
+            </span>
+          </template>
+          <template #cell-five_hour_tokens="{ row }">
+            <span class="font-mono text-xs text-gray-700 dark:text-gray-300">
+              {{ formatUsageWindowStat(row, 'five_hour', 'tokens') }}
+            </span>
+          </template>
+          <template #cell-seven_day_requests="{ row }">
+            <span class="font-mono text-xs text-gray-700 dark:text-gray-300">
+              {{ formatUsageWindowStat(row, 'seven_day', 'requests') }}
+            </span>
+          </template>
+          <template #cell-seven_day_tokens="{ row }">
+            <span class="font-mono text-xs text-gray-700 dark:text-gray-300">
+              {{ formatUsageWindowStat(row, 'seven_day', 'tokens') }}
+            </span>
+          </template>
+          <template #cell-five_hour_utilization="{ row }">
+            <span class="font-mono text-xs text-gray-700 dark:text-gray-300">
+              {{ getUsageWindowUtilizationLabel(row, 'five_hour') }}
+            </span>
+          </template>
+          <template #cell-five_hour_reset="{ row }">
+            <span class="text-xs text-gray-700 dark:text-gray-300">
+              {{ getUsageWindowResetLabel(row, 'five_hour') }}
+            </span>
+          </template>
+          <template #cell-seven_day_utilization="{ row }">
+            <span class="font-mono text-xs text-gray-700 dark:text-gray-300">
+              {{ getUsageWindowUtilizationLabel(row, 'seven_day') }}
+            </span>
+          </template>
+          <template #cell-seven_day_reset="{ row }">
+            <span class="text-xs text-gray-700 dark:text-gray-300">
+              {{ getUsageWindowResetLabel(row, 'seven_day') }}
+            </span>
+          </template>
+          <template #cell-usage_cost="{ row }">
+            <div v-if="getUsageCostLines(row).length" class="space-y-0.5 text-xs text-gray-700 dark:text-gray-300">
+              <div v-for="line in getUsageCostLines(row)" :key="line.label" class="whitespace-nowrap">
+                <span class="mr-1 text-gray-400 dark:text-gray-500">{{ line.label }}</span>
+                <span class="font-mono">A {{ formatCurrency(line.stats.cost) }}</span>
+                <span v-if="line.stats.user_cost != null" class="font-mono text-gray-500 dark:text-gray-400">
+                  / U {{ formatCurrency(line.stats.user_cost) }}
+                </span>
+              </div>
+            </div>
+            <span v-else class="text-xs text-gray-400">-</span>
+          </template>
           <template #cell-balance="{ row }">
             <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
               {{ row.extra?.balance != null ? `$${Number(row.extra.balance).toFixed(2)}` : '-' }}
@@ -336,64 +388,6 @@
             <div class="flex items-center gap-1">
               <span>{{ column.label }}</span>
               <HelpTooltip :content="t('admin.accounts.usageWindowsHint')" width-class="w-72" />
-              <div class="usage-window-sort-trigger relative">
-                <button
-                  type="button"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded normal-case tracking-normal transition-colors hover:bg-gray-200 dark:hover:bg-dark-700"
-                  :class="usageWindowSort
-                    ? 'text-primary-600 dark:text-primary-400'
-                    : 'text-gray-400 dark:text-dark-500'"
-                  :title="t('admin.accounts.usageWindow.sort.title')"
-                  :aria-label="t('admin.accounts.usageWindow.sort.title')"
-                  :aria-expanded="openUsageWindowSortMenu"
-                  aria-haspopup="menu"
-                  data-test="usage-window-sort-trigger"
-                  @click.stop="openUsageWindowSortMenu = !openUsageWindowSortMenu"
-                >
-                  <Icon
-                    :name="usageWindowSort
-                      ? (usageWindowSort.order === 'asc' ? 'arrowUp' : 'arrowDown')
-                      : 'sort'"
-                    size="xs"
-                  />
-                </button>
-                <div
-                  v-if="openUsageWindowSortMenu"
-                  class="absolute right-0 top-full z-50 mt-1 min-w-[164px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-                  role="menu"
-                >
-                  <button
-                    v-for="metric in ACCOUNT_USAGE_WINDOW_SORT_METRICS"
-                    :key="metric"
-                    type="button"
-                    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs normal-case tracking-normal hover:bg-gray-100 dark:hover:bg-dark-700"
-                    :class="usageWindowSort?.metric === metric
-                      ? 'font-medium text-primary-600 dark:text-primary-400'
-                      : 'text-gray-700 dark:text-gray-300'"
-                    :data-test="`usage-window-sort-${metric}`"
-                    role="menuitem"
-                    @click.stop="toggleUsageWindowSort(metric)"
-                  >
-                    <span>{{ getUsageWindowSortLabel(metric) }}</span>
-                    <Icon
-                      v-if="usageWindowSort?.metric === metric"
-                      :name="usageWindowSort.order === 'asc' ? 'arrowUp' : 'arrowDown'"
-                      size="xs"
-                    />
-                  </button>
-                  <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
-                  <button
-                    type="button"
-                    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs font-normal normal-case tracking-normal text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                    data-test="usage-window-sort-default"
-                    role="menuitem"
-                    @click.stop="clearUsageWindowSort"
-                  >
-                    <span>{{ t('admin.accounts.usageWindow.sort.defaultOrder') }}</span>
-                    <Icon v-if="!usageWindowSort" name="check" size="xs" />
-                  </button>
-                </div>
-              </div>
             </div>
           </template>
           <template #cell-usage="{ row }">
@@ -609,8 +603,9 @@ import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { formatCompactNumber, formatCurrency, formatDateTime, formatNumber, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import { formatUsageWindowReset, formatUsageWindowUtilization } from '@/utils/usageWindowDisplay'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress } from '@/types'
@@ -789,7 +784,6 @@ type AccountUsageWindowSortState = {
   order: AccountSortOrder
 } | null
 const ACCOUNT_USAGE_WINDOW_SORT_STORAGE_KEY = 'account-usage-window-sort'
-const openUsageWindowSortMenu = ref(false)
 const usageWindowByAccountId = ref<Record<number, AccountUsageInfo>>({})
 
 const isAccountUsageWindowSortMetric = (value: unknown): value is AccountUsageWindowSortMetric =>
@@ -826,34 +820,7 @@ const persistUsageWindowSort = () => {
 
 const clearUsageWindowSort = () => {
   usageWindowSort.value = null
-  openUsageWindowSortMenu.value = false
   persistUsageWindowSort()
-}
-
-const defaultUsageWindowSortOrder = (_metric: AccountUsageWindowSortMetric): AccountSortOrder => 'desc'
-
-const toggleUsageWindowSort = (metric: AccountUsageWindowSortMetric) => {
-  const current = usageWindowSort.value
-  if (current?.metric === metric) {
-    const defaultOrder = defaultUsageWindowSortOrder(metric)
-    usageWindowSort.value = current.order === defaultOrder
-      ? { metric, order: defaultOrder === 'asc' ? 'desc' : 'asc' }
-      : null
-  } else {
-    usageWindowSort.value = { metric, order: defaultUsageWindowSortOrder(metric) }
-  }
-  openUsageWindowSortMenu.value = false
-  persistUsageWindowSort()
-}
-
-const getUsageWindowSortLabel = (metric: AccountUsageWindowSortMetric) => {
-  const keys: Record<AccountUsageWindowSortMetric, string> = {
-    five_hour_utilization: 'admin.accounts.usageWindow.sort.fiveHourUtilization',
-    five_hour_reset: 'admin.accounts.usageWindow.sort.fiveHourReset',
-    seven_day_utilization: 'admin.accounts.usageWindow.sort.sevenDayUtilization',
-    seven_day_reset: 'admin.accounts.usageWindow.sort.sevenDayReset'
-  }
-  return t(keys[metric])
 }
 
 const handleUsageWindowLoaded = (accountId: number, usage: AccountUsageInfo) => {
@@ -861,6 +828,58 @@ const handleUsageWindowLoaded = (accountId: number, usage: AccountUsageInfo) => 
     ...usageWindowByAccountId.value,
     [accountId]: usage
   }
+}
+
+type UsageWindowKey = 'five_hour' | 'seven_day'
+type UsageWindowMetric = 'requests' | 'tokens'
+
+const getUsageWindowStats = (account: Account, window: UsageWindowKey): WindowStats | null => {
+  return usageWindowByAccountId.value[account.id]?.[window]?.window_stats ?? null
+}
+
+const formatUsageWindowStat = (
+  account: Account,
+  window: UsageWindowKey,
+  metric: UsageWindowMetric
+): string => {
+  const stats = getUsageWindowStats(account, window)
+  if (!stats) return '-'
+  return metric === 'requests'
+    ? formatNumber(stats.requests)
+    : formatCompactNumber(stats.tokens)
+}
+
+const getUsageWindowProgressForAccount = (account: Account, window: UsageWindowKey): UsageProgress | null => {
+  return usageWindowByAccountId.value[account.id]?.[window] ?? null
+}
+
+const getUsageWindowUtilizationLabel = (account: Account, window: UsageWindowKey): string => {
+  const progress = getUsageWindowProgressForAccount(account, window)
+  return formatUsageWindowUtilization(progress?.utilization ?? Number.NaN)
+}
+
+const getUsageWindowResetLabel = (account: Account, window: UsageWindowKey): string => {
+  const progress = getUsageWindowProgressForAccount(account, window)
+  if (!progress) return '-'
+  return formatUsageWindowReset({
+    utilization: progress.utilization,
+    resetsAt: progress.resets_at,
+    now: upstreamBillingNow.value,
+    labels: {
+      now: t('usage.resetNow'),
+      pending: t('usage.resetPending')
+    },
+    showNowWhenIdle: account.platform === 'openai'
+  })
+}
+
+const getUsageCostLines = (account: Account): Array<{ label: string; stats: WindowStats }> => {
+  const lines: Array<{ label: string; stats: WindowStats }> = []
+  const fiveHour = getUsageWindowStats(account, 'five_hour')
+  const sevenDay = getUsageWindowStats(account, 'seven_day')
+  if (fiveHour) lines.push({ label: '5h', stats: fiveHour })
+  if (sevenDay) lines.push({ label: '7d', stats: sevenDay })
+  return lines
 }
 
 const getUsageWindowProgress = (
@@ -1257,6 +1276,11 @@ const handlePageSizeChange = (size: number) => {
 }
 
 const handleSort = (key: string, order: AccountSortOrder) => {
+  if (isAccountUsageWindowSortMetric(key)) {
+    usageWindowSort.value = { metric: key, order }
+    persistUsageWindowSort()
+    return
+  }
   clearUsageWindowSort()
   sortState.sort_by = key
   sortState.sort_order = order
@@ -1632,6 +1656,15 @@ const allColumns = computed(() => {
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'five_hour_requests', label: t('admin.accounts.columns.fiveHourRequests'), sortable: false, width: '88px' },
+    { key: 'five_hour_tokens', label: t('admin.accounts.columns.fiveHourTokens'), sortable: false, width: '88px' },
+    { key: 'seven_day_requests', label: t('admin.accounts.columns.sevenDayRequests'), sortable: false, width: '88px' },
+    { key: 'seven_day_tokens', label: t('admin.accounts.columns.sevenDayTokens'), sortable: false, width: '88px' },
+    { key: 'five_hour_utilization', label: t('admin.accounts.columns.fiveHourUtilization'), sortable: true, width: '108px' },
+    { key: 'five_hour_reset', label: t('admin.accounts.columns.fiveHour'), sortable: true, width: '72px' },
+    { key: 'seven_day_utilization', label: t('admin.accounts.columns.sevenDayUtilization'), sortable: true, width: '108px' },
+    { key: 'seven_day_reset', label: t('admin.accounts.columns.sevenDay'), sortable: true, width: '72px' },
+    { key: 'usage_cost', label: t('admin.accounts.columns.usageCost'), sortable: false, width: '148px' },
     { key: 'balance', label: t('admin.accounts.columns.balance'), sortable: false, width: '70px' }
   ]
   if (!authStore.isSimpleMode) {
@@ -2410,9 +2443,6 @@ const handleClickOutside = (event: MouseEvent) => {
   }
   if (autoRefreshDropdownRef.value && !autoRefreshDropdownRef.value.contains(target)) {
     showAutoRefreshDropdown.value = false
-  }
-  if (!target.closest('.usage-window-sort-trigger')) {
-    openUsageWindowSortMenu.value = false
   }
 }
 

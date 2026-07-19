@@ -69,6 +69,7 @@ const DataTableStub = {
     <div data-test="data-table">
       <div data-test="row-order">{{ data.map(row => row.name).join(',') }}</div>
       <template v-for="column in columns" :key="column.key">
+        <div data-test="column-key" :data-column-key="column.key"></div>
         <div v-if="column.key === 'usage'" data-test="usage-header">
           <slot :name="'header-' + column.key" :column="column" />
         </div>
@@ -313,5 +314,21 @@ describe('admin AccountsView usage windows hint', () => {
       'idle-now,higher-usage-sooner-reset,lower-usage-later-reset,usage-not-loaded'
     )
 
+  })
+
+  it('exposes 5h/7d request, token, and window cost columns separately', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const keys = wrapper.findAll('[data-test="column-key"]')
+      .map(node => node.attributes('data-column-key'))
+
+    expect(keys).toEqual(expect.arrayContaining([
+      'five_hour_requests',
+      'five_hour_tokens',
+      'seven_day_requests',
+      'seven_day_tokens',
+      'usage_cost'
+    ]))
   })
 })
