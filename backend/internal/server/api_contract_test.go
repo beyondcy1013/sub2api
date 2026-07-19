@@ -1784,15 +1784,23 @@ func (s *stubAccountRepo) Delete(ctx context.Context, id int64) error {
 	return errors.New("not implemented")
 }
 
+func (s *stubAccountRepo) RecycleAccount(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) RestoreAccount(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
 func (s *stubAccountRepo) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]service.Account, error) {
+func (s *stubAccountRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string, bool) ([]service.Account, error) {
 	return nil, nil
 }
 
-func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 
@@ -1873,6 +1881,10 @@ func (s *stubAccountRepo) ListSchedulableUngroupedByPlatform(ctx context.Context
 }
 
 func (s *stubAccountRepo) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]service.Account, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
 	return nil, errors.New("not implemented")
 }
 

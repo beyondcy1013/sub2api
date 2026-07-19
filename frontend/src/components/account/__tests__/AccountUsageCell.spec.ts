@@ -94,7 +94,19 @@ describe('AccountUsageCell', () => {
   })
 
   it('状态为 active 的账号在挂载时会自动刷新用量', async () => {
-    getUsage.mockResolvedValue({})
+    const usage = {
+      updated_at: '2026-07-19T08:00:00Z',
+      five_hour: {
+        utilization: 12,
+        resets_at: '2026-07-19T10:00:00Z'
+      },
+      seven_day: {
+        utilization: 93,
+        resets_at: '2026-07-25T11:00:00Z'
+      },
+      seven_day_sonnet: null
+    }
+    getUsage.mockResolvedValue(usage)
     const wrapper = mount(AccountUsageCell, {
       props: {
         account: makeAccount({
@@ -112,6 +124,7 @@ describe('AccountUsageCell', () => {
     await flushPromises()
 
     expect(getUsage).toHaveBeenCalledWith(10)
+    expect(wrapper.emitted('usage-loaded')).toEqual([[usage]])
     wrapper.unmount()
   })
 

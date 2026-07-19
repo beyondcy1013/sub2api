@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -291,7 +292,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonFailover400UsesSharedErrorHan
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Equal(t, "error", gjson.Get(rec.Body.String(), "type").String())
 	require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
-	require.Equal(t, "invalid roles (source: sub2api)", gjson.Get(rec.Body.String(), "error.message").String())
+	require.Equal(t, clienterror.WithSource("invalid roles"), gjson.Get(rec.Body.String(), "error.message").String())
 
 	statusVal, ok := c.Get(OpsUpstreamStatusCodeKey)
 	require.True(t, ok, "shared handler must record the upstream status for ops")
@@ -304,7 +305,7 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonFailover400UsesSharedErrorHan
 	require.Len(t, events, 1)
 	require.Equal(t, http.StatusBadRequest, events[0].UpstreamStatusCode)
 	require.Equal(t, "http_error", events[0].Kind)
-	require.Equal(t, "invalid roles (source: sub2api)", events[0].Message)
+	require.Equal(t, clienterror.WithSource("invalid roles"), events[0].Message)
 }
 
 // A broken upstream read mid-stream must surface an error and must NOT emit a

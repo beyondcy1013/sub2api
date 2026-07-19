@@ -106,7 +106,7 @@ func setupDuplicateAccountRouter(t *testing.T, svc service.AdminService) *gin.En
 	return router
 }
 
-func TestDuplicateAccountHandlerRedactsCredentials(t *testing.T) {
+func TestDuplicateAccountHandlerPreservesAdminAPIKey(t *testing.T) {
 	svc := &duplicateAccountAdminServiceStub{
 		account: &service.Account{
 			ID:          43,
@@ -127,7 +127,7 @@ func TestDuplicateAccountHandlerRedactsCredentials(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, 1, svc.calls)
 	require.Contains(t, recorder.Body.String(), `"name":"primary (Copy)"`)
-	require.NotContains(t, recorder.Body.String(), "top-secret-key")
+	require.Contains(t, recorder.Body.String(), "top-secret-key")
 	var responseBody struct {
 		Data struct {
 			Credentials map[string]any `json:"credentials"`
@@ -135,7 +135,7 @@ func TestDuplicateAccountHandlerRedactsCredentials(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &responseBody))
-	require.Empty(t, responseBody.Data.Credentials)
+	require.Equal(t, "top-secret-key", responseBody.Data.Credentials["api_key"])
 	require.False(t, responseBody.Data.Schedulable)
 }
 

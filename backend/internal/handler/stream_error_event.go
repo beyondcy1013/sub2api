@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -59,6 +60,7 @@ func writeResponsesFailedSSE(c *gin.Context, errType, message string) bool {
 	if !ok {
 		return false
 	}
+	message = clienterror.Prefix(errType, message)
 
 	payload, err := json.Marshal(responsesFailedEvent{
 		Type: "response.failed",
@@ -70,8 +72,8 @@ func writeResponsesFailedSSE(c *gin.Context, errType, message string) bool {
 			Output: []any{},
 			Error: responsesFailedError{
 				Code:    mapResponsesErrorCode(errType),
-				Message: clienterr.WithSource(message),
-				Source:  clienterr.Source,
+				Message: clienterror.WithSource(message),
+				Source:  clienterror.Source,
 			},
 		},
 	})

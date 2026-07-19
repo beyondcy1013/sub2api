@@ -13,7 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -921,7 +922,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           body,
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			RetryableOnSameAccount: false,
 		}
 	}
 
@@ -1001,8 +1002,9 @@ func buildOpenAIImagesStreamErrorBodyFromUpstream(err *OpenAIImagesUpstreamError
 	if err == nil {
 		return buildOpenAIImagesStreamErrorBody("")
 	}
-	body := buildOpenAIImagesStreamErrorBody(err.clientMessage())
-	body, _ = sjson.SetBytes(body, "error.type", err.clientErrorType())
+	errType := err.clientErrorType()
+	body := buildOpenAIImagesStreamErrorBody(clienterror.Prefix(errType, err.clientMessage()))
+	body, _ = sjson.SetBytes(body, "error.type", errType)
 	if code := strings.TrimSpace(err.Code); code != "" {
 		body, _ = sjson.SetBytes(body, "error.code", code)
 	}
@@ -1022,8 +1024,8 @@ func writeOpenAIImagesUpstreamErrorResponse(c *gin.Context, err *OpenAIImagesUps
 	StopOpenAIImagesJSONKeepaliveCommitted(c)
 	errorObj := gin.H{
 		"type":    err.clientErrorType(),
-		"message": clienterr.WithSource(err.clientMessage()),
-		"source":  clienterr.Source,
+		"message": clienterror.Prefix(err.clientErrorType(), err.clientMessage()),
+
 	}
 	if code := strings.TrimSpace(err.Code); code != "" {
 		errorObj["code"] = code
@@ -1754,11 +1756,11 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, requestModel)
+			shouldDisable := s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, requestModel)
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, requestModel)
@@ -1887,11 +1889,11 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 	}
 
 	responseBody := openAIImagesUpstreamErrorResponseBody(upstreamErr)
-	s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.StatusCode, headers, responseBody, requestedModel)
+	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, upstreamErr.StatusCode, headers, responseBody, requestedModel)
 	return &UpstreamFailoverError{
 		StatusCode:             upstreamErr.StatusCode,
 		ResponseBody:           responseBody,
 		ResponseHeaders:        headers,
-		RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstreamErr.StatusCode),
+		RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstreamErr.StatusCode),
 	}
 }

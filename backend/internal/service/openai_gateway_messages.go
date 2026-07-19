@@ -12,7 +12,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -1110,12 +1111,13 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 // writeAnthropicError writes an error response in Anthropic Messages API format.
 func writeAnthropicError(c *gin.Context, statusCode int, errType, message string) {
+	message = clienterror.Prefix(errType, message)
 	c.JSON(statusCode, gin.H{
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

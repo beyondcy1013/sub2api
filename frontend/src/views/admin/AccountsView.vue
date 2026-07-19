@@ -143,41 +143,12 @@
                       </span>
                       <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
                     </button>
-
-                    <div class="my-2 border-t border-gray-100 dark:border-gray-700"></div>
-                    <div class="space-y-2 px-3 py-2">
-                      <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                          {{ t('admin.accounts.upstreamBilling.autoProbeSettings') }}
-                        </span>
-                        <Toggle
-                          v-model="upstreamBillingProbeSettings.enabled"
-                          :aria-label="t('admin.accounts.upstreamBilling.autoProbeSettings')"
-                        />
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <label class="flex-1 text-xs text-gray-500 dark:text-gray-400" for="upstream-billing-probe-interval">
-                          {{ t('admin.accounts.upstreamBilling.intervalMinutes') }}
-                        </label>
-                        <input
-                          id="upstream-billing-probe-interval"
-                          v-model.number="upstreamBillingProbeSettings.interval_minutes"
-                          type="number"
-                          min="5"
-                          max="1440"
-                          class="input h-8 w-20 px-2 text-sm"
-                        />
-                        <button
-                          type="button"
-                          class="btn btn-secondary h-8 px-2"
-                          :disabled="upstreamBillingSettingsLoading || upstreamBillingSettingsSaving"
-                          :title="t('common.save')"
-                          @click="saveUpstreamBillingProbeSettings"
-                        >
-                          <Icon name="check" size="sm" />
-                        </button>
-                      </div>
-                    </div>
+                    <button v-if="balanceCheckEnabled" class="account-tools-menu-item" @click="openBalanceCheckSettings">
+                      <span class="account-tools-menu-icon bg-cyan-50 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300">
+                        <Icon name="cog" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">余额检测设置</span>
+                    </button>
 
                     <div class="my-2 border-t border-gray-100 dark:border-gray-700"></div>
                     <div class="px-2 py-2">
@@ -242,7 +213,7 @@
         <DataTable
           ref="dataTableRef"
           :columns="cols"
-          :data="accounts"
+          :data="sortedAccounts"
           :loading="loading"
           row-key="id"
           :server-side-sort="true"
@@ -343,6 +314,9 @@
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
           </template>
+          <template #cell-today_cost="{ row }">
+            <AccountTodayCostCell :stats="todayStatsByAccountId[String(row.id)] ?? null" />
+          </template>
           <template #cell-today_stats="{ row }">
             <AccountTodayStatsCell
               :stats="todayStatsByAccountId[String(row.id)] ?? null"
@@ -350,13 +324,76 @@
               :error="todayStatsError"
             />
           </template>
+          <template #cell-balance="{ row }">
+            <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
+              {{ row.extra?.balance != null ? `$${Number(row.extra.balance).toFixed(2)}` : '-' }}
+            </span>
+          </template>
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="row.groups" :max-display="4" />
           </template>
           <template #header-usage="{ column }">
-            <div class="flex items-center">
+            <div class="flex items-center gap-1">
               <span>{{ column.label }}</span>
               <HelpTooltip :content="t('admin.accounts.usageWindowsHint')" width-class="w-72" />
+              <div class="usage-window-sort-trigger relative">
+                <button
+                  type="button"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded normal-case tracking-normal transition-colors hover:bg-gray-200 dark:hover:bg-dark-700"
+                  :class="usageWindowSort
+                    ? 'text-primary-600 dark:text-primary-400'
+                    : 'text-gray-400 dark:text-dark-500'"
+                  :title="t('admin.accounts.usageWindow.sort.title')"
+                  :aria-label="t('admin.accounts.usageWindow.sort.title')"
+                  :aria-expanded="openUsageWindowSortMenu"
+                  aria-haspopup="menu"
+                  data-test="usage-window-sort-trigger"
+                  @click.stop="openUsageWindowSortMenu = !openUsageWindowSortMenu"
+                >
+                  <Icon
+                    :name="usageWindowSort
+                      ? (usageWindowSort.order === 'asc' ? 'arrowUp' : 'arrowDown')
+                      : 'sort'"
+                    size="xs"
+                  />
+                </button>
+                <div
+                  v-if="openUsageWindowSortMenu"
+                  class="absolute right-0 top-full z-50 mt-1 min-w-[164px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  role="menu"
+                >
+                  <button
+                    v-for="metric in ACCOUNT_USAGE_WINDOW_SORT_METRICS"
+                    :key="metric"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs normal-case tracking-normal hover:bg-gray-100 dark:hover:bg-dark-700"
+                    :class="usageWindowSort?.metric === metric
+                      ? 'font-medium text-primary-600 dark:text-primary-400'
+                      : 'text-gray-700 dark:text-gray-300'"
+                    :data-test="`usage-window-sort-${metric}`"
+                    role="menuitem"
+                    @click.stop="toggleUsageWindowSort(metric)"
+                  >
+                    <span>{{ getUsageWindowSortLabel(metric) }}</span>
+                    <Icon
+                      v-if="usageWindowSort?.metric === metric"
+                      :name="usageWindowSort.order === 'asc' ? 'arrowUp' : 'arrowDown'"
+                      size="xs"
+                    />
+                  </button>
+                  <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+                  <button
+                    type="button"
+                    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs font-normal normal-case tracking-normal text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                    data-test="usage-window-sort-default"
+                    role="menuitem"
+                    @click.stop="clearUsageWindowSort"
+                  >
+                    <span>{{ t('admin.accounts.usageWindow.sort.defaultOrder') }}</span>
+                    <Icon v-if="!usageWindowSort" name="check" size="xs" />
+                  </button>
+                </div>
+              </div>
             </div>
           </template>
           <template #cell-usage="{ row }">
@@ -365,6 +402,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              @usage-loaded="handleUsageWindowLoaded(row.id, $event)"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -394,15 +432,17 @@
             </span>
           </template>
           <template #header-upstream_billing_rate="{ column }">
-            <div class="flex items-center">
+            <div class="flex items-center gap-1">
               <span>{{ column.label }}</span>
-              <HelpTooltip :content="t('admin.accounts.upstreamBilling.trustWarning')" width-class="w-80" />
+              <span @click.stop>
+                <HelpTooltip :content="t('admin.accounts.upstreamBilling.trustWarning')" width-class="w-80" />
+              </span>
             </div>
           </template>
           <template #cell-upstream_billing_rate="{ row }">
             <UpstreamBillingRateCell
               :account="row"
-              :interval-minutes="upstreamBillingProbeSettings.interval_minutes"
+              :global-probe-enabled="upstreamBillingProbeGloballyEnabled"
               :now="upstreamBillingNow"
               :probing="probingUpstreamBilling.has(row.id)"
               @probe="handleProbeUpstreamBilling(row)"
@@ -466,10 +506,6 @@
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
                   <span class="text-xs">{{ t('admin.accounts.restore') }}</span>
                 </button>
-                <button @click="handleDelete(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                  <span class="text-xs">{{ t('common.delete') }}</span>
-                </button>
               </template>
               <template v-else>
                 <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
@@ -499,7 +535,7 @@
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -534,6 +570,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'v
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useTableLoader } from '@/composables/useTableLoader'
@@ -545,7 +582,6 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
-import Toggle from '@/components/common/Toggle.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
@@ -563,6 +599,7 @@ import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
+import AccountTodayCostCell from '@/components/account/AccountTodayCostCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
@@ -576,10 +613,11 @@ import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSettings, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const balanceCheckEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.balanceCheck))
 const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
@@ -667,14 +705,10 @@ const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
-const upstreamBillingProbeSettings = reactive<UpstreamBillingProbeSettings>({
-  enabled: true,
-  interval_minutes: 30
-})
-const upstreamBillingSettingsLoading = ref(false)
-const upstreamBillingSettingsSaving = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
+const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
+let lastUpstreamBillingSortRefreshMinute = -1
 useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 
 // Account tools dropdown
@@ -701,6 +735,7 @@ const ACCOUNT_SORTABLE_KEYS = new Set([
   'schedulable',
   'priority',
   'rate_multiplier',
+  'upstream_billing_rate',
   'last_used_at',
   'created_at',
   'expires_at'
@@ -742,6 +777,117 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+const ACCOUNT_USAGE_WINDOW_SORT_METRICS = [
+  'five_hour_utilization',
+  'five_hour_reset',
+  'seven_day_utilization',
+  'seven_day_reset'
+] as const
+type AccountUsageWindowSortMetric = (typeof ACCOUNT_USAGE_WINDOW_SORT_METRICS)[number]
+type AccountUsageWindowSortState = {
+  metric: AccountUsageWindowSortMetric
+  order: AccountSortOrder
+} | null
+const ACCOUNT_USAGE_WINDOW_SORT_STORAGE_KEY = 'account-usage-window-sort'
+const openUsageWindowSortMenu = ref(false)
+const usageWindowByAccountId = ref<Record<number, AccountUsageInfo>>({})
+
+const isAccountUsageWindowSortMetric = (value: unknown): value is AccountUsageWindowSortMetric =>
+  typeof value === 'string' && ACCOUNT_USAGE_WINDOW_SORT_METRICS.includes(value as AccountUsageWindowSortMetric)
+
+const loadInitialUsageWindowSort = (): AccountUsageWindowSortState => {
+  try {
+    const raw = localStorage.getItem(ACCOUNT_USAGE_WINDOW_SORT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { metric?: unknown; order?: unknown }
+    if (!isAccountUsageWindowSortMetric(parsed.metric)) return null
+    return {
+      metric: parsed.metric,
+      order: parsed.order === 'asc' ? 'asc' : 'desc'
+    }
+  } catch {
+    return null
+  }
+}
+
+const usageWindowSort = ref<AccountUsageWindowSortState>(loadInitialUsageWindowSort())
+
+const persistUsageWindowSort = () => {
+  try {
+    if (usageWindowSort.value) {
+      localStorage.setItem(ACCOUNT_USAGE_WINDOW_SORT_STORAGE_KEY, JSON.stringify(usageWindowSort.value))
+    } else {
+      localStorage.removeItem(ACCOUNT_USAGE_WINDOW_SORT_STORAGE_KEY)
+    }
+  } catch (error) {
+    console.error('Failed to persist account usage-window sort:', error)
+  }
+}
+
+const clearUsageWindowSort = () => {
+  usageWindowSort.value = null
+  openUsageWindowSortMenu.value = false
+  persistUsageWindowSort()
+}
+
+const defaultUsageWindowSortOrder = (_metric: AccountUsageWindowSortMetric): AccountSortOrder => 'desc'
+
+const toggleUsageWindowSort = (metric: AccountUsageWindowSortMetric) => {
+  const current = usageWindowSort.value
+  if (current?.metric === metric) {
+    const defaultOrder = defaultUsageWindowSortOrder(metric)
+    usageWindowSort.value = current.order === defaultOrder
+      ? { metric, order: defaultOrder === 'asc' ? 'desc' : 'asc' }
+      : null
+  } else {
+    usageWindowSort.value = { metric, order: defaultUsageWindowSortOrder(metric) }
+  }
+  openUsageWindowSortMenu.value = false
+  persistUsageWindowSort()
+}
+
+const getUsageWindowSortLabel = (metric: AccountUsageWindowSortMetric) => {
+  const keys: Record<AccountUsageWindowSortMetric, string> = {
+    five_hour_utilization: 'admin.accounts.usageWindow.sort.fiveHourUtilization',
+    five_hour_reset: 'admin.accounts.usageWindow.sort.fiveHourReset',
+    seven_day_utilization: 'admin.accounts.usageWindow.sort.sevenDayUtilization',
+    seven_day_reset: 'admin.accounts.usageWindow.sort.sevenDayReset'
+  }
+  return t(keys[metric])
+}
+
+const handleUsageWindowLoaded = (accountId: number, usage: AccountUsageInfo) => {
+  usageWindowByAccountId.value = {
+    ...usageWindowByAccountId.value,
+    [accountId]: usage
+  }
+}
+
+const getUsageWindowProgress = (
+  usage: AccountUsageInfo,
+  metric: AccountUsageWindowSortMetric
+): UsageProgress | null => metric.startsWith('five_hour') ? usage.five_hour : usage.seven_day
+
+const getUsageWindowSortValue = (
+  account: Account,
+  metric: AccountUsageWindowSortMetric
+): number | null => {
+  const usage = usageWindowByAccountId.value[account.id]
+  if (!usage) return null
+  const progress = getUsageWindowProgress(usage, metric)
+  if (!progress) return null
+
+  if (metric.endsWith('_utilization')) {
+    return Number.isFinite(progress.utilization) ? progress.utilization : null
+  }
+
+  // OpenAI renders an idle 0% rolling window as "now", even if a stale future
+  // reset timestamp is present. Keep sorting aligned with that visible value.
+  if (account.platform === 'openai' && progress.utilization <= 0) return 0
+  if (!progress.resets_at) return null
+  const resetAt = Date.parse(progress.resets_at)
+  return Number.isFinite(resetAt) ? resetAt : null
+}
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -752,11 +898,12 @@ const buildDefaultTodayStats = (): WindowStats => ({
 })
 
 const refreshTodayStatsBatch = async () => {
-  // Why this checks both columns:
+  // Why this checks all consumers:
+  // - today_cost shows the compact cost requested in the account list.
   // - today_stats column shows dedicated today's metrics.
   // - usage column also embeds today's stats for Key/Bedrock rows.
-  // So we only skip fetching when BOTH columns are hidden.
-  if (hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
+  // So we only skip fetching when all consumers are hidden.
+  if (hiddenColumns.has('today_cost') && hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
     todayStatsLoading.value = false
     todayStatsError.value = null
     return
@@ -932,7 +1079,7 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
-  if ((key === 'today_stats' || key === 'usage') && wasHidden) {
+  if ((key === 'today_cost' || key === 'today_stats' || key === 'usage') && wasHidden) {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
@@ -981,6 +1128,26 @@ const {
   }
 })
 
+const sortedAccounts = computed(() => {
+  const currentSort = usageWindowSort.value
+  if (!currentSort) return accounts.value
+
+  return [...accounts.value]
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const aValue = getUsageWindowSortValue(a.row, currentSort.metric)
+      const bValue = getUsageWindowSortValue(b.row, currentSort.metric)
+      if (aValue === null && bValue === null) return a.index - b.index
+      if (aValue === null) return 1
+      if (bValue === null) return -1
+      if (aValue !== bValue) {
+        return currentSort.order === 'asc' ? aValue - bValue : bValue - aValue
+      }
+      return a.index - b.index
+    })
+    .map(({ row }) => row)
+})
+
 const {
   selectedIds: selIds,
   allVisibleSelected,
@@ -995,7 +1162,7 @@ const {
   selectVisible: selectPage,
   batchUpdate
 } = useTableSelection<Account>({
-  rows: accounts,
+  rows: sortedAccounts,
   getId: (account) => account.id
 })
 
@@ -1018,8 +1185,15 @@ const resetAutoRefreshCache = () => {
 
 const isFirstLoad = ref(true)
 
+function markUpstreamBillingSortRefresh() {
+  if (sortState.sort_by === 'upstream_billing_rate') {
+    lastUpstreamBillingSortRefreshMinute = Math.floor(Date.now() / 60_000)
+  }
+}
+
 const load = async () => {
   const requestParams = params as any
+  markUpstreamBillingSortRefresh()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -1036,12 +1210,26 @@ const load = async () => {
 }
 
 const reload = async () => {
+  markUpstreamBillingSortRefresh()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+}
+
+const refreshUpstreamBillingSortedList = async (force = false) => {
+  if (sortState.sort_by !== 'upstream_billing_rate') return
+
+  const minute = Math.floor(upstreamBillingNow.value / 60_000)
+  if (!force && lastUpstreamBillingSortRefreshMinute === minute) return
+  lastUpstreamBillingSortRefreshMinute = minute
+  try {
+    await reload()
+  } catch (error) {
+    console.error('Failed to refresh upstream billing sort:', error)
+  }
 }
 
 const debouncedReload = () => {
@@ -1069,6 +1257,7 @@ const handlePageSizeChange = (size: number) => {
 }
 
 const handleSort = (key: string, order: AccountSortOrder) => {
+  clearUsageWindowSort()
   sortState.sort_by = key
   sortState.sort_order = order
   const requestParams = params as any
@@ -1083,12 +1272,21 @@ const handleSort = (key: string, order: AccountSortOrder) => {
 }
 
 watch(loading, (isLoading, wasLoading) => {
+  if (wasLoading && !isLoading) {
+    upstreamBillingNow.value = Date.now()
+  }
   if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
     pendingTodayStatsRefresh.value = false
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
   }
+})
+
+watch(upstreamBillingNow, () => {
+  if (sortState.sort_by !== 'upstream_billing_rate' || loading.value) return
+  if (typeof document !== 'undefined' && document.hidden) return
+  void refreshUpstreamBillingSortedList()
 })
 
 const isAnyModalOpen = computed(() => {
@@ -1204,7 +1402,9 @@ const refreshAccountsIncrementally = async () => {
       pagination.pages = result.data.pages || 0
       mergeAccountsIncrementally(result.data.items || [])
       hasPendingListSync.value = false
+      markUpstreamBillingSortRefresh()
     }
+    upstreamBillingNow.value = Date.now()
 
     await refreshTodayStatsBatch()
   } catch (error) {
@@ -1215,9 +1415,18 @@ const refreshAccountsIncrementally = async () => {
 }
 
 const handleManualRefresh = async () => {
-  await load()
+  await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
   // Force usage cells to refetch /usage on explicit user refresh.
   usageManualRefreshToken.value += 1
+}
+
+const loadUpstreamBillingProbeGlobalState = async () => {
+  try {
+    const settings = await adminAPI.accounts.getUpstreamBillingProbeSettings()
+    upstreamBillingProbeGloballyEnabled.value = settings.enabled
+  } catch (error) {
+    console.error('Failed to load upstream billing probe settings:', error)
+  }
 }
 
 const closeAccountToolsDropdown = () => {
@@ -1254,29 +1463,9 @@ const openTLSFingerprintProfiles = () => {
   showTLSFingerprintProfiles.value = true
 }
 
-const loadUpstreamBillingProbeSettings = async () => {
-  upstreamBillingSettingsLoading.value = true
-  try {
-    Object.assign(upstreamBillingProbeSettings, await adminAPI.accounts.getUpstreamBillingProbeSettings())
-  } catch (error) {
-    console.error('Failed to load upstream billing probe settings:', error)
-  } finally {
-    upstreamBillingSettingsLoading.value = false
-  }
-}
-
-const saveUpstreamBillingProbeSettings = async () => {
-  upstreamBillingSettingsSaving.value = true
-  try {
-    const saved = await adminAPI.accounts.updateUpstreamBillingProbeSettings({ ...upstreamBillingProbeSettings })
-    Object.assign(upstreamBillingProbeSettings, saved)
-    appStore.showSuccess(t('admin.accounts.upstreamBilling.settingsSaved'))
-  } catch (error) {
-    console.error('Failed to save upstream billing probe settings:', error)
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.upstreamBilling.settingsFailed')))
-  } finally {
-    upstreamBillingSettingsSaving.value = false
-  }
+const openBalanceCheckSettings = () => {
+  closeAccountToolsDropdown()
+  window.location.href = '/admin/balance-check-settings'
 }
 
 const syncPendingListChanges = async () => {
@@ -1367,7 +1556,7 @@ function getAntigravityTierLabel(row: any): string | null {
 // 账号显示邮箱:优先账号自身(extra/credentials),影子账号回退母账号 parent_email。
 // 供名称单元格 v-if/标题/文本三处共用,避免同一回退链在模板里重复三次。
 function accountDisplayEmail(row: any): string {
-  return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.parent_email || ''
+  return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.credentials?.client_email || row.parent_email || ''
 }
 
 function accountHomepageUrl(row: Account): string {
@@ -1441,7 +1630,9 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false },
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'balance', label: t('admin.accounts.columns.balance'), sortable: false, width: '70px' }
   ]
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
@@ -1452,7 +1643,7 @@ const allColumns = computed(() => {
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
-    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: false },
+    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
@@ -1578,9 +1769,14 @@ const handleBulkProbeUpstreamBilling = async () => {
   accountIDs.forEach(id => probingUpstreamBilling.add(id))
   try {
     const results = await adminAPI.accounts.probeUpstreamBillingBatch(accountIDs)
+    let patched = false
     results.forEach(result => {
-      if (result.snapshot) patchUpstreamBillingSnapshot(result.account_id, result.snapshot)
+      if (result.snapshot) {
+        patchUpstreamBillingSnapshot(result.account_id, result.snapshot)
+        patched = true
+      }
     })
+    if (patched) await refreshUpstreamBillingSortedList(true)
     const failed = results.filter(result => result.error).length
     if (failed > 0) {
       appStore.showError(t('admin.accounts.upstreamBilling.batchPartial', { success: results.length - failed, failed }))
@@ -1916,6 +2112,8 @@ const patchAccountInList = (updatedAccount: Account) => {
 const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBillingProbeSnapshot) => {
   const account = accounts.value.find(item => item.id === accountID)
   if (!account) return
+  markUpstreamBillingSortRefresh()
+  upstreamBillingNow.value = Date.now()
   patchAccountInList({
     ...account,
     extra: { ...account.extra, upstream_billing_probe: snapshot }
@@ -1926,7 +2124,10 @@ const handleProbeUpstreamBilling = async (account: Account) => {
   probingUpstreamBilling.add(account.id)
   try {
     const result = await adminAPI.accounts.probeUpstreamBilling(account.id)
-    if (result.snapshot) patchUpstreamBillingSnapshot(account.id, result.snapshot)
+    if (result.snapshot) {
+      patchUpstreamBillingSnapshot(account.id, result.snapshot)
+      await refreshUpstreamBillingSortedList(true)
+    }
   } catch (error) {
     console.error('Failed to probe upstream billing:', error)
     appStore.showError(extractApiErrorMessage(error, t('admin.accounts.upstreamBilling.probeFailed')))
@@ -2130,6 +2331,7 @@ const confirmCreateSparkShadow = async () => {
 }
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
 const confirmDelete = async () => { if(!deletingAcc.value) return; try { await adminAPI.accounts.delete(deletingAcc.value.id); showDeleteDialog.value = false; deletingAcc.value = null; reload() } catch (error) { console.error('Failed to delete account:', error) } }
+// Permanent delete is available via more-menu in both modes
 
 const handleRecycle = async (a: Account) => {
   try {
@@ -2209,11 +2411,14 @@ const handleClickOutside = (event: MouseEvent) => {
   if (autoRefreshDropdownRef.value && !autoRefreshDropdownRef.value.contains(target)) {
     showAutoRefreshDropdown.value = false
   }
+  if (!target.closest('.usage-window-sort-trigger')) {
+    openUsageWindowSortMenu.value = false
+  }
 }
 
 onMounted(async () => {
   load()
-  loadUpstreamBillingProbeSettings()
+  loadUpstreamBillingProbeGlobalState()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
     proxies.value = p

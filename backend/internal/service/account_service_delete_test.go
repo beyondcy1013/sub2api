@@ -73,6 +73,14 @@ func (s *accountRepoStub) Delete(ctx context.Context, id int64) error {
 	return s.deleteErr
 }
 
+func (s *accountRepoStub) RecycleAccount(context.Context, int64) error {
+	panic("unexpected RecycleAccount call")
+}
+
+func (s *accountRepoStub) RestoreAccount(context.Context, int64) error {
+	panic("unexpected RestoreAccount call")
+}
+
 // 以下是接口要求实现但本测试不关心的方法
 
 func (s *accountRepoStub) List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
@@ -157,6 +165,10 @@ func (s *accountRepoStub) ListSchedulableUngroupedByPlatform(ctx context.Context
 
 func (s *accountRepoStub) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
 	panic("unexpected ListSchedulableUngroupedByPlatforms call")
+}
+
+func (s *accountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	panic("unexpected ListModelAvailabilityCandidates call")
 }
 
 func (s *accountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {

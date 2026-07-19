@@ -10,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -133,11 +134,11 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+			shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
@@ -185,11 +186,12 @@ func writeOpenAIEmbeddingsUpstreamResponse(c *gin.Context, resp *http.Response, 
 }
 
 func writeOpenAIEmbeddingsError(c *gin.Context, statusCode int, errType, message string) {
+	message = clienterror.Prefix(errType, message)
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

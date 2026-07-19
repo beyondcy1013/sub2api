@@ -173,4 +173,3 @@ func TestHandle429_PersistsRateLimitDespiteCanceledContext(t *testing.T) {
 	require.Equal(t, 1, accountRepo.rateLimitCalls, "限流落库必须在入参 ctx 取消后仍生效(persistCtx 解耦)")
 	require.Equal(t, int64(53), accountRepo.lastRateLimitID)
 }
-

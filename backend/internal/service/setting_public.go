@@ -279,8 +279,13 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
 		balanceLowNotifyThreshold = v
 	}
+	capabilities := s.cfg.RuntimeCapabilities()
 
 	return &PublicSettings{
+		DeploymentProfile:                s.cfg.DeploymentProfile(),
+		BalanceCheckEnabled:              capabilities.BalanceCheck,
+		StickySessionReassignmentEnabled: capabilities.StickySessionReassignment,
+		BrandedErrorsEnabled:             capabilities.BrandedErrors,
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
 		ForceEmailOnThirdPartySignup:     settings[SettingKeyForceEmailOnThirdPartySignup] == "true",
@@ -439,6 +444,10 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
+	DeploymentProfile                string                   `json:"deployment_profile"`
+	BalanceCheckEnabled              bool                     `json:"balance_check_enabled"`
+	StickySessionReassignmentEnabled bool                     `json:"sticky_session_reassignment_enabled"`
+	BrandedErrorsEnabled             bool                     `json:"branded_errors_enabled"`
 	RegistrationEnabled              bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled               bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist []string                 `json:"registration_email_suffix_whitelist"`
@@ -508,6 +517,10 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 	}
 
 	return &PublicSettingsInjectionPayload{
+		DeploymentProfile:                settings.DeploymentProfile,
+		BalanceCheckEnabled:              settings.BalanceCheckEnabled,
+		StickySessionReassignmentEnabled: settings.StickySessionReassignmentEnabled,
+		BrandedErrorsEnabled:             settings.BrandedErrorsEnabled,
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,

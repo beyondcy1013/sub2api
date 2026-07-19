@@ -94,6 +94,16 @@ function defineFlag<K extends keyof PublicSettings>(
  * public-settings-driven switch; see the "Adding a new flag" checklist above.
  */
 export const FeatureFlags = {
+  balanceCheck: defineFlag({
+    key: 'balance_check_enabled',
+    mode: 'opt-in',
+    label: 'Balance Check',
+  }),
+  stickySessionReassignment: defineFlag({
+    key: 'sticky_session_reassignment_enabled',
+    mode: 'opt-in',
+    label: 'Sticky Session Reassignment',
+  }),
   channelMonitor: defineFlag({
     key: 'channel_monitor_enabled',
     mode: 'opt-out',

@@ -28,12 +28,14 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	got := AccountFromServiceShallow(src)
 	require.NotNil(t, got)
 
-	// 敏感键不在 Credentials 里；本地定制要求 api_key 在管理端明文返回。
+	// 高敏 token 不在 Credentials 里
 	require.NotContains(t, got.Credentials, "access_token")
 	require.NotContains(t, got.Credentials, "refresh_token")
 	require.NotContains(t, got.Credentials, "id_token")
+	// API Key 账号管理页要求明文展示
 	require.Equal(t, "sk-secret", got.Credentials["api_key"])
-	// 非敏感键保留
+	// 非高敏键保留
+
 	require.Equal(t, "https://api.example.com", got.Credentials["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, got.Credentials["model_mapping"])
 
@@ -41,7 +43,8 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.True(t, got.CredentialsStatus["has_access_token"])
 	require.True(t, got.CredentialsStatus["has_refresh_token"])
 	require.True(t, got.CredentialsStatus["has_id_token"])
-	require.NotContains(t, got.CredentialsStatus, "has_api_key")
+	require.False(t, got.CredentialsStatus["has_api_key"])
+
 
 	// JSON 序列化校验：响应体里不会出现敏感子串
 	raw, err := json.Marshal(got)

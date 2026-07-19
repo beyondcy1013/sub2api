@@ -44,6 +44,7 @@ export async function list(
     privacy_mode?: string
     lite?: string
     include_scheduler_score?: string
+    recycled?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -80,6 +81,7 @@ export async function listWithEtag(
     privacy_mode?: string
     lite?: string
     include_scheduler_score?: string
+    recycled?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -185,6 +187,16 @@ export async function duplicate(id: number): Promise<Account> {
 }
 
 /**
+ * Clone an existing account. Sensitive credentials are copied server-side.
+ * @param accountData - Fields to override on the cloned account
+ * @returns Created cloned account
+ */
+export async function clone(id: number, accountData: Partial<CreateAccountRequest>): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/clone`, accountData)
+  return data
+}
+
+/**
  * Update account
  * @param id - Account ID
  * @param updates - Fields to update
@@ -279,7 +291,6 @@ export async function reassignStickySessions(
   )
   return data
 }
-
 /**
  * Toggle account status
  * @param id - Account ID
@@ -953,6 +964,7 @@ export const accountsAPI = {
   getById,
   create,
   duplicate,
+  clone,
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,

@@ -35,6 +35,18 @@ func TestLoadServerTimingConfig(t *testing.T) {
 	})
 }
 
+func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 10, cfg.Server.ReadHeaderTimeout)
+	require.Equal(t, 64*1024, cfg.Server.MaxHeaderBytes)
+	require.Equal(t, int64(32*1024*1024), cfg.Gateway.TextMaxBodySize)
+	require.True(t, cfg.APIKeyAuth.InvalidAbuse.Enabled)
+	require.Equal(t, 120, cfg.APIKeyAuth.InvalidAbuse.Threshold)
+	require.Equal(t, 16384, cfg.APIKeyAuth.InvalidAbuse.Capacity)
+}
+
 func TestLoadForBootstrapAllowsMissingJWTSecret(t *testing.T) {
 	viper.Reset()
 	t.Setenv("JWT_SECRET", "")
@@ -350,12 +362,44 @@ func TestLoadDefaultIdempotencyConfig(t *testing.T) {
 	}
 }
 
-func TestLoadDefaultBatchImageQueueDisabled(t *testing.T) {
+func TestLoadDefaultBalanceCheckConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.False(t, cfg.BatchImage.QueueEnabled)
+	require.NotNil(t, cfg.BalanceCheck.Enabled)
+	require.False(t, *cfg.BalanceCheck.Enabled)
+	require.Equal(t, "@every 5m", cfg.BalanceCheck.Interval)
+	require.Equal(t, "https://ai.router.team/api/public/cc-switch/balance", cfg.BalanceCheck.BalanceURL)
+	require.Equal(t, 30, cfg.BalanceCheck.RequestTimeoutSeconds)
+	require.Equal(t, 1, cfg.BalanceCheck.MaxConcurrentChecks)
+	require.Equal(t, 5.0, cfg.BalanceCheck.PauseDurationHours)
+	require.Equal(t, 5.0, cfg.BalanceCheck.MinDecrease)
+	require.Equal(t, 0.0, cfg.BalanceCheck.StopWhenCurrentBelow)
+	require.Equal(t, 0.0, cfg.BalanceCheck.ResumeWhenCurrentAbove)
+	require.NotNil(t, cfg.BalanceCheck.RequireQuotaHourlyLimit)
+	require.True(t, *cfg.BalanceCheck.RequireQuotaHourlyLimit)
+}
+
+func TestLoadBalanceCheckConfigFromEnvAllowsExplicitFalse(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("BALANCE_CHECK_ENABLED", "false")
+	t.Setenv("BALANCE_CHECK_REQUIRE_QUOTA_HOURLY_LIMIT", "false")
+	t.Setenv("BALANCE_CHECK_MIN_DECREASE", "12.5")
+	t.Setenv("BALANCE_CHECK_PAUSE_WHEN_CURRENT_BELOW", "20")
+	t.Setenv("BALANCE_CHECK_STOP_WHEN_CURRENT_BELOW", "3")
+	t.Setenv("BALANCE_CHECK_RESUME_WHEN_CURRENT_ABOVE", "30")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.BalanceCheck.Enabled)
+	require.False(t, *cfg.BalanceCheck.Enabled)
+	require.NotNil(t, cfg.BalanceCheck.RequireQuotaHourlyLimit)
+	require.False(t, *cfg.BalanceCheck.RequireQuotaHourlyLimit)
+	require.Equal(t, 12.5, cfg.BalanceCheck.MinDecrease)
+	require.Equal(t, 20.0, cfg.BalanceCheck.PauseWhenCurrentBelow)
+	require.Equal(t, 3.0, cfg.BalanceCheck.StopWhenCurrentBelow)
+	require.Equal(t, 30.0, cfg.BalanceCheck.ResumeWhenCurrentAbove)
 }
 
 func TestLoadIdempotencyConfigFromEnv(t *testing.T) {
@@ -1186,6 +1230,51 @@ func TestValidateConfigErrors(t *testing.T) {
 		wantErr string
 	}{
 		{
+			name:    "server read header timeout",
+			mutate:  func(c *Config) { c.Server.ReadHeaderTimeout = 0 },
+			wantErr: "server.read_header_timeout",
+		},
+		{
+			name:    "server max header bytes too small",
+			mutate:  func(c *Config) { c.Server.MaxHeaderBytes = 4096 },
+			wantErr: "server.max_header_bytes",
+		},
+		{
+			name:    "server max request body size",
+			mutate:  func(c *Config) { c.Server.MaxRequestBodySize = -1 },
+			wantErr: "server.max_request_body_size",
+		},
+		{
+			name: "h2c zero concurrent streams",
+			mutate: func(c *Config) {
+				c.Server.H2C.Enabled = true
+				c.Server.H2C.MaxConcurrentStreams = 0
+			},
+			wantErr: "server.h2c.max_concurrent_streams",
+		},
+		{
+			name: "h2c oversized read frame",
+			mutate: func(c *Config) {
+				c.Server.H2C.Enabled = true
+				c.Server.H2C.MaxReadFrameSize = 16 * 1024 * 1024
+			},
+			wantErr: "server.h2c.max_read_frame_size",
+		},
+		{
+			name: "invalid auth abuse threshold too small",
+			mutate: func(c *Config) {
+				c.APIKeyAuth.InvalidAbuse.Threshold = 9
+			},
+			wantErr: "api_key_auth_cache.invalid_abuse.threshold",
+		},
+		{
+			name: "invalid auth abuse capacity too small",
+			mutate: func(c *Config) {
+				c.APIKeyAuth.InvalidAbuse.Capacity = 255
+			},
+			wantErr: "api_key_auth_cache.invalid_abuse.capacity",
+		},
+		{
 			name:    "jwt secret required",
 			mutate:  func(c *Config) { c.JWT.Secret = "" },
 			wantErr: "jwt.secret is required",
@@ -1264,11 +1353,6 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "billing circuit breaker half open",
 			mutate:  func(c *Config) { c.Billing.CircuitBreaker.HalfOpenRequests = 0 },
 			wantErr: "billing.circuit_breaker.half_open_requests",
-		},
-		{
-			name:    "billing minimum balance reserve",
-			mutate:  func(c *Config) { c.Billing.MinimumBalanceReserve = -0.01 },
-			wantErr: "billing.minimum_balance_reserve",
 		},
 		{
 			name:    "database max open conns",
@@ -1385,6 +1469,11 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "gateway max body size",
 			mutate:  func(c *Config) { c.Gateway.MaxBodySize = 0 },
 			wantErr: "gateway.max_body_size",
+		},
+		{
+			name:    "gateway text body exceeds media body",
+			mutate:  func(c *Config) { c.Gateway.TextMaxBodySize = c.Gateway.MaxBodySize + 1 },
+			wantErr: "gateway.text_max_body_size",
 		},
 		{
 			name:    "gateway response header timeout",
@@ -1823,7 +1912,7 @@ func TestValidateConfig_OpenAIWSRules(t *testing.T) {
 			wantErr: "gateway.openai_ws.store_disabled_conn_mode",
 		},
 		{
-			name:    "ingress_mode_default 必须为 off|ctx_pool|passthrough|http_bridge",
+			name:    "ingress_mode_default 必须为 off|ctx_pool|passthrough",
 			mutate:  func(c *Config) { c.Gateway.OpenAIWS.IngressModeDefault = "invalid" },
 			wantErr: "gateway.openai_ws.ingress_mode_default",
 		},

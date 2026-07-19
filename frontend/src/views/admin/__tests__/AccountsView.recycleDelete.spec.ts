@@ -25,6 +25,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: false }),
       delete: deleteAccount,
       recycle: vi.fn(),
       restore: vi.fn(),
@@ -102,6 +103,18 @@ const ConfirmDialogStub = {
   template: '<button v-if="show" data-test="confirm-delete" @click="$emit(\'confirm\')">confirm</button>'
 }
 
+const AccountActionMenuStub = {
+  props: ['show', 'account'],
+  emits: ['delete', 'close'],
+  template: `
+    <button
+      v-if="show && account"
+      data-test="action-menu-delete"
+      @click="$emit('delete', account); $emit('close')"
+    >common.delete</button>
+  `
+}
+
 function mountView() {
   return mount(AccountsView, {
     global: {
@@ -116,7 +129,7 @@ function mountView() {
         AccountTableActions: AccountTableActionsStub,
         AccountTableFilters: true,
         AccountBulkActionsBar: true,
-        AccountActionMenu: true,
+        AccountActionMenu: AccountActionMenuStub,
         ImportDataModal: true,
         ReAuthAccountModal: true,
         AccountTestModal: true,
@@ -170,7 +183,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     deleteAccount.mockResolvedValue({ message: 'deleted' })
   })
 
-  it('permanently deletes an account directly from the recycle bin after confirmation', async () => {
+  it('permanently deletes an account from the recycle-bin more menu after confirmation', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -180,10 +193,11 @@ describe('admin AccountsView recycle-bin deletion', () => {
     const row = wrapper.get('[data-test="account-row-42"]')
     expect(row.text()).toContain('admin.accounts.restore')
 
-    const deleteButton = row.findAll('button').find(button => button.text().includes('common.delete'))
-    expect(deleteButton).toBeDefined()
-
-    await deleteButton!.trigger('click')
+    expect(row.text()).not.toContain('common.delete')
+    const moreButton = row.findAll('button').find(button => button.text().includes('common.more'))
+    expect(moreButton).toBeDefined()
+    await moreButton!.trigger('click')
+    await wrapper.get('[data-test="action-menu-delete"]').trigger('click')
     await wrapper.get('[data-test="confirm-delete"]').trigger('click')
     await flushPromises()
 

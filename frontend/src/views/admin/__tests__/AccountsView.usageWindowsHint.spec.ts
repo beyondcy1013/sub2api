@@ -67,6 +67,7 @@ const DataTableStub = {
   props: ['columns', 'data'],
   template: `
     <div data-test="data-table">
+      <div data-test="row-order">{{ data.map(row => row.name).join(',') }}</div>
       <template v-for="column in columns" :key="column.key">
         <div v-if="column.key === 'usage'" data-test="usage-header">
           <slot :name="'header-' + column.key" :column="column" />
@@ -75,6 +76,9 @@ const DataTableStub = {
           <slot :name="'header-' + column.key" :column="column" />
         </div>
       </template>
+      <div v-for="row in data" :key="row.id">
+        <slot name="cell-usage" :row="row" />
+      </div>
     </div>
   `
 }
@@ -83,6 +87,17 @@ const DataTableStub = {
 const HelpTooltipStub = {
   props: ['content', 'widthClass'],
   template: '<span data-test="usage-windows-hint">{{ content }}</span>'
+}
+
+const AccountUsageCellStub = {
+  props: ['account'],
+  emits: ['usage-loaded'],
+  template: `
+    <button
+      :data-test="'emit-usage-' + account.id"
+      @click="$emit('usage-loaded', account.extra.test_usage)"
+    >usage</button>
+  `
 }
 
 function mountView() {
@@ -118,7 +133,7 @@ function mountView() {
         AccountStatusIndicator: true,
         AccountTodayStatsCell: true,
         AccountGroupsCell: true,
-        AccountUsageCell: true,
+        AccountUsageCell: AccountUsageCellStub,
         Icon: true
       }
     }
@@ -176,5 +191,118 @@ describe('admin AccountsView usage windows hint', () => {
     expect(wrapper.findAll('[data-test="usage-windows-hint"]').some(node =>
       node.text() === 'admin.accounts.upstreamBilling.trustWarning'
     )).toBe(true)
+    const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; sortable: boolean }>
+    expect(columns.find(column => column.key === 'upstream_billing_rate')?.sortable).toBe(true)
+  })
+
+  it('sorts the current page by each 5h and 7d utilization or reset metric', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          name: 'lower-usage-later-reset',
+          platform: 'openai',
+          type: 'oauth',
+          status: 'active',
+          extra: {
+            test_usage: {
+              five_hour: { utilization: 11, resets_at: '2026-07-19T10:00:00Z' },
+              seven_day: { utilization: 12, resets_at: '2026-07-26T10:00:00Z' }
+            }
+          }
+        },
+        {
+          id: 2,
+          name: 'higher-usage-sooner-reset',
+          platform: 'openai',
+          type: 'oauth',
+          status: 'active',
+          extra: {
+            test_usage: {
+              five_hour: { utilization: 80, resets_at: '2026-07-19T09:00:00Z' },
+              seven_day: { utilization: 93, resets_at: '2026-07-25T11:00:00Z' }
+            }
+          }
+        },
+        {
+          id: 3,
+          name: 'idle-now',
+          platform: 'openai',
+          type: 'oauth',
+          status: 'active',
+          extra: {
+            test_usage: {
+              five_hour: { utilization: 0, resets_at: '2026-07-27T10:00:00Z' },
+              seven_day: { utilization: 0, resets_at: '2026-07-28T10:00:00Z' }
+            }
+          }
+        },
+        {
+          id: 4,
+          name: 'usage-not-loaded',
+          platform: 'openai',
+          type: 'oauth',
+          status: 'inactive',
+          extra: {}
+        }
+      ],
+      total: 4,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="emit-usage-1"]').trigger('click')
+    await wrapper.get('[data-test="emit-usage-2"]').trigger('click')
+    await wrapper.get('[data-test="emit-usage-3"]').trigger('click')
+
+    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
+    const sortItems = [
+      ['five_hour_utilization', 'admin.accounts.usageWindow.sort.fiveHourUtilization'],
+      ['five_hour_reset', 'admin.accounts.usageWindow.sort.fiveHourReset'],
+      ['seven_day_utilization', 'admin.accounts.usageWindow.sort.sevenDayUtilization'],
+      ['seven_day_reset', 'admin.accounts.usageWindow.sort.sevenDayReset']
+    ] as const
+    for (const [metric, label] of sortItems) {
+      const item = wrapper.get(`[data-test="usage-window-sort-${metric}"]`)
+      expect(item.text()).toContain(label)
+    }
+
+    await wrapper.get('[data-test="usage-window-sort-seven_day_utilization"]').trigger('click')
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
+      'higher-usage-sooner-reset,lower-usage-later-reset,idle-now,usage-not-loaded'
+    )
+
+    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
+    await wrapper.get('[data-test="usage-window-sort-seven_day_reset"]').trigger('click')
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
+      'lower-usage-later-reset,higher-usage-sooner-reset,idle-now,usage-not-loaded'
+    )
+
+    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
+    await wrapper.get('[data-test="usage-window-sort-five_hour_utilization"]').trigger('click')
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
+      'higher-usage-sooner-reset,lower-usage-later-reset,idle-now,usage-not-loaded'
+    )
+
+    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
+    await wrapper.get('[data-test="usage-window-sort-five_hour_reset"]').trigger('click')
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
+      'lower-usage-later-reset,higher-usage-sooner-reset,idle-now,usage-not-loaded'
+    )
+
+    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
+    await wrapper.get('[data-test="usage-window-sort-five_hour_reset"]').trigger('click')
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
+      'idle-now,higher-usage-sooner-reset,lower-usage-later-reset,usage-not-loaded'
+    )
+
+    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
+    await wrapper.get('[data-test="usage-window-sort-five_hour_reset"]').trigger('click')
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
+      'lower-usage-later-reset,higher-usage-sooner-reset,idle-now,usage-not-loaded'
+    )
   })
 })

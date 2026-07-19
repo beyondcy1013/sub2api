@@ -65,6 +65,10 @@ type AccountRepository interface {
 	ListCRSAccountIDs(ctx context.Context) (map[string]int64, error)
 	Update(ctx context.Context, account *Account) error
 	Delete(ctx context.Context, id int64) error
+	// RecycleAccount marks an account as recycled (moved to trash) by setting extra.recycled=true.
+	RecycleAccount(ctx context.Context, id int64) error
+	// RestoreAccount un-marks a recycled account by removing extra.recycled.
+	RestoreAccount(ctx context.Context, id int64) error
 
 	List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error)
 	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]Account, *pagination.PaginationResult, error)
@@ -91,6 +95,13 @@ type AccountRepository interface {
 	ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 	ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error)
 	ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error)
+	// ListModelAvailabilityCandidates returns accounts that are enabled by
+	// persistent configuration (active + schedulable) for model-support
+	// diagnosis. It deliberately does not filter transient runtime state such
+	// as rate-limit, overload, temporary-unschedulable, or expiry windows.
+	// When groupID is nil, includeGrouped controls whether the query scans all
+	// matching accounts or only accounts without a group binding.
+	ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 
 	SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error
 	SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error
@@ -144,6 +155,7 @@ type AccountBulkUpdate struct {
 	Schedulable    *bool
 	Credentials    map[string]any
 	Extra          map[string]any
+	ProbeEnabled   *bool
 }
 
 // CreateAccountRequest 创建账号请求

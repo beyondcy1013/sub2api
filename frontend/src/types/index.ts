@@ -188,6 +188,10 @@ export interface LoginAgreementDocument {
 }
 
 export interface PublicSettings {
+  deployment_profile?: 'main' | 'free'
+  balance_check_enabled?: boolean
+  sticky_session_reassignment_enabled?: boolean
+  branded_errors_enabled?: boolean
   registration_enabled: boolean
   email_verify_enabled: boolean
   force_email_on_third_party_signup: boolean
@@ -914,9 +918,10 @@ export interface Account {
   platform: AccountPlatform
   type: AccountType
   // 后端响应里 credentials 已脱敏：access_token / refresh_token / id_token /
-  // api_key / session_key / cookie / aws_secret_access_key / aws_session_token /
+  // session_key / cookie / aws_secret_access_key / aws_session_token /
   // service_account_json / service_account / private_key 不会出现，
   // 改为通过 credentials_status.has_<key> 暴露存在性。
+  // api_key 会在管理员账号管理页明文返回，用于查看和编辑上游 API Key。
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
@@ -1212,6 +1217,7 @@ export interface CreateAccountRequest {
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  upstream_billing_probe_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
 }
 

@@ -45,6 +45,8 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 
 	require.True(t, status["has_refresh_token"])
 	require.True(t, status["has_access_token"])
+	require.False(t, status["has_api_key"])
+
 	require.True(t, status["has_aws_secret_access_key"])
 	require.True(t, status["has_service_account_json"])
 	require.True(t, status["has_private_key"])
@@ -60,15 +62,14 @@ func TestRedactCredentials_EmptyValuesNotMarkedPresent(t *testing.T) {
 	in := map[string]any{
 		"refresh_token": "",
 		"access_token":  nil,
-		"api_key":       false,
+		"api_key":       "sk-live",
 		"id_token":      "actual-id",
 	}
 	out, status := RedactCredentials(in)
-	require.Equal(t, false, out["api_key"])
-	require.Len(t, out, 1)
+	require.Equal(t, "sk-live", out["api_key"])
 	require.False(t, status["has_refresh_token"])
 	require.False(t, status["has_access_token"])
-	require.NotContains(t, status, "has_api_key")
+
 	require.True(t, status["has_id_token"])
 }
 

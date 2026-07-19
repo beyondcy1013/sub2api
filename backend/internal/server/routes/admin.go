@@ -18,6 +18,7 @@ func RegisterAdminRoutes(
 	stepUpAuth middleware.StepUpAuthMiddleware,
 	settingService *service.SettingService,
 ) {
+	capabilities := settingService.RuntimeCapabilities()
 	admin := v1.Group("/admin")
 	admin.Use(gin.HandlerFunc(adminAuth))
 	// 审计中间件挂在认证之后：所有管理面变更类操作 + 敏感读取入审计日志
@@ -37,7 +38,7 @@ func RegisterAdminRoutes(
 		registerGroupRoutes(admin, h)
 
 		// 账号管理
-		registerAccountRoutes(admin, h, stepUpAuth)
+		registerAccountRoutes(admin, h, stepUpAuth, capabilities.StickySessionReassignment)
 
 		// 公告管理
 		registerAnnouncementRoutes(admin, h)
@@ -64,7 +65,7 @@ func RegisterAdminRoutes(
 		registerPromoCodeRoutes(admin, h)
 
 		// 系统设置
-		registerSettingsRoutes(admin, h)
+		registerSettingsRoutes(admin, h, capabilities.BalanceCheck)
 
 		// 数据管理
 		registerDataManagementRoutes(admin, h, stepUpAuth)
@@ -235,6 +236,11 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/request-errors/:id/upstream-errors", h.Admin.Ops.ListRequestErrorUpstreamErrors)
 		ops.PUT("/request-errors/:id/resolve", h.Admin.Ops.ResolveRequestError)
 
+		// Bounded ingress-admission rejection aggregates.
+		ops.GET("/ingress-rejections", h.Admin.Ops.ListIngressRejects)
+		ops.GET("/ingress-rejections/health", h.Admin.Ops.GetIngressRejectHealth)
+		ops.GET("/auth-cache-invalidation/health", h.Admin.Ops.GetAuthCacheInvalidationHealth)
+
 		// Upstream errors (independent upstream failures)
 		ops.GET("/upstream-errors", h.Admin.Ops.ListUpstreamErrors)
 		ops.GET("/upstream-errors/:id", h.Admin.Ops.GetUpstreamError)
@@ -329,7 +335,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
+func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware, stickySessionReassignmentEnabled bool) {
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
@@ -356,8 +362,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/set-privacy", h.Admin.Account.SetPrivacy)
 		accounts.POST("/:id/refresh-tier", h.Admin.Account.RefreshTier)
 		accounts.GET("/:id/stats", h.Admin.Account.GetStats)
-		accounts.GET("/:id/sticky-sessions", h.Admin.Account.GetStickySessionSummary)
-		accounts.POST("/:id/sticky-sessions/reassign", h.Admin.Account.ReassignStickySessions)
+		if stickySessionReassignmentEnabled {
+			accounts.GET("/:id/sticky-sessions", h.Admin.Account.GetStickySessionSummary)
+			accounts.POST("/:id/sticky-sessions/reassign", h.Admin.Account.ReassignStickySessions)
+		}
 		accounts.POST("/:id/clear-error", h.Admin.Account.ClearError)
 		accounts.POST("/:id/revert-proxy-fallback", h.Admin.Account.RevertProxyFallback)
 		accounts.GET("/:id/usage", h.Admin.Account.GetUsage)
@@ -506,11 +514,15 @@ func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, balanceCheckEnabled bool) {
 	adminSettings := admin.Group("/settings")
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
+		if balanceCheckEnabled {
+			adminSettings.GET("/balance-check", h.Admin.Setting.GetBalanceCheckSettings)
+			adminSettings.PUT("/balance-check", h.Admin.Setting.UpdateBalanceCheckSettings)
+		}
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)

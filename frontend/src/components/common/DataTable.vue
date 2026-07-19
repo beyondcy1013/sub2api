@@ -120,8 +120,8 @@
             v-for="(column, index) in columns"
             :key="column.key"
             scope="col"
-            :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
+            :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
             :class="[
               'sticky-header-cell whitespace-nowrap py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
               getAdaptivePaddingClass(),
@@ -131,38 +131,38 @@
             ]"
             @click="column.sortable && handleSort(column.key)"
           >
-            <slot
-              :name="`header-${column.key}`"
-              :column="column"
-              :sort-key="sortKey"
-              :sort-order="sortOrder"
-            >
-              <div :class="['flex flex-nowrap items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+            <div :class="['flex flex-nowrap items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+              <slot
+                :name="`header-${column.key}`"
+                :column="column"
+                :sort-key="sortKey"
+                :sort-order="sortOrder"
+              >
                 <span class="shrink-0 whitespace-nowrap">{{ column.label }}</span>
-                <span
-                  v-if="column.sortable"
-                  class="inline-flex h-5 w-4 shrink-0 flex-col items-center justify-center"
-                  aria-hidden="true"
+              </slot>
+              <span
+                v-if="column.sortable"
+                class="inline-flex h-5 w-4 shrink-0 flex-col items-center justify-center"
+                aria-hidden="true"
+              >
+                <svg
+                  class="h-2.5 w-2.5"
+                  :class="getSortIndicatorClass(column.key, 'asc')"
+                  fill="currentColor"
+                  viewBox="0 0 10 10"
                 >
-                  <svg
-                    class="h-2.5 w-2.5"
-                    :class="getSortIndicatorClass(column.key, 'asc')"
-                    fill="currentColor"
-                    viewBox="0 0 10 10"
-                  >
-                    <path d="M5 2L1.5 6.5h7L5 2z" />
-                  </svg>
-                  <svg
-                    class="-mt-0.5 h-2.5 w-2.5"
-                    :class="getSortIndicatorClass(column.key, 'desc')"
-                    fill="currentColor"
-                    viewBox="0 0 10 10"
-                  >
-                    <path d="M5 8L1.5 3.5h7L5 8z" />
-                  </svg>
-                </span>
-              </div>
-            </slot>
+                  <path d="M5 2L1.5 6.5h7L5 2z" />
+                </svg>
+                <svg
+                  class="-mt-0.5 h-2.5 w-2.5"
+                  :class="getSortIndicatorClass(column.key, 'desc')"
+                  fill="currentColor"
+                  viewBox="0 0 10 10"
+                >
+                  <path d="M5 8L1.5 3.5h7L5 8z" />
+                </svg>
+              </span>
+            </div>
           </th>
         </tr>
       </thead>
@@ -234,13 +234,14 @@
             <td
               v-for="(column, colIndex) in columns"
               :key="column.key"
+              :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
               :class="[
                 'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
                 getAdaptivePaddingClass(),
                 getStickyColumnClass(column, colIndex),
                 column.class
               ]"
-             :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined">
+            >
               <slot :name="`cell-${column.key}`"
                     :row="item.row"
                     :value="item.row[column.key]"
@@ -318,11 +319,6 @@ const checkScrollable = () => {
 
 // 检查操作列是否需要展开
 const checkActionsColumnWidth = () => {
-  if (!props.expandableActions) {
-    actionsColumnNeedsExpanding.value = false
-    actionsExpanded.value = false
-    return
-  }
   if (!tableWrapperRef.value) return
 
   // 查找第一行的操作列单元格
@@ -453,7 +449,7 @@ interface Props {
    * will emit 'sort' events instead of performing client-side sorting.
    */
   serverSideSort?: boolean
-  /** Emit 'rowClick' on row/card click and show pointer cursor (interactive cells should @click.stop) */
+  /** Emit 'rowClick' on row/card click and show pointer cursor. */
   clickableRows?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number

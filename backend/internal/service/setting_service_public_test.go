@@ -63,6 +63,43 @@ func TestSettingService_GetPublicSettings_ExposesRegistrationEmailSuffixWhitelis
 	require.Equal(t, []string{"@example.com", "@foo.bar", "*.edu.cn"}, settings.RegistrationEmailSuffixWhitelist)
 }
 
+func TestSettingService_GetPublicSettings_ExposesDeploymentCapabilities(t *testing.T) {
+	tests := []struct {
+		name         string
+		profile      string
+		balance      bool
+		sticky       bool
+		brandedError bool
+	}{
+		{name: "main", profile: config.DeploymentProfileMain, balance: false, sticky: true, brandedError: false},
+		{name: "free", profile: config.DeploymentProfileFree, balance: true, sticky: false, brandedError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{
+				Deployment: config.DeploymentConfig{Profile: tt.profile},
+			})
+
+			settings, err := svc.GetPublicSettings(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tt.profile, settings.DeploymentProfile)
+			require.Equal(t, tt.balance, settings.BalanceCheckEnabled)
+			require.Equal(t, tt.sticky, settings.StickySessionReassignmentEnabled)
+			require.Equal(t, tt.brandedError, settings.BrandedErrorsEnabled)
+
+			injectedAny, err := svc.GetPublicSettingsForInjection(context.Background())
+			require.NoError(t, err)
+			injected, ok := injectedAny.(*PublicSettingsInjectionPayload)
+			require.True(t, ok)
+			require.Equal(t, settings.DeploymentProfile, injected.DeploymentProfile)
+			require.Equal(t, settings.BalanceCheckEnabled, injected.BalanceCheckEnabled)
+			require.Equal(t, settings.StickySessionReassignmentEnabled, injected.StickySessionReassignmentEnabled)
+			require.Equal(t, settings.BrandedErrorsEnabled, injected.BrandedErrorsEnabled)
+		})
+	}
+}
+
 func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{

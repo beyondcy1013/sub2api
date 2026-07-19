@@ -6,11 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -18,6 +20,65 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func useFreeClientErrorProfile(t *testing.T) {
+	t.Helper()
+	require.NoError(t, clienterror.Configure("free"))
+	t.Cleanup(func() { require.NoError(t, clienterror.Configure("main")) })
+}
+
+func TestGoogleAPIKeyAuthRejectsOversizedCredentialsBeforeLookup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var calls atomic.Int32
+	repo := fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+		calls.Add(1)
+		return nil, service.ErrAPIKeyNotFound
+	}}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	r := gin.New()
+	var reason IngressRejectReason
+	var rejected bool
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		reason, rejected = GetIngressRejectReason(c)
+	})
+	r.Use(APIKeyAuthGoogle(svc, cfg))
+	r.GET("/v1beta/models", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", strings.Repeat("x", service.MaxAPIKeyCredentialBytes+1))
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Zero(t, calls.Load())
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectInvalidAPIKey, reason)
+}
+
+func TestGoogleAPIKeyAuthMarksLookupBulkheadRejection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+		return nil, service.ErrAPIKeyAuthOverloaded
+	}}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	svc := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+	r := gin.New()
+	var reason IngressRejectReason
+	var rejected bool
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		reason, rejected = GetIngressRejectReason(c)
+	})
+	r.Use(APIKeyAuthGoogle(svc, cfg))
+	r.GET("/v1beta/models", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	req.Header.Set("x-goog-api-key", "valid-shape")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectAPIKeyAuthOverloaded, reason)
+}
 
 type fakeAPIKeyRepo struct {
 	getByKey       func(ctx context.Context, key string) (*service.APIKey, error)
@@ -218,8 +279,8 @@ type googleErrorResponse struct {
 
 func requireGoogleErrorSource(t *testing.T, resp googleErrorResponse, message string) {
 	t.Helper()
-	require.Equal(t, clienterr.WithSource(message), resp.Error.Message)
-	require.Equal(t, clienterr.Source, resp.Error.Source)
+	require.Equal(t, clienterror.WithSource(message), resp.Error.Message)
+	require.Equal(t, clienterror.Source, resp.Error.Source)
 }
 
 func newTestAPIKeyService(repo service.APIKeyRepository) *service.APIKeyService {
@@ -235,6 +296,7 @@ func newTestAPIKeyService(repo service.APIKeyRepository) *service.APIKeyService 
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_MissingKey(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
@@ -254,11 +316,13 @@ func TestApiKeyAuthWithSubscriptionGoogle_MissingKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	requireGoogleErrorSource(t, resp, "API key is required")
+	require.Equal(t, "【sub2freeApi限制】 API key is required (source: sub2freeApi)", resp.Error.Message)
+
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_QueryApiKeyRejected(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
@@ -278,7 +342,8 @@ func TestApiKeyAuthWithSubscriptionGoogle_QueryApiKeyRejected(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusBadRequest, resp.Error.Code)
-	requireGoogleErrorSource(t, resp, "Query parameter api_key is deprecated. Use Authorization header or key instead.")
+	require.Equal(t, "【sub2freeApi限制】 Query parameter api_key is deprecated. Use Authorization header or key instead. (source: sub2freeApi)", resp.Error.Message)
+
 	require.Equal(t, "INVALID_ARGUMENT", resp.Error.Status)
 }
 
@@ -376,6 +441,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_QueryKeyAllowedOnV1Beta(t *testing.T) 
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
@@ -383,6 +449,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
 		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
 			return nil, service.ErrAPIKeyNotFound
 		},
+	})
+	var rejectReason IngressRejectReason
+	var rejected bool
+	r.Use(func(c *gin.Context) {
+		c.Next()
+		rejectReason, rejected = GetIngressRejectReason(c)
 	})
 	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, &config.Config{}))
 	r.GET("/v1beta/test", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
@@ -396,11 +468,15 @@ func TestApiKeyAuthWithSubscriptionGoogle_InvalidKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	requireGoogleErrorSource(t, resp, "Invalid API key")
+	require.Equal(t, "【sub2freeApi限制】 Invalid API key (source: sub2freeApi)", resp.Error.Message)
+
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectInvalidAPIKey, rejectReason)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(101)
@@ -430,9 +506,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	r := gin.New()
 	var markedBusinessLimited bool
 	var businessLimitedReason string
+	var rejectReason IngressRejectReason
+	var rejected bool
 	r.Use(func(c *gin.Context) {
 		c.Next()
 		markedBusinessLimited = service.HasOpsClientBusinessLimited(c)
+		rejectReason, rejected = GetIngressRejectReason(c)
 		if v, ok := c.Get(service.OpsClientBusinessLimitedReasonKey); ok {
 			businessLimitedReason, _ = v.(string)
 		}
@@ -457,12 +536,16 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	requireGoogleErrorSource(t, resp, "API Key 所属分组已删除")
+	require.Equal(t, "【sub2freeApi限制】 API Key 所属分组已删除 (source: sub2freeApi)", resp.Error.Message)
+
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
+	require.True(t, rejected)
+	require.Equal(t, IngressRejectGroupDeleted, rejectReason)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
@@ -483,11 +566,13 @@ func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusInternalServerError, resp.Error.Code)
-	requireGoogleErrorSource(t, resp, "Failed to validate API key")
+	require.Equal(t, "【sub2freeApi限制】 Failed to validate API key (source: sub2freeApi)", resp.Error.Message)
+
 	require.Equal(t, "INTERNAL", resp.Error.Status)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_DisabledKey(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
@@ -516,11 +601,13 @@ func TestApiKeyAuthWithSubscriptionGoogle_DisabledKey(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusUnauthorized, resp.Error.Code)
-	requireGoogleErrorSource(t, resp, "API key is disabled")
+	require.Equal(t, "【sub2freeApi限制】 API key is disabled (source: sub2freeApi)", resp.Error.Message)
+
 	require.Equal(t, "UNAUTHENTICATED", resp.Error.Status)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
@@ -550,7 +637,8 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusForbidden, resp.Error.Code)
-	requireGoogleErrorSource(t, resp, "Insufficient account balance")
+	require.Equal(t, "【sub2freeApi限制】 Insufficient account balance (source: sub2freeApi)", resp.Error.Message)
+
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
 
@@ -618,7 +706,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_RejectsExhaustedBalance(t *testing.T) 
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusForbidden, resp.Error.Code)
-	require.Equal(t, "Insufficient account balance (source: sub2api)", resp.Error.Message)
+	require.Equal(t, clienterror.WithSource(clienterror.Local("Insufficient account balance")), resp.Error.Message)
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
 
@@ -764,6 +852,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedInStandardMode(t *testi
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 
 	limit := 1.0
@@ -842,5 +931,6 @@ func TestApiKeyAuthWithSubscriptionGoogle_SubscriptionLimitExceededReturns429(t 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
 	require.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
+	require.Contains(t, resp.Error.Message, "【sub2freeApi限制】")
 	require.Contains(t, resp.Error.Message, "daily usage limit exceeded")
 }

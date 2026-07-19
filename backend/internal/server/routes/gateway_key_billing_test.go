@@ -164,8 +164,8 @@ func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 			"type": "error",
 			"error": {
 				"type": "not_found_error",
-				"source": "sub2api",
-				"message": "Billing information is not supported in simple mode (source: sub2api)"
+				"message": "Billing information is not supported in simple mode",
+				"source": "sub2api"
 			}
 		}`, w.Body.String())
 		require.Zero(t, rateRepo.lookupCalls)

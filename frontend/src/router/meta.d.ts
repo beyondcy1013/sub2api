@@ -54,6 +54,7 @@ declare module 'vue-router' {
      * @default false
      */
     requiresRiskControl?: boolean
+    requiresBalanceCheck?: boolean
 
     /**
      * i18n key for the page title

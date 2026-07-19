@@ -14,7 +14,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -647,11 +648,12 @@ type pathParseError struct{ msg string }
 func (e *pathParseError) Error() string { return e.msg }
 
 func googleError(c *gin.Context, status int, message string) {
+	message = clienterror.Prefix("", message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})

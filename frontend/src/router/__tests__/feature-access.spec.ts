@@ -25,6 +25,7 @@ const appStore = vi.hoisted(() => ({
   cachedPublicSettings: null as null | {
     payment_enabled?: boolean
     risk_control_enabled?: boolean
+    balance_check_enabled?: boolean
     custom_menu_items?: []
   },
   fetchPublicSettings: vi.fn(),
@@ -173,5 +174,40 @@ describe('feature route guard', () => {
     expect(appStore.fetchPublicSettings).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledWith(target)
+  })
+
+  it('allows the free-only balance-check route when explicitly enabled', async () => {
+    authStore.isAdmin = true
+    appStore.cachedPublicSettings = { balance_check_enabled: true }
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard(
+      { requiresAdmin: true, requiresBalanceCheck: true },
+      '/admin/balance-check-settings',
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it.each([
+    ['explicitly disabled', { balance_check_enabled: false }, true],
+    ['missing from stale settings', {}, true],
+    ['settings request failed', null, false],
+  ])('blocks the balance-check route when capability is %s', async (_name, settings, loaded) => {
+    authStore.isAdmin = true
+    appStore.cachedPublicSettings = settings
+    appStore.publicSettingsLoaded = loaded
+    appStore.fetchPublicSettings.mockResolvedValue(null)
+
+    const { navigation, next } = runGuard(
+      { requiresAdmin: true, requiresBalanceCheck: true },
+      '/admin/balance-check-settings',
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith('/admin/accounts')
   })
 })

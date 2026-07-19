@@ -76,6 +76,8 @@ func (m *mockAccountRepoForGemini) ListCRSAccountIDs(ctx context.Context) (map[s
 }
 func (m *mockAccountRepoForGemini) Update(ctx context.Context, account *Account) error { return nil }
 func (m *mockAccountRepoForGemini) Delete(ctx context.Context, id int64) error         { return nil }
+func (m *mockAccountRepoForGemini) RecycleAccount(ctx context.Context, id int64) error { return nil }
+func (m *mockAccountRepoForGemini) RestoreAccount(ctx context.Context, id int64) error { return nil }
 func (m *mockAccountRepoForGemini) List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }
@@ -145,6 +147,9 @@ func (m *mockAccountRepoForGemini) ListSchedulableUngroupedByPlatform(ctx contex
 	return m.ListSchedulableByPlatform(ctx, platform)
 }
 func (m *mockAccountRepoForGemini) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
+	return m.ListSchedulableByPlatforms(ctx, platforms)
+}
+func (m *mockAccountRepoForGemini) ListModelAvailabilityCandidates(ctx context.Context, _ *int64, platforms []string, _ bool) ([]Account, error) {
 	return m.ListSchedulableByPlatforms(ctx, platforms)
 }
 func (m *mockAccountRepoForGemini) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {

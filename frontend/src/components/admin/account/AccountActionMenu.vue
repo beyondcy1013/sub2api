@@ -58,6 +58,10 @@
               <Icon name="refresh" size="sm" />
               {{ t('admin.accounts.resetQuota') }}
             </button>
+            <button @click="$emit('delete', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
+              <Icon name="trash" size="sm" />
+              {{ t('common.delete') }}
+            </button>
           </template>
         </div>
       </div>
@@ -70,9 +74,10 @@ import { computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete'])
 const { t } = useI18n()
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false
@@ -82,7 +87,10 @@ const isAntigravityOAuth = computed(() => props.account?.platform === 'antigravi
 const isOpenAIOAuth = computed(() => props.account?.platform === 'openai' && props.account?.type === 'oauth')
 const isOpenAI = computed(() => props.account?.platform === 'openai')
 const canReceiveStickySessions = computed(() =>
-  isOpenAI.value && props.account?.status === 'active' && props.account?.schedulable === true
+  isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment) &&
+  isOpenAI.value &&
+  props.account?.status === 'active' &&
+  props.account?.schedulable === true
 )
 // 影子账号(链接型,持 parent_account_id)不持凭据、type 不可变,凭据/隐私类操作对其无效。
 const isShadow = computed(() => props.account?.parent_account_id != null)

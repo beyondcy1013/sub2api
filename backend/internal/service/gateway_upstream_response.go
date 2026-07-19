@@ -16,7 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
@@ -449,8 +450,8 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 			"type": "error",
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
-				"source":  clienterr.Source,
+				"message": clienterror.Upstream(errMsg),
+
 			},
 		})
 
@@ -506,17 +507,12 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	}
 
 	// 返回自定义错误响应
-	// Only attribute project-generated messages; preserve upstream's verbatim text.
-	projectMsg := errMsg
-	if errMsg != upstreamMsg {
-		projectMsg = clienterr.WithSource(errMsg)
-	}
 	c.JSON(statusCode, gin.H{
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": projectMsg,
-			"source":  clienterr.Source,
+			"message": clienterror.Upstream(errMsg),
+
 		},
 	})
 
@@ -619,7 +615,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 			"type": "error",
 			"error": gin.H{
 				"type":    errType,
-				"message": errMsg,
+				"message": clienterror.Upstream(errMsg),
 			},
 		})
 

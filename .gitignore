@@ -136,6 +136,8 @@ docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
+!docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md
+!docs/UPGRADE_RUNBOOK.md
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/legal/
 !docs/legal/*.md
@@ -149,3 +151,4 @@ output/
 backend/backend/
 deploy/bin/
 backend/cmd/server/sub2api
+deploy/release/

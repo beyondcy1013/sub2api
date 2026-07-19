@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -162,7 +163,7 @@ func TestSystemHandlerPerformUpdateFailureStillReturnsInternalError(t *testing.T
 	var body systemUpdateErrorEnvelope
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, http.StatusInternalServerError, body.Code)
-	require.Equal(t, "internal error", body.Message)
+	require.Equal(t, clienterror.WithSource("internal error"), body.Message)
 }
 
 func TestSystemHandlerRollbackWithoutBodyUsesLegacyBackup(t *testing.T) {

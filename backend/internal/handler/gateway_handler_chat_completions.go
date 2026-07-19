@@ -7,7 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -335,11 +336,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+	message = clienterror.Prefix(errType, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }

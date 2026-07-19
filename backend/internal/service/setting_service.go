@@ -206,6 +206,13 @@ func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *Setti
 	}
 }
 
+func (s *SettingService) RuntimeCapabilities() config.RuntimeCapabilities {
+	if s == nil {
+		return (*config.Config)(nil).RuntimeCapabilities()
+	}
+	return s.cfg.RuntimeCapabilities()
+}
+
 // SetDefaultSubscriptionGroupReader injects an optional group reader for default subscription validation.
 func (s *SettingService) SetDefaultSubscriptionGroupReader(reader DefaultSubscriptionGroupReader) {
 	s.defaultSubGroupReader = reader

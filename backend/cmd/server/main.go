@@ -18,6 +18,7 @@ import (
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
@@ -135,6 +136,9 @@ func runMainServer() {
 	cfg, err := config.LoadForBootstrap()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+	if err := clienterror.Configure(cfg.DeploymentProfile()); err != nil {
+		log.Fatalf("Failed to configure client error policy: %v", err)
 	}
 	if err := logger.Init(logger.OptionsFromConfig(cfg.Log)); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)

@@ -52,6 +52,7 @@ func ProvideSessionLimitCache(rdb *redis.Client, cfg *config.Config) service.Ses
 func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config) service.SchedulerCache {
 	mgetChunkSize := defaultSchedulerSnapshotMGetChunkSize
 	writeChunkSize := defaultSchedulerSnapshotWriteChunkSize
+	keyPrefix := ""
 	if cfg != nil {
 		if cfg.Gateway.Scheduling.SnapshotMGetChunkSize > 0 {
 			mgetChunkSize = cfg.Gateway.Scheduling.SnapshotMGetChunkSize
@@ -59,8 +60,9 @@ func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config) service.Schedu
 		if cfg.Gateway.Scheduling.SnapshotWriteChunkSize > 0 {
 			writeChunkSize = cfg.Gateway.Scheduling.SnapshotWriteChunkSize
 		}
+		keyPrefix = cfg.Redis.SchedulerKeyPrefix
 	}
-	return newSchedulerCacheWithChunkSizes(rdb, mgetChunkSize, writeChunkSize)
+	return newSchedulerCacheWithOptions(rdb, mgetChunkSize, writeChunkSize, keyPrefix)
 }
 
 // ProviderSet is the Wire provider set for all repositories
@@ -127,6 +129,7 @@ var ProviderSet = wire.NewSet(
 	NewLeaderLockCache,
 	ProvideSchedulerCache,
 	NewSchedulerOutboxRepository,
+	NewAuthCacheInvalidationOutboxRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
 	NewRefreshTokenCache,

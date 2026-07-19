@@ -81,6 +81,12 @@ func (m *sessionWindowMockRepo) ListCRSAccountIDs(context.Context) (map[string]i
 }
 func (m *sessionWindowMockRepo) Update(context.Context, *Account) error { panic("unexpected") }
 func (m *sessionWindowMockRepo) Delete(context.Context, int64) error    { panic("unexpected") }
+func (m *sessionWindowMockRepo) RecycleAccount(context.Context, int64) error {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) RestoreAccount(context.Context, int64) error {
+	panic("unexpected")
+}
 func (m *sessionWindowMockRepo) List(context.Context, pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	panic("unexpected")
 }
@@ -141,6 +147,9 @@ func (m *sessionWindowMockRepo) ListSchedulableUngroupedByPlatform(context.Conte
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) ListSchedulableUngroupedByPlatforms(context.Context, []string) ([]Account, error) {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) SetRateLimited(context.Context, int64, time.Time) error {

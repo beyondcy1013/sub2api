@@ -108,3 +108,18 @@ func TestSchedulerMetadataAccountDropsInvalidUpstreamBillingProbe(t *testing.T) 
 		require.NotContains(t, metadata.Extra, service.UpstreamBillingProbeExtraKey)
 	}
 }
+
+func TestSchedulerCacheKeyPrefix(t *testing.T) {
+	cache := &schedulerCache{keyPrefix: normalizeRedisKeyPrefix("sub2freeApi:")}
+	bucket := service.SchedulerBucket{GroupID: 2, Platform: service.PlatformOpenAI, Mode: service.SchedulerModeSingle}
+
+	if got, want := cache.schedulerAccountKey("7"), "sub2freeApi:sched:acc:7"; got != want {
+		t.Fatalf("schedulerAccountKey() = %q, want %q", got, want)
+	}
+	if got, want := cache.schedulerBucketKey(schedulerReadyPrefix, bucket), "sub2freeApi:sched:ready:2:openai:single"; got != want {
+		t.Fatalf("schedulerBucketKey() = %q, want %q", got, want)
+	}
+	if got, want := normalizeRedisKeyPrefix(" sub2freeApi:: "), "sub2freeApi:"; got != want {
+		t.Fatalf("normalizeRedisKeyPrefix() = %q, want %q", got, want)
+	}
+}

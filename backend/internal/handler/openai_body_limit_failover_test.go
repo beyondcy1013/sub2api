@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -28,8 +28,8 @@ func TestOpenAIBodyLimitFailoverExhausted_ReturnsRedactedJSON413(t *testing.T) {
 	errBody, ok := envelope["error"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "invalid_request_error", errBody["type"])
-	require.Equal(t, clienterr.WithSource("Request payload is too large"), errBody["message"])
-	require.Equal(t, clienterr.Source, errBody["source"])
+	require.Equal(t, clienterror.WithSource(clienterror.Local("Request payload is too large")), errBody["message"])
+	require.Equal(t, clienterror.Source, errBody["source"])
 	require.NotContains(t, rec.Body.String(), "must-not-leak")
 }
 
@@ -44,8 +44,8 @@ func TestOpenAIBodyLimitFailoverExhausted_ReturnsRedactedResponsesSSE(t *testing
 	body := rec.Body.String()
 	require.True(t, strings.HasPrefix(body, "event: response.failed\n"))
 	require.Contains(t, body, `"code":"invalid_request"`)
-	require.Contains(t, body, `"message":"`+clienterr.WithSource("Request payload is too large")+`"`)
-	require.Contains(t, body, `"source":"`+clienterr.Source+`"`)
+	require.Contains(t, body, `"message":"`+clienterror.WithSource(clienterror.Local("Request payload is too large"))+`"`)
+	require.Contains(t, body, `"source":"`+clienterror.Source+`"`)
 	require.NotContains(t, body, "must-not-leak")
 }
 

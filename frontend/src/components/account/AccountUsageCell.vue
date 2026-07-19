@@ -648,6 +648,10 @@ const props = withDefaults(
   }
 )
 
+const emit = defineEmits<{
+  'usage-loaded': [usage: AccountUsageInfo]
+}>()
+
 const { t } = useI18n()
 const desktopViewportQuery = '(min-width: 768px)'
 
@@ -658,6 +662,9 @@ const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
 const usageInfo = ref<AccountUsageInfo | null>(null)
+watch(usageInfo, (usage) => {
+  if (usage) emit('usage-loaded', usage)
+})
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
   typeof window === 'undefined' ? true : window.matchMedia(desktopViewportQuery).matches
@@ -724,7 +731,7 @@ const shouldAutoLoadUsageOnMount = computed(() => {
 })
 
 const shouldLazyLoadOnMobile = computed(() => {
-  return shouldFetchUsage.value && !isDesktopViewport.value
+  return props.account.status === 'active' && shouldFetchUsage.value && !isDesktopViewport.value
 })
 
 // Antigravity quota types (用于 API 返回的数据)

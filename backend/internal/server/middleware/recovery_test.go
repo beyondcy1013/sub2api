@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,7 @@ func TestRecovery_PanicLogContainsInfo(t *testing.T) {
 
 func TestRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	require.NoError(t, clienterror.Configure("main"))
 
 	tests := []struct {
 		name         string
@@ -60,7 +62,8 @@ func TestRecovery(t *testing.T) {
 			wantHTTPCode: http.StatusInternalServerError,
 			wantBody: response.Response{
 				Code:    http.StatusInternalServerError,
-				Message: infraerrors.UnknownMessage,
+				Message: clienterror.WithSource(infraerrors.UnknownMessage),
+				Source:  clienterror.Source,
 			},
 		},
 		{

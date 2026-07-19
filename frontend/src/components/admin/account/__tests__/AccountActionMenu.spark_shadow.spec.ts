@@ -1,7 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AccountActionMenu from '../AccountActionMenu.vue'
 import type { Account } from '@/types'
+
+const publicSettings = vi.hoisted(() => ({
+  value: { sticky_session_reassignment_enabled: true } as Record<string, unknown>,
+}))
+
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => ({ cachedPublicSettings: publicSettings.value }),
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -49,6 +57,10 @@ const getBodyText = () => document.body.textContent ?? ''
 const getBodyButtons = () => Array.from(document.body.querySelectorAll('button'))
 
 describe('AccountActionMenu — spark shadow 按钮可见性', () => {
+  beforeEach(() => {
+    publicSettings.value = { sticky_session_reassignment_enabled: true }
+  })
+
   it('普通账号显示「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
@@ -182,6 +194,30 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     })
 
     expect(getBodyText()).toContain('admin.accounts.stickySessions.action')
+    wrapper.unmount()
+  })
+
+  it('free profile 隐藏迁入粘性会话操作', () => {
+    publicSettings.value = { sticky_session_reassignment_enabled: false }
+    const account = makeAccount({ platform: 'openai', type: 'apikey', parent_account_id: null })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).not.toContain('admin.accounts.stickySessions.action')
+    wrapper.unmount()
+  })
+
+  it('缺失能力字段时默认隐藏迁入粘性会话操作', () => {
+    publicSettings.value = {}
+    const account = makeAccount({ platform: 'openai', type: 'apikey', parent_account_id: null })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).not.toContain('admin.accounts.stickySessions.action')
     wrapper.unmount()
   })
 

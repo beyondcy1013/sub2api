@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	errors2 "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,7 @@ func TestErrorWithDetails(t *testing.T) {
 			want: Response{
 				Code:    http.StatusBadRequest,
 				Message: "invalid request",
+				Source:  clienterror.Source,
 			},
 		},
 		{
@@ -82,6 +84,7 @@ func TestErrorWithDetails(t *testing.T) {
 				Code:     http.StatusForbidden,
 				Message:  "no access",
 				Reason:   "FORBIDDEN",
+				Source:   clienterror.Source,
 				Metadata: map[string]string{"k": "v"},
 			},
 		},
@@ -127,6 +130,7 @@ func TestErrorFrom(t *testing.T) {
 				Code:     http.StatusForbidden,
 				Message:  "no access",
 				Reason:   "FORBIDDEN",
+				Source:   clienterror.Source,
 				Metadata: map[string]string{"scope": "admin"},
 			},
 		},
@@ -139,6 +143,7 @@ func TestErrorFrom(t *testing.T) {
 				Code:    http.StatusBadRequest,
 				Message: "invalid request",
 				Reason:  "INVALID_REQUEST",
+				Source:  clienterror.Source,
 			},
 		},
 		{
@@ -150,6 +155,7 @@ func TestErrorFrom(t *testing.T) {
 				Code:    http.StatusUnauthorized,
 				Message: "unauthorized",
 				Reason:  "UNAUTHORIZED",
+				Source:  clienterror.Source,
 			},
 		},
 		{
@@ -161,6 +167,7 @@ func TestErrorFrom(t *testing.T) {
 				Code:    http.StatusNotFound,
 				Message: "not found",
 				Reason:  "NOT_FOUND",
+				Source:  clienterror.Source,
 			},
 		},
 		{
@@ -172,6 +179,7 @@ func TestErrorFrom(t *testing.T) {
 				Code:    http.StatusConflict,
 				Message: "conflict",
 				Reason:  "CONFLICT",
+				Source:  clienterror.Source,
 			},
 		},
 		{
@@ -182,6 +190,7 @@ func TestErrorFrom(t *testing.T) {
 			wantBody: Response{
 				Code:    http.StatusInternalServerError,
 				Message: errors2.UnknownMessage,
+				Source:  clienterror.Source,
 			},
 		},
 	}
@@ -335,6 +344,7 @@ func TestError(t *testing.T) {
 			got := parseResponseBody(t, w)
 			require.Equal(t, tt.statusCode, got.Code)
 			require.Equal(t, tt.message, got.Message)
+			require.Equal(t, clienterror.Source, got.Source)
 			require.Empty(t, got.Reason)
 			require.Nil(t, got.Metadata)
 			require.Nil(t, got.Data)

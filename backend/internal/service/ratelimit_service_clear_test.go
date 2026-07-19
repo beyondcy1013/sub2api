@@ -312,7 +312,7 @@ func TestRateLimitService_RecoverAccountState_InvalidatesOAuthTokenOnErrorRecove
 // 是 2026-07-17 账号 53 事故的回归:DB 全干净(hasRecoverableRuntimeState=false,因限流落库
 // 被 ctx 取消而未写入)但进程内内存熔断残留时,一次成功的账号测试后必须清掉内存熔断,
 // 否则 "经测试可用,可始终不被调度选中",对外 503。
-// 修复:RecoverAccountState 末尾无条件调 notifyAccountSchedulingBlockCleared。
+// 修复:RecoverAccountState 在 "DB 无可恢复状态" 分支无条件调 notifyAccountSchedulingBlockCleared。
 func TestRateLimitService_RecoverAccountAfterSuccessfulTest_ClearsRuntimeBlockDespiteCleanDB(t *testing.T) {
 	repo := &rateLimitClearRepoStub{
 		getByIDAccount: &Account{

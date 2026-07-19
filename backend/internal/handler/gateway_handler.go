@@ -17,7 +17,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -167,6 +168,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	body = parsedReq.Body.Bytes()
 	reqModel := parsedReq.Model
 	reqStream := parsedReq.Stream
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
@@ -1705,6 +1707,7 @@ func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) 
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	message = clienterror.Prefix(errType, message)
 	if streamStarted {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
@@ -1723,7 +1726,7 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(clienterr.WithSource(message)) + `,"source":` + strconv.Quote(clienterr.Source) + `}}` + "\n\n"
+			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(clienterror.WithSource(message)) + `,"source":` + strconv.Quote(clienterror.Source) + `}}` + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -1825,12 +1828,13 @@ func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
 
 // errorResponse 返回Claude API格式的错误响应
 func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	message = clienterror.Prefix(errType, message)
 	c.JSON(status, gin.H{
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }
@@ -1884,6 +1888,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
+	body = parsedReq.Body.Bytes()
 	// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
 	SetClaudeCodeClientContext(c, body, parsedReq)
 	reqLog = reqLog.With(zap.String("model", parsedReq.Model), zap.Bool("stream", parsedReq.Stream))

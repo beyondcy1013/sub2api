@@ -309,6 +309,10 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	DeploymentProfile                string                   `json:"deployment_profile"`
+	BalanceCheckEnabled              bool                     `json:"balance_check_enabled"`
+	StickySessionReassignmentEnabled bool                     `json:"sticky_session_reassignment_enabled"`
+	BrandedErrorsEnabled             bool                     `json:"branded_errors_enabled"`
 	RegistrationEnabled              bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled               bool                     `json:"email_verify_enabled"`
 	ForceEmailOnThirdPartySignup     bool                     `json:"force_email_on_third_party_signup"`

@@ -76,7 +76,7 @@
                       : 'sk-ant-...'
             "
           />
-          <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          <p class="input-hint">{{ t('admin.accounts.apiKeyPlainVisibleHint') }}</p>
         </div>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
@@ -663,11 +663,11 @@
           <label class="input-label">{{ t('admin.accounts.upstream.apiKey') }}</label>
           <input
             v-model="editApiKey"
-            type="password"
+            type="text"
             class="input font-mono"
             placeholder="sk-..."
           />
-          <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          <p class="input-hint">{{ t('admin.accounts.apiKeyPlainVisibleHint') }}</p>
         </div>
       </div>
 

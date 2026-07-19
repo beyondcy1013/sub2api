@@ -1,7 +1,8 @@
 package service
 
 // SensitiveCredentialKeys 列出 Account.Credentials JSON map 中绝不允许返回到前端的子键。
-// dto 层做响应脱敏、service 层做更新合并都引用此清单——新增凭证类型时务必同步。
+// dto 层做响应脱敏使用此清单——新增凭证类型时务必同步。
+// 注意：账号管理页需要完整显示上游 API Key，api_key 不属于响应脱敏键。
 var SensitiveCredentialKeys = []string{
 	// OAuth
 	"access_token", "refresh_token", "id_token", "agent_private_key",
@@ -12,9 +13,9 @@ var SensitiveCredentialKeys = []string{
 	"service_account_json", "service_account", "private_key",
 }
 
-// PreserveOnMissingCredentialKeys 列出编辑账号时 incoming 未提供就保留 existing 的凭证子键。
-// 本地管理端需要明文展示 api_key，因此 api_key 不在 SensitiveCredentialKeys 中；
-// 但旧前端/局部更新仍可能不提交 api_key，必须保留已有值。
+// PreserveOnMissingCredentialKeys 列出更新账号 credentials 时，incoming 未提供就保留 existing 的键。
+// 这和响应脱敏分开：api_key 可返回给管理员明文查看，但旧前端或局部更新未提交时仍不能被清空。
+
 var PreserveOnMissingCredentialKeys = append([]string{"api_key"}, SensitiveCredentialKeys...)
 
 var sensitiveCredentialKeySet = func() map[string]struct{} {

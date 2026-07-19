@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -73,7 +74,7 @@ func TestOpenAIImagesJSONKeepalive_FastErrorPreservesStatus(t *testing.T) {
 	require.True(t, wrote)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.False(t, strings.HasPrefix(rec.Body.String(), " \n"))
-	require.Equal(t, "invalid size (source: sub2api)", gjson.Get(rec.Body.String(), "error.message").String())
+	require.Equal(t, clienterror.Local("invalid size"), gjson.Get(rec.Body.String(), "error.message").String())
 }
 
 func TestOpenAIImagesJSONKeepalive_LateErrorRemainsJSON(t *testing.T) {
@@ -97,7 +98,7 @@ func TestOpenAIImagesJSONKeepalive_LateErrorRemainsJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "heartbeat already committed the status")
 	require.True(t, json.Valid(rec.Body.Bytes()), rec.Body.String())
 	require.Equal(t, "moderation_blocked", gjson.Get(rec.Body.String(), "error.code").String())
-	require.Equal(t, "request rejected (source: sub2api)", gjson.Get(rec.Body.String(), "error.message").String())
+	require.Equal(t, clienterror.Local("request rejected"), gjson.Get(rec.Body.String(), "error.message").String())
 }
 
 func TestOpenAIImagesJSONKeepalive_DoesNotBlockFailoverDetection(t *testing.T) {

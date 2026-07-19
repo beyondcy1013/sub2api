@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -65,6 +66,7 @@ func parseResponsesFailedSSE(t *testing.T, body string) (map[string]any, map[str
 
 // OpenAI handler: /v1/responses streaming, after stream started, must emit response.failed.
 func TestOpenAIHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	c, w := newGinContextForEndpoint(t, EndpointResponses)
 	h := &OpenAIGatewayHandler{}
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
@@ -75,8 +77,8 @@ func TestOpenAIHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(t
 	id, _ := resp["id"].(string)
 	assert.True(t, strings.HasPrefix(id, "resp_"), "id should start with resp_, got %q", id)
 	assert.Equal(t, "rate_limit_exceeded", errObj["code"])
-	assert.Equal(t, clienterr.WithSource("Concurrency limit exceeded for user, please retry later"), errObj["message"])
-	assert.Equal(t, clienterr.Source, errObj["source"])
+	assert.Equal(t, "【sub2freeApi限制】 Concurrency limit exceeded for user, please retry later (source: sub2freeApi)", errObj["message"])
+
 }
 
 // 当 setOpsRequestContext 写过 model，合成事件应回填该字段（与 codebase 已有 makeResponsesCompletedEvent 对齐）。
@@ -139,8 +141,8 @@ func TestOpenAIHandleStreamingAwareError_ResponsesStreamingJSONEscaping(t *testi
 			h.handleStreamingAwareError(c, http.StatusBadGateway, tc.errType, tc.message, true)
 
 			_, errObj := parseResponsesFailedSSE(t, w.Body.String())
-			assert.Equal(t, clienterr.WithSource(tc.message), errObj["message"], "message must include source")
-			assert.Equal(t, clienterr.Source, errObj["source"])
+			assert.Equal(t, clienterror.WithSource(clienterror.Prefix(tc.errType, tc.message)), errObj["message"], "message 必须保留原内容并带来源前缀")
+
 		})
 	}
 }
@@ -158,14 +160,15 @@ func TestOpenAIHandleStreamingAwareError_ChatCompletionsStreamingKeepsLegacy(t *
 
 // Gateway (Anthropic-backed) handler: /v1/responses path also must emit response.failed.
 func TestGatewayHandleStreamingAwareError_ResponsesStreamingEmitsResponseFailed(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	c, w := newGinContextForEndpoint(t, EndpointResponses)
 	h := &GatewayHandler{}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "upstream gone", true)
 
 	_, errObj := parseResponsesFailedSSE(t, w.Body.String())
 	assert.Equal(t, "upstream_error", errObj["code"])
-	assert.Equal(t, clienterr.WithSource("upstream gone"), errObj["message"])
-	assert.Equal(t, clienterr.Source, errObj["source"])
+	assert.Equal(t, "【上游错误】 upstream gone (source: sub2freeApi)", errObj["message"])
+
 }
 
 // Gateway handler: /v1/messages preserves the legacy data:{type:error,...} format

@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -144,7 +145,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -212,7 +213,13 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		policy := ErrorPolicyNone
+		if s.rateLimitService != nil {
+			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+		}
+		if policy != ErrorPolicyTempUnscheduled {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
 
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
@@ -824,7 +831,7 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 			"error": gin.H{
 				"type":    errType,
 				"message": errMsg,
-				"source":  clienterr.Source,
+				"source":  clienterror.Source,
 			},
 		})
 		return fmt.Errorf("upstream error: %d (passthrough rule matched)", status)
@@ -889,11 +896,12 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 }
 
 func (s *GeminiMessagesCompatService) writeChatCompletionsError(c *gin.Context, status int, errType, message string) error {
+	clientMessage := clienterror.Prefix(errType, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clientMessage,
+
 		},
 	})
 	return fmt.Errorf("%s", message)

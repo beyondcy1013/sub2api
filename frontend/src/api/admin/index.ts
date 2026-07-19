@@ -33,6 +33,7 @@ import adminPaymentAPI from './payment'
 import affiliatesAPI from './affiliates'
 import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
+import balanceCheckSettingsAPI from './balanceCheckSettings'
 import auditAPI from './audit'
 
 /**
@@ -69,6 +70,7 @@ export const adminAPI = {
   affiliates: affiliatesAPI,
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
+  balanceCheckSettings: balanceCheckSettingsAPI,
   audit: auditAPI
 }
 
@@ -103,6 +105,7 @@ export {
   affiliatesAPI,
   riskControlAPI,
   adminComplianceAPI,
+  balanceCheckSettingsAPI,
   auditAPI
 }
 

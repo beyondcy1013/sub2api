@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -29,18 +30,23 @@ import (
 
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
-	gatewayService           *service.OpenAIGatewayService
-	billingCacheService      *service.BillingCacheService
-	apiKeyService            *service.APIKeyService
-	usageRecordWorkerPool    *service.UsageRecordWorkerPool
-	errorPassthroughService  *service.ErrorPassthroughService
-	contentModerationService *service.ContentModerationService
-	securityAuditCoordinator *securityaudit.Coordinator
-	opsService               *service.OpsService
-	concurrencyHelper        *ConcurrencyHelper
-	imageLimiter             *imageConcurrencyLimiter
-	maxAccountSwitches       int
-	cfg                      *config.Config
+	gatewayService             *service.OpenAIGatewayService
+	billingCacheService        *service.BillingCacheService
+	apiKeyService              *service.APIKeyService
+	usageRecordWorkerPool      *service.UsageRecordWorkerPool
+	errorPassthroughService    *service.ErrorPassthroughService
+	contentModerationService   *service.ContentModerationService
+	securityAuditCoordinator   *securityaudit.Coordinator
+	grokMediaEligibilityProber grokMediaEligibilityProber
+	opsService                 *service.OpsService
+	concurrencyHelper          *ConcurrencyHelper
+	imageLimiter               *imageConcurrencyLimiter
+	maxAccountSwitches         int
+	cfg                        *config.Config
+}
+
+type grokMediaEligibilityProber interface {
+	ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error)
 }
 
 const maxOpenAIFirstOutputTimeoutSwitches = 1
@@ -1158,12 +1164,13 @@ func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel 
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
+	message = clienterror.Prefix(errType, message)
 	c.JSON(status, gin.H{
 		"type": "error",
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }
@@ -1171,6 +1178,7 @@ func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int
 // anthropicStreamingAwareError handles errors that may occur during streaming,
 // using Anthropic SSE error format.
 func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	message = clienterror.Prefix(errType, message)
 	if streamStarted {
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
@@ -1178,8 +1186,8 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 				"type": "error",
 				"error": gin.H{
 					"type":    errType,
-					"message": clienterr.WithSource(message),
-					"source":  clienterr.Source,
+					"message": clienterror.WithSource(message),
+					"source":  clienterror.Source,
 				},
 			})
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errPayload) //nolint:errcheck
@@ -1977,8 +1985,8 @@ func (h *OpenAIGatewayHandler) ensureResponsesDependencies(c *gin.Context, reqLo
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": gin.H{
 				"type":    "api_error",
-				"message": clienterr.WithSource("Service temporarily unavailable"),
-				"source":  clienterr.Source,
+				"message": clienterror.WithSource("Service temporarily unavailable"),
+				"source":  clienterror.Source,
 			},
 		})
 	}
@@ -2235,12 +2243,31 @@ func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, st
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
 func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	h.handleStreamingAwareErrorWithCode(c, status, errType, "", message, streamStarted, false)
+}
+
+func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
+	c *gin.Context,
+	status int,
+	errType string,
+	code string,
+	message string,
+	streamStarted bool,
+	countTowardsSLA bool,
+) {
+	message = clienterror.Prefix(errType, message)
+
 	// body-signal compact 心跳可能已把响应头提交为 200：先停心跳（建立
 	// happens-before，接管 ResponseWriter），并升级为流内错误处理。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		streamStarted = true
 	}
 	if streamStarted {
+		if countTowardsSLA {
+			service.MarkOpsStreamFailure(c, errType, code, message, status)
+		} else {
+			service.MarkOpsStreamError(c, errType, message, status)
+		}
 		// /v1/responses 的严格 SDK（Codex CLI）要求终止事件必须属于
 		// response.completed/failed/incomplete/cancelled 集合。
 		// 通用 `event: error` 帧不被识别为终止事件，会导致
@@ -2253,8 +2280,19 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status 
 		// Stream already started, send error as SSE event then close
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
-			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorEvent := "event: error\ndata: " + `{"error":{"type":` + strconv.Quote(errType) + `,"message":` + strconv.Quote(clienterr.WithSource(message)) + `,"source":` + strconv.Quote(clienterr.Source) + `}}` + "\n\n"
+			errorObject := gin.H{
+				"type":    errType,
+				"message": clienterror.WithSource(message),
+				"source":  clienterror.Source,
+			}
+			if code != "" {
+				errorObject["code"] = code
+			}
+			payload, err := json.Marshal(gin.H{"error": errorObject})
+			if err != nil {
+				payload = []byte(`{"error":{"type":"upstream_error","message":"Upstream request failed"}}`)
+			}
+			errorEvent := "event: error\ndata: " + string(payload) + "\n\n"
 			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
 				_ = c.Error(err)
 			}
@@ -2264,7 +2302,30 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status 
 	}
 
 	// Normal case: return JSON response with proper status code
-	h.errorResponse(c, status, errType, message)
+	if code == "" {
+		h.errorResponse(c, status, errType, message)
+		return
+	}
+	c.JSON(status, gin.H{"error": gin.H{
+		"type":    errType,
+		"code":    code,
+		"message": clienterror.WithSource(message),
+		"source":  clienterror.Source,
+	}})
+}
+
+func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Context, err error, streamStarted bool) bool {
+	code, message, ok := service.OpenAIUpstreamStreamReadErrorDetails(err)
+	if !ok || c == nil || c.Writer == nil || service.IsResponseCommitted(c) {
+		return false
+	}
+	if c.Writer.Written() {
+		streamStarted = true
+	}
+	h.handleStreamingAwareErrorWithCode(
+		c, http.StatusBadGateway, "upstream_error", code, message, streamStarted, true,
+	)
+	return true
 }
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。
@@ -2378,19 +2439,13 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
-	// body-signal compact 心跳可能已把响应头提交为 200：JSON 错误体会与已
-	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
-	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
-		service.MarkOpsStreamError(c, errType, message, status)
-		if writeResponsesFailedSSE(c, errType, message) {
-			return
-		}
-	}
+	message = clienterror.Prefix(errType, message)
+
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"type":    errType,
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 }
@@ -2442,7 +2497,7 @@ func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason s
 	if conn == nil {
 		return
 	}
-	reason = strings.TrimSpace(reason)
+	reason = clienterror.Prefix("", reason)
 	if len(reason) > 120 {
 		reason = reason[:120]
 	}
@@ -2482,18 +2537,19 @@ func writeContentModerationWSError(ctx context.Context, conn *coderws.Conn, deci
 	if message == "" {
 		message = "content moderation blocked this request"
 	}
+	message = clienterror.Prefix("invalid_request_error", message)
 	payload, err := json.Marshal(gin.H{
 		"event_id": "evt_content_moderation_blocked",
 		"type":     "error",
 		"error": gin.H{
 			"type":    "invalid_request_error",
 			"code":    contentModerationErrorCode(decision),
-			"message": clienterr.WithSource(message),
-			"source":  clienterr.Source,
+			"message": clienterror.WithSource(message),
+			"source":  clienterror.Source,
 		},
 	})
 	if err != nil {
-		payload = []byte(`{"event_id":"evt_content_moderation_blocked","type":"error","error":{"type":"invalid_request_error","code":"content_policy_violation","message":"content moderation blocked this request"}}`)
+		payload = []byte(`{"event_id":"evt_content_moderation_blocked","type":"error","error":{"type":"invalid_request_error","code":"content_policy_violation","message":"【sub2freeApi限制】 content moderation blocked this request"}}`)
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

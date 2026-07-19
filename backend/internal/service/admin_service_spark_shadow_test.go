@@ -107,6 +107,10 @@ func (s *sparkShadowRepoStub) Delete(_ context.Context, id int64) error {
 	delete(s.mockAccountRepoForGemini.accountsByID, id)
 	return nil
 }
+
+func (s *sparkShadowRepoStub) RecycleAccount(context.Context, int64) error { return nil }
+
+func (s *sparkShadowRepoStub) RestoreAccount(context.Context, int64) error { return nil }
 func (s *sparkShadowRepoStub) BatchUpdateLastUsed(_ context.Context, _ map[int64]time.Time) error {
 	return nil
 }

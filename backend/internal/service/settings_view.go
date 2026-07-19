@@ -275,6 +275,10 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	DeploymentProfile                string
+	BalanceCheckEnabled              bool
+	StickySessionReassignmentEnabled bool
+	BrandedErrorsEnabled             bool
 	RegistrationEnabled              bool
 	EmailVerifyEnabled               bool
 	ForceEmailOnThirdPartySignup     bool

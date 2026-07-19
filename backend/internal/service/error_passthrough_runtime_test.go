@@ -11,11 +11,17 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/model"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterr"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func useFreeClientErrorProfile(t *testing.T) {
+	t.Helper()
+	require.NoError(t, clienterror.Configure("free"))
+	t.Cleanup(func() { require.NoError(t, clienterror.Configure("main")) })
+}
 
 func TestApplyErrorPassthroughRule_NoBoundService(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -39,6 +45,7 @@ func TestApplyErrorPassthroughRule_NoBoundService(t *testing.T) {
 }
 
 func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -61,11 +68,12 @@ func TestGatewayHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, clienterr.WithSource("Upstream request failed"), errField["message"])
-	assert.Equal(t, clienterr.Source, errField["source"])
+	assert.Equal(t, "【上游错误】 Upstream request failed", errField["message"])
+
 }
 
 func TestOpenAIHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -88,18 +96,19 @@ func TestOpenAIHandleErrorResponse_NoRuleKeepsDefault(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, clienterr.WithSource("Upstream request failed"), errField["message"])
-	assert.Equal(t, clienterr.Source, errField["source"])
+	assert.Equal(t, "【上游错误】 Upstream request failed", errField["message"])
+
 }
 
 func TestOpenAIHandleErrorResponse_ContextWindow502KeepsMessageWithoutFailover(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
 	svc := &OpenAIGatewayService{}
-	respBody := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
+	respBody := []byte(`{"error":{"message":"【上游错误】 Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
 	resp := &http.Response{
 		StatusCode: http.StatusBadGateway,
 		Body:       io.NopCloser(bytes.NewReader(respBody)),
@@ -118,10 +127,11 @@ func TestOpenAIHandleErrorResponse_ContextWindow502KeepsMessageWithoutFailover(t
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, "Your input exceeds the context window of this model. Please adjust your input and try again.", errField["message"])
+	assert.Equal(t, "【上游错误】 Your input exceeds the context window of this model. Please adjust your input and try again.", errField["message"])
 }
 
 func TestGeminiWriteGeminiMappedError_NoRuleKeepsDefault(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -139,11 +149,12 @@ func TestGeminiWriteGeminiMappedError_NoRuleKeepsDefault(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "invalid_request_error", errField["type"])
-	assert.Equal(t, clienterr.WithSource("Upstream request failed"), errField["message"])
-	assert.Equal(t, clienterr.Source, errField["source"])
+	assert.Equal(t, "【上游错误】 Upstream request failed", errField["message"])
+
 }
 
 func TestGatewayHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -170,11 +181,12 @@ func TestGatewayHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, "上游请求失败", errField["message"])
-	assert.Equal(t, clienterr.Source, errField["source"])
+	assert.Equal(t, "【上游错误】 上游请求失败", errField["message"])
+
 }
 
 func TestOpenAIHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -201,11 +213,12 @@ func TestOpenAIHandleErrorResponse_AppliesRuleFor422(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, "OpenAI上游失败", errField["message"])
-	assert.Equal(t, clienterr.Source, errField["source"])
+	assert.Equal(t, "【上游错误】 OpenAI上游失败", errField["message"])
+
 }
 
 func TestGeminiWriteGeminiMappedError_AppliesRuleFor422(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -227,8 +240,8 @@ func TestGeminiWriteGeminiMappedError_AppliesRuleFor422(t *testing.T) {
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "upstream_error", errField["type"])
-	assert.Equal(t, "Gemini上游失败", errField["message"])
-	assert.Equal(t, clienterr.Source, errField["source"])
+	assert.Equal(t, "【上游错误】 Gemini上游失败", errField["message"])
+
 }
 
 func TestApplyErrorPassthroughRule_SkipMonitoringSetsContextKey(t *testing.T) {
@@ -311,6 +324,7 @@ func TestHandleErrorResponse_SetsResponseCommitted(t *testing.T) {
 }
 
 func TestHandleErrorResponse_PassthroughRuleSetsCommitted(t *testing.T) {
+	useFreeClientErrorProfile(t)
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -337,7 +351,7 @@ func TestHandleErrorResponse_PassthroughRuleSetsCommitted(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	errField, ok := payload["error"].(map[string]any)
 	require.True(t, ok, "payload[\"error\"] should be map[string]any")
-	assert.Equal(t, "参数错误", errField["message"])
+	assert.Equal(t, "【上游错误】 参数错误", errField["message"])
 }
 
 func TestOpenAIHandleErrorResponse_SetsResponseCommitted(t *testing.T) {

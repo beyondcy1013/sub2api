@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
+
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -143,12 +145,12 @@ func buildOpenAIWSHTTPBridgeErrorEvent(statusCode int, message string) []byte {
 		"status": statusCode,
 		"error": map[string]any{
 			"type":    "upstream_error",
-			"message": message,
+			"message": clienterror.Upstream(message),
 		},
 	}
 	body, err := json.Marshal(event)
 	if err != nil {
-		return []byte(`{"type":"error","error":{"type":"upstream_error","message":"upstream request failed"}}`)
+		return []byte(`{"type":"error","error":{"type":"upstream_error","message":"【上游错误】 upstream request failed"}}`)
 	}
 	return body
 }

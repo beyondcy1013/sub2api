@@ -12,7 +12,7 @@
         default-sort-key="created_at"
         default-sort-order="desc"
         @sort="onSort"
-        @rowClick="(row) => openDetail(row.id)"
+        @rowClick="(row: any) => openDetail(row.id)"
       >
         <template #cell-model="{ row }">
           <span v-if="row.model" class="text-sm font-medium text-gray-900 dark:text-white">{{ row.model }}</span>

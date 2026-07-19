@@ -53,3 +53,11 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar deployment capabilities', () => {
+  it('gates balance-check navigation through the shared feature flag registry', () => {
+    expect(componentSource).toContain('FeatureFlags.balanceCheck')
+    expect(componentSource).toContain("path: '/admin/balance-check-settings'")
+    expect(componentSource).toContain('featureFlag: flagBalanceCheck')
+  })
+})
