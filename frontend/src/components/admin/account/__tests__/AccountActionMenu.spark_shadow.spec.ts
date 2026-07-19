@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AccountActionMenu from '../AccountActionMenu.vue'
 import type { Account } from '@/types'
@@ -61,6 +61,10 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     publicSettings.value = { sticky_session_reassignment_enabled: true }
   })
 
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
   it('更多操作菜单宽度缩小为原来的 60%', () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth' })
     const wrapper = mount(AccountActionMenu, {
@@ -69,6 +73,37 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     })
 
     expect(document.body.querySelector('.action-menu-content')?.classList.contains('w-[7.8rem]')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('始终显示定时启用恢复和定时暂停调度入口', () => {
+    const account = makeAccount({ status: 'error', schedulable: false })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).toContain('admin.accounts.scheduledAction.enableAndRecover')
+    expect(getBodyText()).toContain('admin.accounts.scheduledAction.pause')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['admin.accounts.scheduledAction.enableAndRecover', 'enable_and_recover'],
+    ['admin.accounts.scheduledAction.pause', 'pause'],
+  ] as const)('点击 %s 触发 scheduled-action 事件', async (label, action) => {
+    const account = makeAccount({})
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const button = getBodyButtons().find(item => item.textContent?.includes(label))
+    expect(button).toBeDefined()
+    button!.click()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('scheduled-action')?.[0]).toEqual([account, action])
     wrapper.unmount()
   })
 
