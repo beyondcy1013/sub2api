@@ -430,6 +430,11 @@ export default {
         resetStatus: 'Reset Status',
         refreshToken: 'Refresh Token',
         probeUpstreamBilling: 'Probe Upstream Rate',
+        refreshUsage: 'Refresh Usage Quotas',
+        refreshingUsage: 'Refreshing quotas...',
+        refreshUsageSuccess: 'Refreshed usage quotas for {count} account(s)',
+        refreshUsagePartial: 'Quota refresh partially completed: {success} succeeded, {failed} failed',
+        refreshUsageNoEligible: 'No account in this scope supports active usage refresh',
         resetStatusSuccess: 'Successfully reset {count} account(s) status',
         refreshTokenSuccess: 'Successfully refreshed {count} account(s) token',
         partialSuccess: 'Partially completed: {success} succeeded, {failed} failed'

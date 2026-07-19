@@ -636,11 +636,13 @@ const props = withDefaults(
     todayStats?: WindowStats | null
     todayStatsLoading?: boolean
     manualRefreshToken?: number
+    externalUsage?: AccountUsageInfo | null
   }>(),
   {
     todayStats: null,
     todayStatsLoading: false,
-    manualRefreshToken: 0
+    manualRefreshToken: 0,
+    externalUsage: null
   }
 )
 
@@ -657,10 +659,18 @@ onBeforeUnmount(() => { unmounted.value = true })
 const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
-const usageInfo = ref<AccountUsageInfo | null>(null)
+const usageInfo = ref<AccountUsageInfo | null>(props.externalUsage)
 watch(usageInfo, (usage) => {
   if (usage) emit('usage-loaded', usage)
 })
+watch(
+  () => props.externalUsage,
+  (usage) => {
+    if (!usage || usage === usageInfo.value) return
+    usageInfo.value = usage
+    _usageCache.set(props.account.id, { data: usage, ts: Date.now() })
+  }
+)
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
   typeof window === 'undefined' ? true : window.matchMedia(desktopViewportQuery).matches

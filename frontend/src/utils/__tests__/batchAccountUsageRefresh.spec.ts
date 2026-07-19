@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { refreshAccountUsageInBatches } from '../batchAccountUsageRefresh'
 
 describe('refreshAccountUsageInBatches', () => {
+  it('returns an empty result without starting a worker for an empty scope', async () => {
+    const query = vi.fn()
+
+    const result = await refreshAccountUsageInBatches([], query)
+
+    expect(query).not.toHaveBeenCalled()
+    expect(result).toEqual({ successful: [], failed: [] })
+  })
+
   it('runs at most four active usage queries concurrently and preserves input order', async () => {
     let active = 0
     let maxActive = 0

@@ -63,7 +63,24 @@
         <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
       </template>
-      <button @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
+      <button
+        data-test="bulk-primary-action"
+        class="btn btn-secondary btn-sm"
+        :disabled="refreshingUsage"
+        @click="$emit('refresh-usage')"
+      >
+        {{
+          refreshingUsage
+            ? t('admin.accounts.bulkActions.refreshingUsage')
+            : t('admin.accounts.bulkActions.refreshUsage')
+        }}
+      </button>
+      <button
+        data-test="bulk-primary-action"
+        class="btn btn-primary btn-sm"
+        :disabled="refreshingUsage"
+        @click="$emit('edit-filtered')"
+      >
         {{ t('admin.accounts.bulkEdit.submit') }}
       </button>
     </div>
@@ -80,11 +97,13 @@ const props = withDefaults(defineProps<{
   selectedIds: number[]
   selectingAllPages?: boolean
   quickUpdating?: 'proxy' | 'group' | null
+  refreshingUsage?: boolean
   proxies?: ProxyConfig[]
   groups?: AdminGroup[]
 }>(), {
   selectingAllPages: false,
   quickUpdating: null,
+  refreshingUsage: false,
   proxies: () => [],
   groups: () => []
 })
@@ -101,6 +120,7 @@ const emit = defineEmits<{
   'reset-status': []
   'refresh-token': []
   'probe-upstream-billing': []
+  'refresh-usage': []
 }>()
 
 const { t } = useI18n()

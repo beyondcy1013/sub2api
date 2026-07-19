@@ -93,6 +93,51 @@ describe('AccountUsageCell', () => {
     wrapper.unmount()
   })
 
+  it('批量查询返回的外部用量会立即更新窗口并通知父表', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 11,
+          platform: 'openai',
+          type: 'oauth',
+          status: 'inactive'
+        }),
+        externalUsage: null
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true,
+          OpenAIQuotaResetCell: { template: '<div />' }
+        }
+      }
+    })
+    const usage = {
+      updated_at: '2026-07-19T09:00:00Z',
+      five_hour: {
+        utilization: 18,
+        resets_at: '2026-07-19T12:00:00Z'
+      },
+      seven_day: {
+        utilization: 47,
+        resets_at: '2026-07-25T12:00:00Z'
+      },
+      seven_day_sonnet: null
+    }
+
+    await wrapper.setProps({ externalUsage: usage })
+    await flushPromises()
+
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('5h|18|2026-07-19T12:00:00Z')
+    expect(wrapper.text()).toContain('7d|47|2026-07-25T12:00:00Z')
+    expect(wrapper.emitted('usage-loaded')).toEqual([[usage]])
+    wrapper.unmount()
+  })
+
   it('状态为 active 的账号在挂载时会自动刷新用量', async () => {
     const usage = {
       updated_at: '2026-07-19T08:00:00Z',

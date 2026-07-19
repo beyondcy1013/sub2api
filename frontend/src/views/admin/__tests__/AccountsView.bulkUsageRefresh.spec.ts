@@ -10,7 +10,10 @@ const {
   getUpstreamBillingProbeSettings,
   getAccountUsage,
   getAllProxies,
-  getAllGroups
+  getAllGroups,
+  showError,
+  showSuccess,
+  showInfo
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
@@ -18,7 +21,10 @@ const {
   getUpstreamBillingProbeSettings: vi.fn(),
   getAccountUsage: vi.fn(),
   getAllProxies: vi.fn(),
-  getAllGroups: vi.fn()
+  getAllGroups: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+  showInfo: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -37,9 +43,9 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
-    showInfo: vi.fn()
+    showError,
+    showSuccess,
+    showInfo
   })
 }))
 
@@ -129,6 +135,9 @@ describe('AccountsView bulk usage refresh', () => {
     getAccountUsage.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    showError.mockReset()
+    showSuccess.mockReset()
+    showInfo.mockReset()
 
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
@@ -182,5 +191,50 @@ describe('AccountsView bulk usage refresh', () => {
     await flushPromises()
 
     expect(getAccountUsage.mock.calls).toEqual([[1, 'active', true]])
+  })
+
+  it('continues after one account fails and reports the partial result', async () => {
+    const first = makeAccount(1, 'openai', 'oauth')
+    const second = makeAccount(3, 'anthropic', 'setup-token')
+    listAccounts
+      .mockResolvedValueOnce({ items: [first, second], total: 2, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [first, second], total: 2, page: 1, page_size: 1000, pages: 1 })
+    getAccountUsage.mockImplementation(async (id: number) => {
+      if (id === 1) throw new Error('upstream unavailable')
+      return {
+        updated_at: `usage-${id}`,
+        five_hour: null,
+        seven_day: null,
+        seven_day_sonnet: null
+      }
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="refresh-usage"]').trigger('click')
+    await flushPromises()
+
+    expect(getAccountUsage).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-test="usage-3"]').text()).toBe('usage-3')
+    expect(showError).toHaveBeenCalledWith(
+      'admin.accounts.bulkActions.refreshUsagePartial'
+    )
+  })
+
+  it('shows an informational result when the current scope has no eligible account', async () => {
+    const apiKey = makeAccount(2, 'openai', 'apikey')
+    listAccounts
+      .mockResolvedValueOnce({ items: [apiKey], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [apiKey], total: 1, page: 1, page_size: 1000, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="refresh-usage"]').trigger('click')
+    await flushPromises()
+
+    expect(getAccountUsage).not.toHaveBeenCalled()
+    expect(showInfo).toHaveBeenCalledWith(
+      'admin.accounts.bulkActions.refreshUsageNoEligible'
+    )
   })
 })

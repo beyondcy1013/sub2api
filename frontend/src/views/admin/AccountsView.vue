@@ -194,12 +194,14 @@
           :selected-ids="selIds"
           :selecting-all-pages="selectingAllPages"
           :quick-updating="quickBulkUpdating"
+          :refreshing-usage="refreshingUsage"
           :proxies="proxies"
           :groups="groups"
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
+          @refresh-usage="handleBulkRefreshUsage"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -396,6 +398,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
+              :external-usage="usageWindowByAccountId[row.id] ?? null"
               @usage-loaded="handleUsageWindowLoaded(row.id, $event)"
             />
           </template>
@@ -606,6 +609,7 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatCompactNumber, formatCurrency, formatDateTime, formatNumber, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { formatUsageWindowReset, formatUsageWindowUtilization } from '@/utils/usageWindowDisplay'
+import { refreshAccountUsageInBatches } from '@/utils/batchAccountUsageRefresh'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress } from '@/types'
@@ -677,6 +681,7 @@ const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const selectingAllPages = ref(false)
 const quickBulkUpdating = ref<'proxy' | 'group' | null>(null)
+const refreshingUsage = ref(false)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
@@ -1971,6 +1976,81 @@ const selectAllPages = async () => {
     appStore.showError(t('common.error'))
   } finally {
     selectingAllPages.value = false
+  }
+}
+
+const loadAllFilteredAccounts = async (): Promise<Account[]> => {
+  const pageSize = 1000
+  const filters = {
+    ...buildBulkEditFilterSnapshot(),
+    recycled: recycled.value ? '1' : '',
+    lite: '1',
+    include_scheduler_score: '0'
+  }
+  const firstPage = await adminAPI.accounts.list(1, pageSize, filters)
+  const rows = [...firstPage.items]
+  for (let page = 2; page <= firstPage.pages; page += 1) {
+    const result = await adminAPI.accounts.list(page, pageSize, filters)
+    rows.push(...result.items)
+  }
+  return rows
+}
+
+const supportsActiveUsageQuery = (account: Account): boolean => {
+  if (account.platform === 'openai') return account.type === 'oauth'
+  if (account.platform === 'anthropic') {
+    return account.type === 'oauth' || account.type === 'setup-token'
+  }
+  return false
+}
+
+const collectBulkUsageRefreshTargets = async (): Promise<Account[]> => {
+  const selected = new Set(selIds.value)
+  if (selected.size > 0) {
+    const currentSelection = accounts.value.filter(account => selected.has(account.id))
+    if (currentSelection.length === selected.size) return currentSelection
+  }
+
+  const filteredAccounts = await loadAllFilteredAccounts()
+  return selected.size > 0
+    ? filteredAccounts.filter(account => selected.has(account.id))
+    : filteredAccounts
+}
+
+const handleBulkRefreshUsage = async () => {
+  if (refreshingUsage.value) return
+  refreshingUsage.value = true
+  try {
+    const targets = (await collectBulkUsageRefreshTargets()).filter(supportsActiveUsageQuery)
+    if (targets.length === 0) {
+      appStore.showInfo(t('admin.accounts.bulkActions.refreshUsageNoEligible'))
+      return
+    }
+
+    const result = await refreshAccountUsageInBatches(
+      targets.map(account => account.id),
+      async accountId => {
+        const usage = await adminAPI.accounts.getUsage(accountId, 'active', true)
+        handleUsageWindowLoaded(accountId, usage)
+        return usage
+      }
+    )
+
+    if (result.failed.length > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.refreshUsagePartial', {
+        success: result.successful.length,
+        failed: result.failed.length
+      }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkActions.refreshUsageSuccess', {
+        count: result.successful.length
+      }))
+    }
+  } catch (error) {
+    console.error('Failed to refresh account usage in bulk:', error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+  } finally {
+    refreshingUsage.value = false
   }
 }
 
