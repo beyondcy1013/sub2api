@@ -10,7 +10,11 @@ vi.mock('@/stores/app', () => ({
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { accounts: { importData: vi.fn() } }
+  adminAPI: {
+    accounts: { importData: vi.fn() },
+    proxies: { getAll: vi.fn() },
+    groups: { getAll: vi.fn() }
+  }
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -21,7 +25,15 @@ const mountModal = () => mount(EnhancedImportDataModal, {
   props: { show: true },
   global: {
     stubs: {
-      BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }
+      BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+      ProxySelector: {
+        props: ['modelValue'],
+        template: '<div data-test="import-default-proxy" :data-value="modelValue"></div>'
+      },
+      GroupSelector: {
+        props: ['modelValue'],
+        template: '<div data-test="import-default-groups" :data-value="modelValue.join(\',\')"></div>'
+      }
     }
   }
 })
@@ -39,6 +51,16 @@ describe('EnhancedImportDataModal', () => {
     showSuccess.mockReset()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockReset()
+    vi.mocked(adminAPI.groups.getAll).mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
+      { id: 11, name: 'proxy-one' },
+      { id: 22, name: 'proxy-two' }
+    ] as never)
+    vi.mocked(adminAPI.groups.getAll).mockResolvedValue([
+      { id: 31, name: 'group-one', platform: 'openai' },
+      { id: 32, name: 'group-two', platform: 'anthropic' }
+    ] as never)
     vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
       proxy_created: 0,
       proxy_reused: 0,
@@ -51,6 +73,12 @@ describe('EnhancedImportDataModal', () => {
   it('imports pasted native sub2api JSON text', async () => {
     const { adminAPI } = await import('@/api/admin')
     const wrapper = mountModal()
+    await flushPromises()
+
+    expect((wrapper.get('[data-test="import-apply-default-proxy"]').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.get('[data-test="import-apply-default-groups"]').element as HTMLInputElement).checked).toBe(true)
+    expect(wrapper.get('[data-test="import-default-proxy"]').attributes('data-value')).toBe('22')
+    expect(wrapper.get('[data-test="import-default-groups"]').attributes('data-value')).toBe('31')
 
     await wrapper.find('[data-test="enhanced-import-mode-text"]').trigger('click')
     await wrapper.find('textarea').setValue(JSON.stringify({
@@ -63,6 +91,10 @@ describe('EnhancedImportDataModal', () => {
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
       data: expect.objectContaining({ accounts: [{ name: 'native-account' }] }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
       skip_default_group_bind: true
     })
     expect(wrapper.emitted('imported')).toHaveLength(1)
@@ -93,6 +125,10 @@ describe('EnhancedImportDataModal', () => {
           type: 'oauth'
         })]
       }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
       skip_default_group_bind: true
     })
   })
@@ -178,6 +214,34 @@ describe('EnhancedImportDataModal', () => {
           expect.objectContaining({ platform: 'anthropic', type: 'oauth' })
         ]
       }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
+      skip_default_group_bind: true
+    })
+  })
+
+  it('can disable applying the selected proxy and groups', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+    await flushPromises()
+
+    await wrapper.get('[data-test="import-apply-default-proxy"]').setValue(false)
+    await wrapper.get('[data-test="import-apply-default-groups"]').setValue(false)
+    await wrapper.get('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify({
+      exported_at: '2026-07-19T00:00:00Z',
+      proxies: [],
+      accounts: [{ name: 'native-account' }]
+    }))
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
+      data: expect.any(Object),
+      apply_proxy_settings: false,
+      apply_group_settings: false,
       skip_default_group_bind: true
     })
   })
