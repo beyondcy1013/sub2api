@@ -85,6 +85,8 @@
         :rows="12"
       />
 
+      <ImportRoutingOptions ref="routingOptionsRef" />
+
       <div
         v-if="result"
         class="space-y-2 rounded-lg border border-gray-200 p-4 dark:border-dark-700"
@@ -132,6 +134,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ImportRoutingOptions from './ImportRoutingOptions.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import type { AdminDataImportResult, AdminDataPayload } from '@/types'
@@ -163,6 +166,7 @@ const dragDepth = ref(0)
 const hasCreatedData = ref(false)
 const result = ref<AdminDataImportResult | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const routingOptionsRef = ref<InstanceType<typeof ImportRoutingOptions> | null>(null)
 
 const dragActive = computed(() => dragDepth.value > 0)
 const fileListTitle = computed(() => files.value.map(file => file.name).join(', '))
@@ -281,9 +285,11 @@ const handleImport = async () => {
   try {
     const payloads = await readPayloads()
     if (!payloads) return
+    const routingOptions = await routingOptionsRef.value?.getRequestOptions()
 
     const response = await adminAPI.accounts.importData({
       data: mergeEnhancedImportPayloads(payloads),
+      ...routingOptions,
       skip_default_group_bind: true
     })
     result.value = response

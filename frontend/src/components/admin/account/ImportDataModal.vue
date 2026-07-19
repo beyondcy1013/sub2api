@@ -51,6 +51,8 @@
         />
       </div>
 
+      <ImportRoutingOptions ref="routingOptionsRef" />
+
       <div
         v-if="result"
         class="space-y-2 rounded-xl border border-gray-200 p-4 dark:border-dark-700"
@@ -99,6 +101,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ImportRoutingOptions from './ImportRoutingOptions.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import type { AdminDataImportResult, AdminDataPayload } from '@/types'
@@ -126,6 +129,7 @@ const hasCreatedData = ref(false)
 const result = ref<AdminDataImportResult | null>(null)
 
 const fileInput = ref<HTMLInputElement | null>(null)
+const routingOptionsRef = ref<InstanceType<typeof ImportRoutingOptions> | null>(null)
 const selectedFilesLabel = computed(() => {
   if (files.value.length === 0) return ''
   if (files.value.length === 1) return files.value[0]?.name || ''
@@ -292,9 +296,11 @@ const handleImport = async () => {
       dataPayloads.push(parsed)
     }
     const dataPayload = mergeDataPayloads(dataPayloads)
+    const routingOptions = await routingOptionsRef.value?.getRequestOptions()
 
     const res = await adminAPI.accounts.importData({
       data: dataPayload,
+      ...routingOptions,
       skip_default_group_bind: true
     })
 

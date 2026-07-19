@@ -725,10 +725,18 @@ export async function exportData(options?: {
 
 export async function importData(payload: {
   data: AdminDataPayload
+  apply_proxy_settings?: boolean
+  default_proxy_id?: number | null
+  apply_group_settings?: boolean
+  default_group_ids?: number[]
   skip_default_group_bind?: boolean
 }): Promise<AdminDataImportResult> {
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', {
     data: payload.data,
+    apply_proxy_settings: payload.apply_proxy_settings,
+    default_proxy_id: payload.default_proxy_id,
+    apply_group_settings: payload.apply_group_settings,
+    default_group_ids: payload.default_group_ids,
     skip_default_group_bind: payload.skip_default_group_bind
   })
   return data

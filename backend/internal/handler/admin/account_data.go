@@ -74,6 +74,10 @@ type DataAccount struct {
 
 type DataImportRequest struct {
 	Data                 DataPayload `json:"data"`
+	ApplyProxySettings   bool        `json:"apply_proxy_settings"`
+	DefaultProxyID       *int64      `json:"default_proxy_id"`
+	ApplyGroupSettings   bool        `json:"apply_group_settings"`
+	DefaultGroupIDs      []int64     `json:"default_group_ids"`
 	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
 }
 
@@ -412,7 +416,12 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		}
 
 		var proxyID *int64
-		if item.ProxyKey != nil && *item.ProxyKey != "" {
+		if req.ApplyProxySettings {
+			if req.DefaultProxyID != nil {
+				id := *req.DefaultProxyID
+				proxyID = &id
+			}
+		} else if item.ProxyKey != nil && *item.ProxyKey != "" {
 			if id, ok := proxyKeyToID[*item.ProxyKey]; ok {
 				proxyID = &id
 			} else {
@@ -429,6 +438,11 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 		enrichCredentialsFromIDToken(&item)
 
+		var groupIDs []int64
+		if req.ApplyGroupSettings {
+			groupIDs = append([]int64(nil), req.DefaultGroupIDs...)
+		}
+
 		accountInput := &service.CreateAccountInput{
 			Name:                 item.Name,
 			Notes:                item.Notes,
@@ -440,10 +454,10 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,
 			RateMultiplier:       item.RateMultiplier,
-			GroupIDs:             nil,
+			GroupIDs:             groupIDs,
 			ExpiresAt:            item.ExpiresAt,
 			AutoPauseOnExpired:   item.AutoPauseOnExpired,
-			SkipDefaultGroupBind: skipDefaultGroupBind,
+			SkipDefaultGroupBind: skipDefaultGroupBind || req.ApplyGroupSettings,
 		}
 
 		created, err := h.adminService.CreateAccount(ctx, accountInput)
