@@ -61,6 +61,17 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     publicSettings.value = { sticky_session_reassignment_enabled: true }
   })
 
+  it('更多操作菜单宽度缩小为原来的 60%', () => {
+    const account = makeAccount({ platform: 'openai', type: 'oauth' })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(document.body.querySelector('.action-menu-content')?.classList.contains('w-[7.8rem]')).toBe(true)
+    wrapper.unmount()
+  })
+
   it('普通账号显示「复制账号」按钮', () => {
     const account = makeAccount({ platform: 'anthropic', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {

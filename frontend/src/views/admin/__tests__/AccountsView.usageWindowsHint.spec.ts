@@ -313,7 +313,34 @@ describe('admin AccountsView usage windows hint', () => {
     expect(wrapper.get('[data-test="row-order"]').text()).toBe(
       'idle-now,higher-usage-sooner-reset,lower-usage-later-reset,usage-not-loaded'
     )
+  })
 
+  it('places usage windows after schedulable, platform/type after usage windows, and upstream declared rate last', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const keys = wrapper.findAll('[data-test="column-key"]')
+      .map(node => node.attributes('data-column-key'))
+
+    expect(keys.indexOf('usage')).toBe(keys.indexOf('schedulable') + 1)
+    expect(keys.indexOf('platform_type')).toBe(keys.indexOf('usage') + 1)
+    expect(keys.indexOf('upstream_billing_rate')).toBe(keys.indexOf('actions') - 1)
+  })
+
+  it('places today cost, groups, and balance directly after created time', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const keys = wrapper.findAll('[data-test="column-key"]')
+      .map(node => node.attributes('data-column-key'))
+    const createdAtIndex = keys.indexOf('created_at')
+
+    expect(keys.slice(createdAtIndex, createdAtIndex + 4)).toEqual([
+      'created_at',
+      'today_cost',
+      'groups',
+      'balance'
+    ])
   })
 
   it('exposes 5h/7d request, token, and window cost columns separately', async () => {
@@ -322,7 +349,7 @@ describe('admin AccountsView usage windows hint', () => {
 
     const keys = wrapper.findAll('[data-test="column-key"]')
       .map(node => node.attributes('data-column-key'))
-    const createdAtIndex = keys.indexOf('created_at')
+    const balanceIndex = keys.indexOf('balance')
 
     expect(keys).toEqual(expect.arrayContaining([
       'five_hour_requests',
@@ -331,7 +358,7 @@ describe('admin AccountsView usage windows hint', () => {
       'seven_day_tokens',
       'usage_cost'
     ]))
-    expect(keys.slice(createdAtIndex + 1, createdAtIndex + 6)).toEqual([
+    expect(keys.slice(balanceIndex + 1, balanceIndex + 6)).toEqual([
       'five_hour_requests',
       'five_hour_tokens',
       'seven_day_requests',

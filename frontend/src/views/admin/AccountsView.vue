@@ -1664,26 +1664,28 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false },
+    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
+    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
     { key: 'five_hour_utilization', label: t('admin.accounts.columns.fiveHourUtilization'), sortable: true, width: '108px' },
     { key: 'five_hour_reset', label: t('admin.accounts.columns.fiveHour'), sortable: true, width: '72px' },
     { key: 'seven_day_utilization', label: t('admin.accounts.columns.sevenDayUtilization'), sortable: true, width: '108px' },
-    { key: 'seven_day_reset', label: t('admin.accounts.columns.sevenDay'), sortable: true, width: '72px' },
-    { key: 'balance', label: t('admin.accounts.columns.balance'), sortable: false, width: '70px' }
+    { key: 'seven_day_reset', label: t('admin.accounts.columns.sevenDay'), sortable: true, width: '72px' }
   ]
-  if (!authStore.isSimpleMode) {
-    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
-  }
   c.push(
-    { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
-    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
+    { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false }
+  )
+  if (!authStore.isSimpleMode) {
+    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
+  }
+  c.push(
+    { key: 'balance', label: t('admin.accounts.columns.balance'), sortable: false, width: '70px' },
     { key: 'five_hour_requests', label: t('admin.accounts.columns.fiveHourRequests'), sortable: false, width: '88px' },
     { key: 'five_hour_tokens', label: t('admin.accounts.columns.fiveHourTokens'), sortable: false, width: '88px' },
     { key: 'seven_day_requests', label: t('admin.accounts.columns.sevenDayRequests'), sortable: false, width: '88px' },
@@ -1692,7 +1694,7 @@ const allColumns = computed(() => {
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, width: '130px' },
-    { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },
+    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
   )
   return c
@@ -1717,7 +1719,7 @@ const openMenu = (a: Account, e: MouseEvent) => {
   const target = e.currentTarget as HTMLElement
   if (target) {
     const rect = target.getBoundingClientRect()
-    const menuWidth = 200
+    const menuWidth = 125
     const menuHeight = 320
     const padding = 8
     const viewportWidth = window.innerWidth
@@ -1757,7 +1759,7 @@ const openMenu = (a: Account, e: MouseEvent) => {
 
     menu.pos = { top, left }
   } else {
-    menu.pos = { top: e.clientY, left: e.clientX - 200 }
+    menu.pos = { top: e.clientY, left: e.clientX - 125 }
   }
 
   menu.show = true
