@@ -18,7 +18,9 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       importData: vi.fn()
-    }
+    },
+    proxies: { getAll: vi.fn() },
+    groups: { getAll: vi.fn() }
   }
 }))
 
@@ -60,6 +62,13 @@ describe('ImportDataModal', () => {
     showWarning.mockReset()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
+      { id: 11, name: 'proxy-one' },
+      { id: 22, name: 'proxy-two' }
+    ] as never)
+    vi.mocked(adminAPI.groups.getAll).mockResolvedValue([
+      { id: 31, name: 'group-one', platform: 'openai' }
+    ] as never)
   })
 
   it('未选择文件时提示错误', async () => {
@@ -130,6 +139,10 @@ describe('ImportDataModal', () => {
       data: expect.objectContaining({
         accounts: [{ name: 'a' }]
       }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
       skip_default_group_bind: true
     })
   })
@@ -170,6 +183,10 @@ describe('ImportDataModal', () => {
         proxies: [{ proxy_key: 'p' }],
         accounts: [{ name: 'a' }, { name: 'b' }]
       }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
       skip_default_group_bind: true
     })
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
