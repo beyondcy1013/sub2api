@@ -105,7 +105,7 @@ export default {
       enhancedImportEnterText: 'Enter JSON text',
       enhancedImportInvalidJson: '{source} is not valid JSON',
       enhancedImportUnsupportedFormat: '{source} is not a supported account or export format',
-      enhancedImportUnsupportedProvider: 'CLIProxyAPI provider {provider} is not supported; supported providers are Codex, Claude, Gemini, and Antigravity',
+      enhancedImportUnsupportedProvider: '{source}: CLIProxyAPI provider {provider} is not supported; supported providers are Codex, Claude, Gemini, and Antigravity',
       enhancedImportMissingCredentials: '{source} has no access_token or refresh_token',
       syncFromCrsTitle: 'Sync Accounts from CRS',
       syncFromCrsDesc:

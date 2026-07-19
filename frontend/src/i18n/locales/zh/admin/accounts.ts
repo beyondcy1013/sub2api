@@ -105,7 +105,7 @@ export default {
       enhancedImportEnterText: '请输入 JSON 文本',
       enhancedImportInvalidJson: '{source} 不是有效的 JSON',
       enhancedImportUnsupportedFormat: '{source} 不是受支持的账号或导出数据格式',
-      enhancedImportUnsupportedProvider: '不支持 CLIProxyAPI 账号类型 {provider}；当前支持 Codex、Claude、Gemini、Antigravity',
+      enhancedImportUnsupportedProvider: '{source}：不支持 CLIProxyAPI 账号类型 {provider}；当前支持 Codex、Claude、Gemini、Antigravity',
       enhancedImportMissingCredentials: '{source} 缺少 access_token 或 refresh_token',
       syncFromCrsTitle: '从 CRS 同步账号',
       syncFromCrsDesc:

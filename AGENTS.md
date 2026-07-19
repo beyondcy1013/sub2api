@@ -126,7 +126,8 @@ cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/
 - `批量更新额度` stays immediately before `批量更新` in
   `AccountBulkActionsBar.vue`:
   - with selected accounts, query only that selection; with no selection, query
-    every account in the current filtered result, including later pages;
+    only the accounts loaded on the current page; never expand a zero-selection
+    action to later filtered pages;
   - query only account types that expose the single-row active `查询` action
     (OpenAI OAuth and Anthropic OAuth/Setup Token);
   - call `/usage` with `source=active&force=true`, at a maximum concurrency of
@@ -146,6 +147,32 @@ pnpm vitest run \
   src/utils/__tests__/batchAccountUsageRefresh.spec.ts \
   src/views/admin/__tests__/AccountsView.usageWindowsHint.spec.ts \
   src/views/admin/__tests__/AccountsView.bulkUsageRefresh.spec.ts
+```
+
+## Enhanced Import Mixed-Message Contract
+
+- Pasted-text enhanced import accepts a single JSON value, a JSON array, or
+  mixed chat/forwarded/Markdown text containing multiple complete JSON values.
+- Extraction must use a string-aware balanced object/array scanner. Nested
+  values, braces inside quoted strings, escaped quotes, and escaped backslashes
+  must not split a JSON value. Do not replace it with a greedy regex.
+- Each extracted value is normalized and validated independently. Segment
+  errors use the one-based source label `pasted JSON #N`, and all valid
+  segments are merged into one import API request in source order.
+- Reject text with no complete JSON value and reject truncated outer JSON;
+  never import an inner array/object from an incomplete enclosing value.
+- Keep pure-JSON and multi-file modes compatible. Preserve import routing
+  defaults (last proxy, first group), operator overrides, and
+  `skip_default_group_bind: true`.
+- The text-mode UI keeps the bilingual usage guide and extraction summary.
+  Never log or persist pasted credentials/tokens outside the import request.
+- Focused regression verification:
+
+```bash
+cd /home/third_party/sub2api/frontend
+pnpm vitest run \
+  src/components/admin/account/__tests__/enhancedImport.spec.ts \
+  src/components/admin/account/__tests__/EnhancedImportDataModal.spec.ts
 ```
 
 ## Account Recycle / Trash Feature

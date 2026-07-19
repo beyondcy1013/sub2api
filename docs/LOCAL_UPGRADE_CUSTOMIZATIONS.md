@@ -63,6 +63,13 @@ Both profiles must preserve all of the following:
   for candidates before submitting. Disabling proxy application preserves the
   imported proxy relationship; disabling group application preserves the
   existing no-default-group import behavior.
+- Enhanced Import pasted-text mode extracts multiple complete JSON values from
+  mixed chat, forwarded, and Markdown text with a string-aware balanced
+  object/array scanner. Nested values, quoted braces, escaped quotes, and
+  backslashes must not split a segment. Each segment is validated independently
+  with a one-based source label, then all segments merge into one import request
+  in source order. Pure JSON and multi-file modes remain compatible; incomplete
+  enclosing JSON is rejected instead of importing one of its inner values.
 - Clone mode preserves the source proxy/group assignments, including explicit
   unassigned values, and never applies new-account routing defaults.
 - Account recycle/restore uses `extra.recycled`; it does not use soft delete.
@@ -81,7 +88,7 @@ Both profiles must preserve all of the following:
 - The parent account table consumes `AccountUsageCell`'s `usage-loaded` payload
   for the 5h/7d request, token, utilization, reset, and cost columns.
 - `批量更新额度` remains immediately before `批量更新`. It queries the current
-  selection, or the complete filtered result when nothing is selected; limits
+  selection, or only the currently loaded page when nothing is selected; limits
   targets to OpenAI OAuth and Anthropic OAuth/Setup Token; calls active usage
   with `force=true`; runs no more than four calls concurrently; continues after
   individual failures; and applies each successful result immediately.
@@ -186,6 +193,8 @@ Backend focused tests must cover:
 Frontend focused tests must cover:
 
 - create, clone, and edit account defaults;
+- enhanced import mixed-text extraction, source-indexed validation, extraction
+  summary, and single-request merging without exposing pasted credentials;
 - plaintext API-key editing;
 - active-only usage auto-load;
 - DataTable width/header/sort contracts;
