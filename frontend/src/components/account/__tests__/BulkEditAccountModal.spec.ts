@@ -104,28 +104,46 @@ describe('BulkEditAccountModal', () => {
     } as any)
   })
 
-  it('明确提供统一设置代理入口，并仅在开启后启用代理选择器', async () => {
+  it('所有批量字段控件默认可用，无需先勾选字段开关', () => {
     const wrapper = mountModal()
 
     expect(wrapper.text()).toContain('admin.accounts.bulkEdit.proxyApply')
-    expect(wrapper.get('[data-test="bulk-proxy-selector"]').attributes()).toHaveProperty('disabled')
-
-    await wrapper.get('#bulk-edit-proxy-enabled').setValue(true)
-
     expect(wrapper.get('[data-test="bulk-proxy-selector"]').attributes()).not.toHaveProperty('disabled')
+    expect(wrapper.get('#bulk-edit-concurrency').attributes()).not.toHaveProperty('disabled')
+    expect(wrapper.get('#bulk-edit-custom-error-codes-body').exists()).toBe(true)
+    expect(wrapper.get('#bulk-edit-intercept-warmup-body').exists()).toBe(true)
   })
 
-  it('可为选中账号统一设置代理', async () => {
+  it('不勾选字段开关也可直接修改代理并提交', async () => {
     const wrapper = mountModal({
       proxies: [{ id: 9, name: 'proxy-9', protocol: 'http', host: '127.0.0.1', port: 8080 }]
     })
 
-    await wrapper.get('#bulk-edit-proxy-enabled').setValue(true)
     await wrapper.get('[data-test="bulk-proxy-selector"]').setValue('9')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { proxy_id: 9 })
+  })
+
+  it('直接修改并发数时只提交该字段', async () => {
+    const wrapper = mountModal()
+
+    await wrapper.get('#bulk-edit-concurrency').setValue(6)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { concurrency: 6 })
+  })
+
+  it('未修改任何字段时不提交默认值', async () => {
+    const wrapper = mountModal()
+
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
   })
 
   it('选择无代理时可统一清空账号代理', async () => {
@@ -274,7 +292,6 @@ describe('BulkEditAccountModal', () => {
       selectedTypes: ['oauth']
     })
 
-    await wrapper.get('#bulk-edit-openai-passthrough-enabled').setValue(true)
     await wrapper.get('#bulk-edit-openai-passthrough-toggle').trigger('click')
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
