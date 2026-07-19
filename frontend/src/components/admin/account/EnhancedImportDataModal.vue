@@ -77,13 +77,28 @@
         />
       </div>
 
-      <TextArea
-        v-else
-        v-model="jsonText"
-        :label="t('admin.accounts.enhancedImportTextLabel')"
-        :placeholder="t('admin.accounts.enhancedImportTextPlaceholder')"
-        :rows="12"
-      />
+      <div v-else class="space-y-3">
+        <TextArea
+          v-model="jsonText"
+          :label="t('admin.accounts.enhancedImportTextLabel')"
+          :placeholder="t('admin.accounts.enhancedImportTextPlaceholder')"
+          :rows="12"
+        />
+        <div
+          data-test="enhanced-import-usage-guide"
+          class="rounded-lg border border-cyan-200 bg-cyan-50/70 px-3 py-2.5 text-xs text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-100"
+        >
+          <div class="font-medium">{{ t('admin.accounts.enhancedImportUsageGuideTitle') }}</div>
+          <div class="mt-1 leading-5">{{ t('admin.accounts.enhancedImportUsageGuide') }}</div>
+        </div>
+        <div
+          v-if="jsonText.trim()"
+          data-test="enhanced-import-extraction-summary"
+          class="text-xs text-gray-500 dark:text-dark-400"
+        >
+          {{ extractionSummaryText }}
+        </div>
+      </div>
 
       <ImportRoutingOptions ref="routingOptionsRef" />
 
@@ -141,6 +156,7 @@ import type { AdminDataImportResult, AdminDataPayload } from '@/types'
 import {
   EnhancedImportError,
   mergeEnhancedImportPayloads,
+  parseEnhancedImportText,
   parseEnhancedImportSource
 } from './enhancedImport'
 
@@ -176,6 +192,17 @@ const selectedFilesLabel = computed(() => {
   return t('admin.accounts.selectedCount', { count: files.value.length })
 })
 const errorItems = computed(() => result.value?.errors || [])
+const extractionSummaryText = computed(() => {
+  try {
+    const payloads = parseEnhancedImportText(jsonText.value, 'pasted JSON')
+    return t('admin.accounts.enhancedImportExtractionSummary', {
+      sources: payloads.length,
+      accounts: payloads.reduce((sum, payload) => sum + payload.accounts.length, 0)
+    })
+  } catch {
+    return t('admin.accounts.enhancedImportExtractionPending')
+  }
+})
 
 watch(
   () => props.show,
@@ -265,7 +292,7 @@ const readPayloads = async (): Promise<AdminDataPayload[] | null> => {
       appStore.showError(t('admin.accounts.enhancedImportEnterText'))
       return null
     }
-    return [parseEnhancedImportSource(jsonText.value, 'pasted JSON')]
+    return parseEnhancedImportText(jsonText.value, 'pasted JSON')
   }
   if (files.value.length === 0) {
     appStore.showError(t('admin.accounts.dataImportSelectFile'))

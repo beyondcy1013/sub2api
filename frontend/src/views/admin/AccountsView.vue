@@ -2008,15 +2008,15 @@ const supportsActiveUsageQuery = (account: Account): boolean => {
 
 const collectBulkUsageRefreshTargets = async (): Promise<Account[]> => {
   const selected = new Set(selIds.value)
+  if (selected.size === 0) return accounts.value
+
   if (selected.size > 0) {
     const currentSelection = accounts.value.filter(account => selected.has(account.id))
     if (currentSelection.length === selected.size) return currentSelection
   }
 
   const filteredAccounts = await loadAllFilteredAccounts()
-  return selected.size > 0
-    ? filteredAccounts.filter(account => selected.has(account.id))
-    : filteredAccounts
+  return filteredAccounts.filter(account => selected.has(account.id))
 }
 
 const handleBulkRefreshUsage = async () => {

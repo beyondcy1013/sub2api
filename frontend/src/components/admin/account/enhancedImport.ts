@@ -180,6 +180,79 @@ export const parseEnhancedImportSource = (
   return normalizeParsedValue(parsed, sourceName)
 }
 
+const matchingCloser = (opener: string): string => opener === '{' ? '}' : ']'
+
+const findCompleteJsonValueEnd = (text: string, start: number): number | null => {
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+
+    if (character === '"') {
+      inString = true
+    } else if (character === '{' || character === '[') {
+      stack.push(character)
+    } else if (character === '}' || character === ']') {
+      const opener = stack.pop()
+      if (!opener || matchingCloser(opener) !== character) return null
+      if (stack.length === 0) return index
+    }
+  }
+  return null
+}
+
+export const extractEnhancedImportJsonSources = (text: string): string[] => {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+
+  try {
+    JSON.parse(trimmed)
+    return [trimmed]
+  } catch {
+    // Mixed chat and Markdown input is handled by the depth-aware scanner below.
+  }
+
+  const sources: string[] = []
+  for (let start = 0; start < text.length; start += 1) {
+    const opener = text[start]
+    if (opener !== '{' && opener !== '[') continue
+
+    const end = findCompleteJsonValueEnd(text, start)
+    if (end === null) return []
+    const candidate = text.slice(start, end + 1)
+    start = end
+    try {
+      JSON.parse(candidate)
+      sources.push(candidate)
+    } catch {
+      // Ordinary prose may contain balanced braces. Skip that whole balanced
+      // range so nested braces are not misidentified as independent JSON.
+    }
+  }
+  return sources
+}
+
+export const parseEnhancedImportText = (
+  text: string,
+  sourceName = 'pasted JSON'
+): AdminDataPayload[] => {
+  const sources = extractEnhancedImportJsonSources(text)
+  if (sources.length === 0) throw new EnhancedImportError('invalid_json', sourceName)
+
+  const isWholeJson = sources.length === 1 && sources[0] === text.trim()
+  return sources.map((source, index) =>
+    parseEnhancedImportSource(source, isWholeJson ? sourceName : `${sourceName} #${index + 1}`)
+  )
+}
+
 export const mergeEnhancedImportPayloads = (
   payloads: AdminDataPayload[]
 ): AdminDataPayload => {
