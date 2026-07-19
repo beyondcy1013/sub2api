@@ -203,3 +203,26 @@ pnpm vitest run \
 - Only current 16-character lowercase-hex `session_hash` keys move. Ignore legacy 64-character copies and never move `response:` / `previous_response_id` continuation bindings.
 - `Concurrency limit exceeded for user` is a local sub2api caller-concurrency timeout, not an upstream provider message. Sticky concentration can consume caller slots while requests wait on one upstream account, so moving recent bindings to spare capacity can help. Do not direct this operation to `用户管理`.
 - Preserve the API routes and tests documented in `.codex/skills/sub2api-account-modal-enhancer/references/sticky-session-reassignment.md`.
+
+## Scheduled Account State Actions
+
+- `账号管理 -> 更多` always exposes `定时启用并恢复` and `定时暂停调度`.
+- The dialog accepts whole hours plus `0..59` minutes. The combined delay must
+  be at least 1 minute and at most 365 days, and the calculated local execution
+  time remains visible before saving.
+- Tasks are persisted in `scheduled_account_actions`; they must not depend on an
+  open browser, an in-memory timer, `temp_unschedulable_until`, or the scheduled
+  account-test tables.
+- Each account has at most one current scheduled action. Saving again replaces
+  the prior task; a pending task can be canceled from the same dialog.
+- `enable_and_recover` first calls `RateLimitService.RecoverAccountState` with
+  `InvalidateToken: true`, then calls `AdminService.SetAccountSchedulable(true)`.
+  This preserves full error/rate-limit/overload/temp/model/runtime-block cleanup.
+- `pause` calls `AdminService.SetAccountSchedulable(false)` and does not mutate
+  the account's persisted status.
+- The runner claims due rows with a database lease. Successful tasks complete;
+  failed tasks retain `last_error` and return to pending for a one-minute retry.
+  Stale processing leases are reclaimable after service interruption.
+- Preserve migration `185_add_scheduled_account_actions.sql`, the account-level
+  `GET|PUT|DELETE /api/v1/admin/accounts/:id/scheduled-action` routes, runner
+  startup/cleanup wiring, and corresponding backend/frontend tests.

@@ -95,6 +95,16 @@ Both profiles must preserve all of the following:
 - `handle429` persists rate-limit state with a detached, bounded context.
 - Successful recover-state clears the in-memory scheduling block even when the
   database contains no recoverable state.
+- Account action menus expose persistent `定时启用并恢复` and `定时暂停调度`
+  tasks. Delay input is whole hours plus `0..59` minutes, with a 1-minute minimum
+  and 365-day maximum, and a newly saved task replaces the same account's prior
+  task.
+- Scheduled account actions survive browser/service restarts in
+  `scheduled_account_actions`. Due work is lease-claimed; failures retain their
+  error and retry after one minute, while stale leases are reclaimable.
+- `enable_and_recover` reuses full `RecoverAccountState(...InvalidateToken:true)`
+  semantics before enabling scheduling. `pause` only sets schedulable false; it
+  must not rewrite account status or reuse temp-unschedulable/scheduled-test state.
 
 ## Shared Account Table Contract
 
@@ -189,6 +199,8 @@ Backend focused tests must cover:
 - sticky spillover and sticky reassignment;
 - balance-check config/service/handler behavior;
 - canceled-context rate-limit persistence and runtime-block recovery.
+- scheduled account action validation, replacement/cancellation, leased due
+  execution, failure retry, and recover-before-enable ordering;
 
 Frontend focused tests must cover:
 
@@ -202,6 +214,8 @@ Frontend focused tests must cover:
 - compact usage windows, complete zero-valued usage columns, reset labels, and
   bulk active-usage refresh scope/concurrency/partial-failure behavior;
 - main-only sticky reassignment visibility;
+- scheduled account action menu visibility, hours/minutes validation, target
+  time display, save replacement, and pending-task cancellation;
 - free-only balance-check navigation and route access.
 
 Before deployment, run the complete canonical backend suite, full Vitest,
