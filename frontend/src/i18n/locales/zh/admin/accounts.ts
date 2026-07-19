@@ -3,6 +3,11 @@ export default {
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',
+      routingDefaultsApplied: {
+        both: '已自动使用默认代理“{proxy}”并加入默认分组“{group}”，请确认后再创建账号。',
+        proxy: '已自动使用默认代理“{proxy}”，请确认后再创建账号。',
+        group: '已自动加入默认分组“{group}”，请确认后再创建账号。'
+      },
       stickySessions: {
         action: '迁入粘性会话',
         title: '迁入粘性会话',
@@ -164,6 +169,15 @@ export default {
         schedulable: '调度',
         todayCost: '今日费用',
         todayStats: '今日统计',
+        fiveHourRequests: '5h 请求数',
+        fiveHourTokens: '5h Token',
+        sevenDayRequests: '7d 请求数',
+        sevenDayTokens: '7d Token',
+        fiveHourUtilization: '5h使用比例',
+        fiveHour: '5h',
+        sevenDayUtilization: '7d使用比例',
+        sevenDay: '7d',
+        usageCost: '窗口总费用',
         balance: '余额',
         groups: '分组',
         usageWindows: '用量窗口',

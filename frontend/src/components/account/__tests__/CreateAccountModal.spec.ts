@@ -8,12 +8,14 @@ const {
   probeUpstreamBillingMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  showInfoMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   cloneAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  showInfoMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -21,6 +23,7 @@ vi.mock('@/stores/app', () => ({
     showError: vi.fn(),
     showSuccess: vi.fn(),
     showWarning: vi.fn(),
+    showInfo: showInfoMock,
   }),
 }))
 
@@ -181,6 +184,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       warnings: [],
     })
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
+    showInfoMock.mockReset()
   })
 
   it('sends false explicitly for normal OpenAI account creation by default', async () => {
@@ -275,6 +279,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBe(22)
     expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([31])
+    expect(showInfoMock).toHaveBeenCalledOnce()
+    expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.routingDefaultsApplied.both')
   })
 
   it('applies routing defaults when proxy and group candidates arrive after opening', async () => {
@@ -295,6 +301,14 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBe(42)
     expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([51])
+    expect(showInfoMock).toHaveBeenCalledOnce()
+    expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.routingDefaultsApplied.both')
+
+    await wrapper.setProps({
+      proxies: [{ id: 43, name: 'proxy-new-last' }],
+      groups: [{ id: 53, name: 'group-new-first' }],
+    })
+    expect(showInfoMock).toHaveBeenCalledOnce()
   })
 
   it('keeps routing unassigned when no proxy or group exists', async () => {
@@ -305,6 +319,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock.mock.calls[0]?.[0]?.proxy_id).toBeNull()
     expect(createAccountMock.mock.calls[0]?.[0]?.group_ids).toEqual([])
+    expect(showInfoMock).not.toHaveBeenCalled()
   })
 
   it('does not apply new-account routing defaults to a clone with unassigned routing', async () => {
@@ -354,6 +369,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(cloneAccountMock.mock.calls[0]?.[0]).toBe(81)
     expect(cloneAccountMock.mock.calls[0]?.[1]?.proxy_id).toBeNull()
     expect(cloneAccountMock.mock.calls[0]?.[1]?.group_ids).toEqual([])
+    expect(showInfoMock).not.toHaveBeenCalled()
   })
   it('sends true explicitly when OpenAI long-context billing is enabled', async () => {
     await submitApiKeyAccount('openai', true)

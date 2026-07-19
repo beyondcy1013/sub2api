@@ -3490,7 +3490,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -4066,6 +4066,12 @@ const getDefaultProxyId = (): number | null =>
 const getDefaultGroupIds = (): number[] =>
   props.groups[0] ? [props.groups[0].id] : []
 
+let autoAppliedProxyName = isCloneMode.value
+  ? null
+  : props.proxies[props.proxies.length - 1]?.name ?? null
+let autoAppliedGroupName = isCloneMode.value ? null : props.groups[0]?.name ?? null
+let routingDefaultsNotified = false
+
 const form = reactive({
   name: '',
   notes: '',
@@ -4081,14 +4087,46 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const notifyAppliedRoutingDefaults = () => {
+  if (routingDefaultsNotified || isCloneMode.value) return
+
+  if (autoAppliedProxyName && autoAppliedGroupName) {
+    appStore.showInfo(t('admin.accounts.routingDefaultsApplied.both', {
+      proxy: autoAppliedProxyName,
+      group: autoAppliedGroupName
+    }))
+  } else if (autoAppliedProxyName) {
+    appStore.showInfo(t('admin.accounts.routingDefaultsApplied.proxy', {
+      proxy: autoAppliedProxyName
+    }))
+  } else if (autoAppliedGroupName) {
+    appStore.showInfo(t('admin.accounts.routingDefaultsApplied.group', {
+      group: autoAppliedGroupName
+    }))
+  } else {
+    return
+  }
+
+  routingDefaultsNotified = true
+}
+
 const applyNewAccountRoutingDefaults = () => {
   if (isCloneMode.value) return
   if (form.proxy_id === null) {
-    form.proxy_id = getDefaultProxyId()
+    const defaultProxy = props.proxies[props.proxies.length - 1]
+    if (defaultProxy) {
+      form.proxy_id = defaultProxy.id
+      autoAppliedProxyName = defaultProxy.name
+    }
   }
   if (form.group_ids.length === 0) {
-    form.group_ids = getDefaultGroupIds()
+    const defaultGroup = props.groups[0]
+    if (defaultGroup) {
+      form.group_ids = [defaultGroup.id]
+      autoAppliedGroupName = defaultGroup.name
+    }
   }
+  notifyAppliedRoutingDefaults()
 }
 
 // Helper to check if current type needs OAuth flow
@@ -4139,6 +4177,7 @@ watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
+      routingDefaultsNotified = false
       // Load TLS fingerprint profiles
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
@@ -4172,6 +4211,12 @@ watch(
     }
   }
 )
+
+onMounted(() => {
+  if (props.show) {
+    applyNewAccountRoutingDefaults()
+  }
+})
 
 watch(
   [
@@ -4825,6 +4870,11 @@ const resetForm = () => {
   form.priority = 1
   form.rate_multiplier = 1
   form.group_ids = isCloneMode.value ? [] : getDefaultGroupIds()
+  autoAppliedProxyName = isCloneMode.value
+    ? null
+    : props.proxies[props.proxies.length - 1]?.name ?? null
+  autoAppliedGroupName = isCloneMode.value ? null : props.groups[0]?.name ?? null
+  routingDefaultsNotified = false
   form.expires_at = null
   accountCategory.value = 'oauth-based'
   addMethod.value = 'oauth'

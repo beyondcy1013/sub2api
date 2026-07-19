@@ -3,6 +3,11 @@ export default {
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
+      routingDefaultsApplied: {
+        both: 'Default proxy “{proxy}” and group “{group}” were selected automatically. Confirm them before creating the account.',
+        proxy: 'Default proxy “{proxy}” was selected automatically. Confirm it before creating the account.',
+        group: 'Default group “{group}” was selected automatically. Confirm it before creating the account.'
+      },
       stickySessions: {
         action: 'Move Sticky Sessions Here',
         title: 'Move Sticky Sessions',
@@ -210,6 +215,15 @@ export default {
         schedulable: 'Schedulable',
         todayCost: 'Today Cost',
         todayStats: 'Today Stats',
+        fiveHourRequests: '5h Requests',
+        fiveHourTokens: '5h Tokens',
+        sevenDayRequests: '7d Requests',
+        sevenDayTokens: '7d Tokens',
+        fiveHourUtilization: '5h Utilization',
+        fiveHour: '5h',
+        sevenDayUtilization: '7d Utilization',
+        sevenDay: '7d',
+        usageCost: 'Window Cost',
         balance: 'Balance',
         groups: 'Groups',
         usageWindows: 'Usage Windows',
