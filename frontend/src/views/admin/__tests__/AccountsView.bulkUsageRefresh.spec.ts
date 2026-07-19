@@ -152,24 +152,25 @@ describe('AccountsView bulk usage refresh', () => {
     }))
   })
 
-  it('queries every eligible account in the filtered result with active force semantics', async () => {
+  it('queries eligible accounts on the current page when no account is selected', async () => {
     const openAI = makeAccount(1, 'openai', 'oauth')
     const apiKey = makeAccount(2, 'openai', 'apikey')
     const anthropic = makeAccount(3, 'anthropic', 'setup-token')
-    listAccounts
-      .mockResolvedValueOnce({ items: [openAI], total: 3, page: 1, page_size: 20, pages: 1 })
-      .mockResolvedValueOnce({ items: [openAI, apiKey], total: 3, page: 1, page_size: 1000, pages: 2 })
-      .mockResolvedValueOnce({ items: [anthropic], total: 3, page: 2, page_size: 1000, pages: 2 })
+    listAccounts.mockResolvedValueOnce({
+      items: [openAI, apiKey],
+      total: 3,
+      page: 1,
+      page_size: 2,
+      pages: 2
+    })
 
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('[data-test="refresh-usage"]').trigger('click')
     await flushPromises()
 
-    expect(getAccountUsage.mock.calls).toEqual([
-      [1, 'active', true],
-      [3, 'active', true]
-    ])
+    expect(getAccountUsage.mock.calls).toEqual([[1, 'active', true]])
+    expect(listAccounts).toHaveBeenCalledTimes(1)
     expect(wrapper.get('[data-test="usage-1"]').text()).toBe('usage-1')
   })
 

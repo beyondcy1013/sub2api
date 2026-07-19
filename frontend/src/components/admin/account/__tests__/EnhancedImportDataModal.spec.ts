@@ -100,6 +100,43 @@ describe('EnhancedImportDataModal', () => {
     expect(wrapper.emitted('imported')).toHaveLength(1)
   })
 
+  it('extracts mixed-message JSON segments and imports them once with routing defaults', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+    await flushPromises()
+
+    await wrapper.get('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue([
+      'image 1',
+      JSON.stringify({ proxies: [], accounts: [{ name: 'mixed-one' }] }),
+      'image 2',
+      '```json',
+      JSON.stringify({ proxies: [], accounts: [{ name: 'mixed-two' }] }),
+      '```',
+      'usage guide'
+    ].join('\n'))
+
+    expect(wrapper.get('[data-test="enhanced-import-usage-guide"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="enhanced-import-extraction-summary"]').text()).toBe(
+      'admin.accounts.enhancedImportExtractionSummary'
+    )
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accounts: [{ name: 'mixed-one' }, { name: 'mixed-two' }]
+      }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
+      skip_default_group_bind: true
+    })
+  })
+
   it('imports selected CLIProxyAPI JSON files', async () => {
     const { adminAPI } = await import('@/api/admin')
     const wrapper = mountModal()
