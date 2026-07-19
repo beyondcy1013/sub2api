@@ -58,6 +58,7 @@ Never use `git reset --hard`, `git clean`, rebase away local commits, or the Web
 - Account table widths remain: select 36px, name 126px, status 80px, balance 70px, id 130px, platform/type 170px.
 - Table headers remain single-line/non-shrinking; fixed widths use width/minWidth/maxWidth.
 - Table outer edge padding remains 4px and non-final columns retain vertical separators.
+- Account management keeps `增强导入` directly below `导入`. It accepts CLIProxyAPI `codex`, `claude`, `gemini`, and `antigravity` auth JSON plus native sub2api export JSON from either files or pasted JSON text.
 
 ## Files To Check After Upstream Refresh
 
