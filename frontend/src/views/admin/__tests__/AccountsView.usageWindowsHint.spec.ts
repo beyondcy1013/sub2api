@@ -322,6 +322,7 @@ describe('admin AccountsView usage windows hint', () => {
 
     const keys = wrapper.findAll('[data-test="column-key"]')
       .map(node => node.attributes('data-column-key'))
+    const createdAtIndex = keys.indexOf('created_at')
 
     expect(keys).toEqual(expect.arrayContaining([
       'five_hour_requests',
@@ -330,5 +331,12 @@ describe('admin AccountsView usage windows hint', () => {
       'seven_day_tokens',
       'usage_cost'
     ]))
+    expect(keys.slice(createdAtIndex + 1, createdAtIndex + 6)).toEqual([
+      'five_hour_requests',
+      'five_hour_tokens',
+      'seven_day_requests',
+      'seven_day_tokens',
+      'usage_cost'
+    ])
   })
 })

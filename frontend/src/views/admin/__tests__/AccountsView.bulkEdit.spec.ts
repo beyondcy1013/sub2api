@@ -369,9 +369,10 @@ describe('admin AccountsView bulk edit scope', () => {
     listAccounts.mockResolvedValue({
       items: [
         { id: 1, name: 'openai-main', platform: 'openai', type: 'oauth', credentials: { email: 'owner@example.com' }, extra: { chatgpt_account_id: 'acct-fallback' }, status: 'active', schedulable: true, created_at: '2026-03-07T10:00:00Z', updated_at: '2026-03-07T10:00:00Z' },
-        { id: 2, name: 'vertex-main', platform: 'gemini', type: 'service_account', credentials: { client_email: 'svc@vertex-project.iam.gserviceaccount.com' }, status: 'active', schedulable: true, created_at: '2026-03-07T10:00:00Z', updated_at: '2026-03-07T10:00:00Z' }
+        { id: 2, name: 'vertex-main', platform: 'gemini', type: 'service_account', credentials: { client_email: 'svc@vertex-project.iam.gserviceaccount.com' }, status: 'active', schedulable: true, created_at: '2026-03-07T10:00:00Z', updated_at: '2026-03-07T10:00:00Z' },
+        { id: 3, name: 'same@example.com', platform: 'openai', type: 'oauth', credentials: { email: 'same@example.com' }, status: 'active', schedulable: true, created_at: '2026-03-07T10:00:00Z', updated_at: '2026-03-07T10:00:00Z' }
       ],
-      total: 2,
+      total: 3,
       page: 1,
       page_size: 20,
       pages: 1
@@ -381,6 +382,7 @@ describe('admin AccountsView bulk edit scope', () => {
 
     expect(wrapper.text()).toContain('owner@example.com')
     expect(wrapper.text()).toContain('svc@vertex-project.iam.gserviceaccount.com')
+    expect(wrapper.text().match(/same@example\.com/g)).toHaveLength(1)
   })
 
   it('renders today cost by default from batched account stats', async () => {

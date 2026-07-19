@@ -261,7 +261,7 @@
               </HelpTooltip>
               <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
               <span
-                v-if="accountDisplayEmail(row)"
+                v-if="shouldShowAccountDisplayEmail(row)"
                 class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
                 :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
               >
@@ -1583,6 +1583,11 @@ function accountDisplayEmail(row: any): string {
   return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.credentials?.client_email || row.parent_email || ''
 }
 
+function shouldShowAccountDisplayEmail(row: Account): boolean {
+  const email = accountDisplayEmail(row)
+  return email !== '' && email !== row.name
+}
+
 function accountHomepageUrl(row: Account): string {
   if (row.type !== 'apikey' || typeof row.credentials?.base_url !== 'string') return ''
   const baseUrl = sanitizeUrl(row.credentials.base_url)
@@ -1656,15 +1661,10 @@ const allColumns = computed(() => {
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
-    { key: 'five_hour_requests', label: t('admin.accounts.columns.fiveHourRequests'), sortable: false, width: '88px' },
-    { key: 'five_hour_tokens', label: t('admin.accounts.columns.fiveHourTokens'), sortable: false, width: '88px' },
-    { key: 'seven_day_requests', label: t('admin.accounts.columns.sevenDayRequests'), sortable: false, width: '88px' },
-    { key: 'seven_day_tokens', label: t('admin.accounts.columns.sevenDayTokens'), sortable: false, width: '88px' },
     { key: 'five_hour_utilization', label: t('admin.accounts.columns.fiveHourUtilization'), sortable: true, width: '108px' },
     { key: 'five_hour_reset', label: t('admin.accounts.columns.fiveHour'), sortable: true, width: '72px' },
     { key: 'seven_day_utilization', label: t('admin.accounts.columns.sevenDayUtilization'), sortable: true, width: '108px' },
     { key: 'seven_day_reset', label: t('admin.accounts.columns.sevenDay'), sortable: true, width: '72px' },
-    { key: 'usage_cost', label: t('admin.accounts.columns.usageCost'), sortable: false, width: '148px' },
     { key: 'balance', label: t('admin.accounts.columns.balance'), sortable: false, width: '70px' }
   ]
   if (!authStore.isSimpleMode) {
@@ -1679,6 +1679,11 @@ const allColumns = computed(() => {
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
+    { key: 'five_hour_requests', label: t('admin.accounts.columns.fiveHourRequests'), sortable: false, width: '88px' },
+    { key: 'five_hour_tokens', label: t('admin.accounts.columns.fiveHourTokens'), sortable: false, width: '88px' },
+    { key: 'seven_day_requests', label: t('admin.accounts.columns.sevenDayRequests'), sortable: false, width: '88px' },
+    { key: 'seven_day_tokens', label: t('admin.accounts.columns.sevenDayTokens'), sortable: false, width: '88px' },
+    { key: 'usage_cost', label: t('admin.accounts.columns.usageCost'), sortable: false, width: '148px' },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, width: '130px' },
