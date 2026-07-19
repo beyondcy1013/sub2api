@@ -57,6 +57,12 @@ Both profiles must preserve all of the following:
   A value change automatically selects that field, and untouched defaults stay
   out of the update payload. Field checkboxes remain as the explicit path for
   applying a value equal to the form default or clearing an existing value.
+- Standard and enhanced account imports show proxy/group routing controls with
+  both apply checkboxes enabled by default. They select the last available
+  proxy and first available group, allow explicit operator overrides, and wait
+  for candidates before submitting. Disabling proxy application preserves the
+  imported proxy relationship; disabling group application preserves the
+  existing no-default-group import behavior.
 - Clone mode preserves the source proxy/group assignments, including explicit
   unassigned values, and never applies new-account routing defaults.
 - Account recycle/restore uses `extra.recycled`; it does not use soft delete.
