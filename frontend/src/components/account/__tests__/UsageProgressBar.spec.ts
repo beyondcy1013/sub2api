@@ -22,6 +22,45 @@ describe('UsageProgressBar', () => {
     vi.useRealTimers()
   })
 
+  it('零用量窗口仍显示完整的请求、Token 和费用字段', () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '5h',
+        utilization: 0,
+        resetsAt: null,
+        showNowWhenIdle: true,
+        color: 'indigo',
+        windowStats: {
+          requests: 0,
+          tokens: 0,
+          cost: 0,
+          user_cost: 0
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('0 req')
+    expect(wrapper.text()).toContain('A $0.00')
+    expect(wrapper.text()).toContain('U $0.00')
+    expect(wrapper.text()).toContain('usage.resetNow')
+  })
+
+  it('没有窗口统计时不伪造请求和费用字段', () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '5h',
+        utilization: 0,
+        resetsAt: null,
+        showNowWhenIdle: true,
+        color: 'indigo'
+      }
+    })
+
+    expect(wrapper.text()).not.toContain('req')
+    expect(wrapper.text()).not.toContain('A $')
+    expect(wrapper.text()).not.toContain('U $')
+  })
+
   it('showNowWhenIdle=true 且利用率为 0 时显示“现在”', () => {
     const wrapper = mount(UsageProgressBar, {
       props: {
