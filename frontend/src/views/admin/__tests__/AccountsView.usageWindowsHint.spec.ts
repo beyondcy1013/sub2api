@@ -195,7 +195,7 @@ describe('admin AccountsView usage windows hint', () => {
     expect(columns.find(column => column.key === 'upstream_billing_rate')?.sortable).toBe(true)
   })
 
-  it('sorts the current page by each 5h and 7d utilization or reset metric', async () => {
+  it('renders separate sortable 5h and 7d columns and sorts the current page by each metric', async () => {
     listAccounts.mockResolvedValue({
       items: [
         {
@@ -258,51 +258,60 @@ describe('admin AccountsView usage windows hint', () => {
     await wrapper.get('[data-test="emit-usage-2"]').trigger('click')
     await wrapper.get('[data-test="emit-usage-3"]').trigger('click')
 
-    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
-    const sortItems = [
-      ['five_hour_utilization', 'admin.accounts.usageWindow.sort.fiveHourUtilization'],
-      ['five_hour_reset', 'admin.accounts.usageWindow.sort.fiveHourReset'],
-      ['seven_day_utilization', 'admin.accounts.usageWindow.sort.sevenDayUtilization'],
-      ['seven_day_reset', 'admin.accounts.usageWindow.sort.sevenDayReset']
-    ] as const
-    for (const [metric, label] of sortItems) {
-      const item = wrapper.get(`[data-test="usage-window-sort-${metric}"]`)
-      expect(item.text()).toContain(label)
-    }
+    const table = wrapper.getComponent(DataTableStub)
+    const columns = table.props('columns') as Array<{ key: string; label: string; sortable: boolean }>
+    expect(columns
+      .filter(column => [
+        'five_hour_utilization',
+        'five_hour_reset',
+        'seven_day_utilization',
+        'seven_day_reset'
+      ].includes(column.key))
+      .map(column => ({ key: column.key, label: column.label, sortable: column.sortable })))
+      .toEqual([
+        {
+          key: 'five_hour_utilization',
+          label: 'admin.accounts.columns.fiveHourUtilization',
+          sortable: true
+        },
+        { key: 'five_hour_reset', label: 'admin.accounts.columns.fiveHour', sortable: true },
+        {
+          key: 'seven_day_utilization',
+          label: 'admin.accounts.columns.sevenDayUtilization',
+          sortable: true
+        },
+        { key: 'seven_day_reset', label: 'admin.accounts.columns.sevenDay', sortable: true }
+      ])
 
-    await wrapper.get('[data-test="usage-window-sort-seven_day_utilization"]').trigger('click')
+    table.vm.$emit('sort', 'seven_day_utilization', 'desc')
+    await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="row-order"]').text()).toBe(
       'higher-usage-sooner-reset,lower-usage-later-reset,idle-now,usage-not-loaded'
     )
 
-    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
-    await wrapper.get('[data-test="usage-window-sort-seven_day_reset"]').trigger('click')
+    table.vm.$emit('sort', 'seven_day_reset', 'desc')
+    await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="row-order"]').text()).toBe(
       'lower-usage-later-reset,higher-usage-sooner-reset,idle-now,usage-not-loaded'
     )
 
-    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
-    await wrapper.get('[data-test="usage-window-sort-five_hour_utilization"]').trigger('click')
+    table.vm.$emit('sort', 'five_hour_utilization', 'desc')
+    await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="row-order"]').text()).toBe(
       'higher-usage-sooner-reset,lower-usage-later-reset,idle-now,usage-not-loaded'
     )
 
-    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
-    await wrapper.get('[data-test="usage-window-sort-five_hour_reset"]').trigger('click')
+    table.vm.$emit('sort', 'five_hour_reset', 'desc')
+    await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="row-order"]').text()).toBe(
       'lower-usage-later-reset,higher-usage-sooner-reset,idle-now,usage-not-loaded'
     )
 
-    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
-    await wrapper.get('[data-test="usage-window-sort-five_hour_reset"]').trigger('click')
+    table.vm.$emit('sort', 'five_hour_reset', 'asc')
+    await wrapper.vm.$nextTick()
     expect(wrapper.get('[data-test="row-order"]').text()).toBe(
       'idle-now,higher-usage-sooner-reset,lower-usage-later-reset,usage-not-loaded'
     )
 
-    await wrapper.get('[data-test="usage-window-sort-trigger"]').trigger('click')
-    await wrapper.get('[data-test="usage-window-sort-five_hour_reset"]').trigger('click')
-    expect(wrapper.get('[data-test="row-order"]').text()).toBe(
-      'lower-usage-later-reset,higher-usage-sooner-reset,idle-now,usage-not-loaded'
-    )
   })
 })
