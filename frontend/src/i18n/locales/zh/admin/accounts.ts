@@ -253,6 +253,15 @@ export default {
         updated: '调度倍率已更新',
         updateFailed: '更新调度倍率失败'
       },
+      schedulingRules: {
+        title: '调度规则',
+        default: '默认调度',
+        lowestCost: '低价优先',
+        upstreamProbe: '上游费率检测',
+        interval: '检测间隔（分钟）',
+        saved: '调度规则已保存',
+        saveFailed: '保存调度规则失败'
+      },
       allPrivacyModes: '全部Privacy状态',
       privacyUnset: '未设置',
       privacyTrainingOff: '已关闭训练数据共享',

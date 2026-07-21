@@ -50,7 +50,7 @@ func openAISelectionIDs(items []openAIAccountCandidateScore) []int64 {
 	return ids
 }
 
-func TestFilterByAccountSchedulingPreference_SuperFallsBackToSelectedBaseStrategy(t *testing.T) {
+func TestFilterByAccountSchedulingPreference_LowestCostIgnoresLegacySuperPriorityOverlay(t *testing.T) {
 	superExpensive := schedulingTestAccount(1, 0.8, true)
 	ordinaryCheap := schedulingTestAccount(2, 0.1, false)
 	ordinaryExpensive := schedulingTestAccount(3, 0.5, false)
@@ -64,7 +64,7 @@ func TestFilterByAccountSchedulingPreference_SuperFallsBackToSelectedBaseStrateg
 		schedulingTestLoad(superExpensive),
 		schedulingTestLoad(ordinaryCheap),
 	}, cfg)
-	require.Equal(t, []int64{1}, accountLoadIDs(first))
+	require.Equal(t, []int64{2}, accountLoadIDs(first))
 
 	fallback := filterByAccountSchedulingPreference([]accountWithLoad{
 		schedulingTestLoad(ordinaryExpensive),
@@ -86,7 +86,7 @@ func TestOrderAccountsBySchedulingPreference_PreservesDefaultOrderWithinTiers(t 
 	}}
 
 	orderAccountsBySchedulingPreference(accounts, cfg)
-	require.Equal(t, []int64{4, 2, 3, 1}, accountIDs(accounts))
+	require.Equal(t, []int64{3, 4, 1, 2}, accountIDs(accounts))
 
 	defaultAccounts := []*Account{accounts[3], accounts[2], accounts[1], accounts[0]}
 	before := accountIDs(defaultAccounts)
@@ -118,6 +118,7 @@ func TestBuildOpenAISelectionOrder_LowestCostFallbackSurvivesTopK(t *testing.T) 
 	cheap := schedulingTestAccount(1, 0.1, false)
 	expensive := schedulingTestAccount(2, 0.9, false)
 	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{
+		Mode:         superPriorityModeSuperPriority,
 		BaseStrategy: AccountSchedulingStrategyLowestCost,
 	}}
 	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{cfg: cfg}}
@@ -215,7 +216,7 @@ func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *te
 	require.NotNil(t, selection)
 	require.True(t, selection.Acquired)
 	require.Equal(t, int64(12), selection.Account.ID)
-	require.Equal(t, []int64{11, 12}, acquired)
+	require.Equal(t, []int64{12}, acquired)
 }
 
 func TestAccountSchedulingRate_UsesManualSourceByDefault(t *testing.T) {

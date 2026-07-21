@@ -4,6 +4,10 @@
     <button @click="$emit('refresh')" :disabled="loading" class="btn btn-secondary">
       <Icon name="refresh" size="md" :class="[loading ? 'animate-spin' : '']" />
     </button>
+    <button @click="$emit('scheduling-rules')" class="btn btn-secondary gap-2 px-3">
+      <Icon name="cog" size="sm" />
+      <span>{{ t('admin.accounts.schedulingRules.title') }}</span>
+    </button>
     <slot name="after"></slot>
     <slot name="beforeCreate"></slot>
     <button @click="$emit('create')" class="btn btn-primary">{{ t('admin.accounts.createAccount') }}</button>
@@ -36,7 +40,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 
 defineProps(['loading', 'showFilters', 'recycled'])
-defineEmits(['refresh', 'create', 'toggleFilters', 'toggleRecycled'])
+defineEmits(['refresh', 'create', 'toggleFilters', 'toggleRecycled', 'scheduling-rules'])
 
 const { t } = useI18n()
 </script>

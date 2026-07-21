@@ -20,6 +20,7 @@
             @toggle-recycled="toggleRecycled"
             @refresh="handleManualRefresh"
             @create="showCreate = true"
+            @scheduling-rules="openSchedulingRulesModal"
           >
             <template #after>
               <!-- Auto Refresh Dropdown -->
@@ -149,13 +150,6 @@
                       </span>
                       <span class="flex-1 text-left">余额检测设置</span>
                     </button>
-                    <button class="account-tools-menu-item" @click="openSuperPriorityModal">
-                      <span class="account-tools-menu-icon bg-fuchsia-50 text-fuchsia-600 dark:bg-fuchsia-900/30 dark:text-fuchsia-300">
-                        <Icon name="sparkles" size="sm" />
-                      </span>
-                      <span class="flex-1 text-left">{{ t('admin.accounts.superPrioritySettings') }}</span>
-                    </button>
-
                     <div class="my-2 border-t border-gray-100 dark:border-gray-700"></div>
                     <div class="px-2 py-2">
                       <div class="flex items-center justify-between gap-3">
@@ -572,7 +566,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <SuperPrioritySettingsModal :show="showSuperPriority" @close="closeSuperPriorityModal" @changed="reload" />
+    <SchedulingRulesModal :show="showSchedulingRules" @close="closeSchedulingRulesModal" @saved="handleSchedulingRulesSaved" @error="handleSchedulingRulesError" />
     <SchedulingRateModal
       :show="showSchedulingRate"
       :account="schedulingRateAcc"
@@ -587,7 +581,7 @@
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-super-priority="handleToggleSuperPriority" @delete="handleDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -645,7 +639,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import EnhancedImportDataModal from '@/components/admin/account/EnhancedImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
-import SuperPrioritySettingsModal from '@/components/admin/account/SuperPrioritySettingsModal.vue'
+import SchedulingRulesModal from '@/components/account/SchedulingRulesModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
@@ -747,7 +741,7 @@ const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
-const showSuperPriority = ref(false)
+const showSchedulingRules = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
 const showScheduledAction = ref(false)
@@ -2476,8 +2470,17 @@ const handleExportData = async () => {
 }
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
-const openSuperPriorityModal = () => { showSuperPriority.value = true }
-const closeSuperPriorityModal = () => { showSuperPriority.value = false }
+const openSchedulingRulesModal = () => { showSchedulingRules.value = true }
+const closeSchedulingRulesModal = () => { showSchedulingRules.value = false }
+const handleSchedulingRulesSaved = () => {
+  closeSchedulingRulesModal()
+  appStore.showSuccess(t('admin.accounts.schedulingRules.saved'))
+  enterAutoRefreshSilentWindow()
+  reload()
+}
+const handleSchedulingRulesError = (error: unknown) => {
+  appStore.showError(extractApiErrorMessage(error, t('admin.accounts.schedulingRules.saveFailed')))
+}
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeStickySessionsModal = () => { showStickySessions.value = false; stickySessionsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
@@ -2640,18 +2643,6 @@ const handleRestore = async (a: Account) => {
     reload()
   } catch (error) {
     console.error('Failed to restore account:', error)
-  }
-}
-
-const handleToggleSuperPriority = async (a: Account) => {
-  const next = a.extra?.super_priority !== true
-  try {
-    await adminAPI.accounts.setSuperPriority(a.id, next)
-    reload()
-    appStore.showSuccess(next ? t('admin.accounts.superPriorityMarked') : t('admin.accounts.superPriorityUnmarked'))
-  } catch (error) {
-    console.error('Failed to toggle super priority:', error)
-    appStore.showError(t('admin.accounts.failedToToggleSuperPriority'))
   }
 }
 

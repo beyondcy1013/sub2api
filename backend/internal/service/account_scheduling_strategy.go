@@ -71,7 +71,12 @@ func accountSchedulingStrategy(cfg *config.Config) string {
 }
 
 func superPrioritySchedulingActive(cfg *config.Config) bool {
-	return cfg != nil && strings.TrimSpace(cfg.SuperPriority.Mode) == superPriorityModeSuperPriority
+	// Lowest-cost is a strict global policy. A legacy super-priority marker must
+	// not reintroduce a more expensive account ahead of the cheapest eligible
+	// candidate when an operator explicitly selected that policy.
+	return cfg != nil &&
+		strings.TrimSpace(cfg.SuperPriority.Mode) == superPriorityModeSuperPriority &&
+		accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost
 }
 
 func accountHasSuperPriority(account *Account) bool {

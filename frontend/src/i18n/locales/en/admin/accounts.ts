@@ -299,6 +299,15 @@ export default {
         updated: 'Scheduling rate updated',
         updateFailed: 'Failed to update scheduling rate'
       },
+      schedulingRules: {
+        title: 'Scheduling Rules',
+        default: 'Default scheduling',
+        lowestCost: 'Lowest cost first',
+        upstreamProbe: 'Upstream rate probe',
+        interval: 'Probe interval (minutes)',
+        saved: 'Scheduling rules updated',
+        saveFailed: 'Failed to update scheduling rules'
+      },
       allPrivacyModes: 'All Privacy States',
       privacyUnset: 'Unset',
       privacyTrainingOff: 'Training data sharing disabled',

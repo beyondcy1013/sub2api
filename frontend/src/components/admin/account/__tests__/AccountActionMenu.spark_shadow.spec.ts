@@ -87,33 +87,15 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
-  it.each([
-    [false, 'admin.accounts.superPriorityMark'],
-    [true, 'admin.accounts.superPriorityUnmark'],
-  ])('在更多菜单中按当前标记显示超级优先操作', (enabled, label) => {
-    const account = makeAccount({ extra: { super_priority: enabled } })
+  it('更多菜单不再提供会覆盖低价策略的超级优先入口', () => {
+    const account = makeAccount({ extra: { super_priority: true } })
     const wrapper = mount(AccountActionMenu, {
       props: { show: true, account, position },
       attachTo: document.body,
     })
 
-    expect(getBodyText()).toContain(label)
-    wrapper.unmount()
-  })
-
-  it('点击超级优先操作触发 toggle-super-priority 事件', async () => {
-    const account = makeAccount({ extra: { super_priority: false } })
-    const wrapper = mount(AccountActionMenu, {
-      props: { show: true, account, position },
-      attachTo: document.body,
-    })
-
-    const button = getBodyButtons().find(item => item.textContent?.includes('admin.accounts.superPriorityMark'))
-    expect(button).toBeDefined()
-    button!.click()
-    await wrapper.vm.$nextTick()
-
-    expect(wrapper.emitted('toggle-super-priority')?.[0]).toEqual([account])
+    expect(getBodyText()).not.toContain('admin.accounts.superPriorityMark')
+    expect(getBodyText()).not.toContain('admin.accounts.superPriorityUnmark')
     wrapper.unmount()
   })
 

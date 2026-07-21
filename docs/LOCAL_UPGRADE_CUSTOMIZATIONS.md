@@ -216,60 +216,41 @@ Any failed live check rolls back only the affected service. Keep repository
 bundles, backup branches, patches, archives, and old binaries until all tests
 and both live matrices pass.
 
-## Super Priority Mode (超级优先)
+## Account Scheduling Rules
 
-Global state machine layered on top of the normal `schedulable` account flag.
+The account-table `调度规则` command exposes exactly two operating modes:
+`default` and `lowest_cost`. It disables the legacy super-priority overlay
+before saving. The legacy endpoints and `extra.super_priority` values remain
+only for backward-compatible reads and writes; they are not an admin UI mode.
 
-- Per-account flag lives in the account `extra` JSONB under key `super_priority`
-  (bool). Toggling it enqueues a scheduler snapshot update because the flag is
-  evaluated at request time by the preference overlay; it must not be added to
-  `schedulerNeutralExtraKeys`.
-- Global mode + runtime params persist in the `super_priority` section of the
-  YAML `config.yaml` (mirrors `balance_check`), backed by
-  `config.SuperPriorityConfig` and viper defaults (`mode=normal`,
-  `base_strategy=default`, `failure_threshold=2`,
-  `check_interval=@every 1m`).
-- `SuperPriorityService` (`backend/internal/service/super_priority_service.go`)
-  owns the overlay state machine. `Activate` and `Deactivate` only switch the
-  request-time preference overlay and never rewrite persisted `schedulable`
-  state. `RecordFailure` tracks a rolling 1-minute per-account failure window
-  and signals demotion at `failure_threshold`.
-- The base strategy is `default` or `lowest_cost`; lowest-cost tiers use the
-  account's persisted `rate_multiplier`. When the overlay is active,
-  flagged accounts form the first strict preference tier; when that tier is
-  unavailable or full, scheduling naturally falls back to ordinary accounts
-  under the selected base strategy. Existing priority, load, LRU, compact,
-  capability, and bounded-wait rules remain the tie-breakers inside a tier.
-- `SuperPriorityRunner` (`super_priority_runner.go`) uses a cron ticker with the
-  `@every`/descriptor parser, probes flagged accounts via
-  `AccountTestService.RunTestBackground`, and auto-demotes on threshold.
-- Both are wired in `backend/internal/service/wire.go` (providers + Start) and
-  `backend/cmd/server/wire.go` `provideCleanup` (graceful Stop). Handler setters
-  live on `SettingHandler.SetSuperPriorityService` and
-  `AccountHandler.SetSuperPriorityService`.
-- Routes: `GET|PUT /api/v1/admin/settings/super-priority`,
-  `POST /api/v1/admin/settings/super-priority/activate`,
-  `POST /api/v1/admin/settings/super-priority/deactivate`,
-  `POST /api/v1/admin/accounts/:id/super-priority` (registered in
-  `backend/internal/server/routes/admin.go`).
-- Frontend: `frontend/src/api/admin/superPriority.ts` + `accounts.setSuperPriority`;
-  `AccountActionMenu.vue` exposes the per-account 超级优先 action and
-  `AccountsView.vue` keeps the settings entry in the account-tools menu;
-  `AccountStatusIndicator.vue` shows the 超级优先 status text/color when
-  `extra.super_priority` is set; `SuperPrioritySettingsModal.vue` exposes mode
-  toggle, base strategy, threshold/interval, and test-model parameters.
-
-When active, a flagged account's status must display as 超级优先 (fuchsia),
-not 正常/暂停. The direct action order stays
-`编辑` -> `测试连接` -> `回收` -> `更多`; the 超级优先 action remains in
-the more menu so row height and width stay compact.
+- `default` keeps the historical scheduling order: eligibility gates, then
+  priority/load/LRU and the existing capability rules.
+- `lowest_cost` is strict across every normal selection path. Eligible accounts
+  are ordered by their effective scheduling rate; the scheduler attempts the
+  cheapest account first, then the next-cheapest account if the prior one is
+  full, excluded, or becomes unavailable. Unknown upstream-following rates
+  are last-resort candidates.
+- `lowest_cost` does not honor movable `session_hash` affinity, so a historical
+  expensive binding cannot override a cheaper eligible account. Strict
+  non-movable `previous_response_id` affinity remains intact because a response
+  chain cannot safely change accounts.
+- The effective rate is manual `rate_multiplier` by default. An account can
+  instead follow a fresh upstream billing probe snapshot; its high-peak rate is
+  evaluated at request time. A stale, failed, or unsupported upstream snapshot
+  is unknown rather than silently treated as a cheap manual rate.
+- Global upstream-probe settings persist independently. The background runner
+  scans every minute and probes due eligible accounts at the configured
+  5..1440-minute interval. Rate comparison itself happens at request time, so
+  a manual rate edit or a new probe result takes effect on the next request.
+- The implementation continues to use the existing `super_priority` YAML
+  section for the durable base-strategy setting. If old data activates that
+  overlay while `lowest_cost` is selected, it is ignored by the scheduler.
 
 Focused regression verification:
 
 ```bash
-cd /home/third_party/sub2api/backend && go test ./internal/service/ -run 'Test(SuperPriority|FilterByAccountSchedulingPreference|OrderAccountsBySchedulingPreference|BuildOpenAISelectionOrder_)' -count=1
-cd /home/third_party/sub2api/backend && go test -tags unit ./internal/service/ -run 'TestBalanceCheckService|TestBalanceCheckRuntimeConfig' -count=1
-cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/admin/account/__tests__/SuperPrioritySettingsModal.spec.ts src/views/admin/__tests__/AccountsView.recycleDelete.spec.ts
+cd /home/third_party/sub2api/backend && go test -tags unit ./internal/service -run 'Test(OpenAI.*LowestCost|FilterByAccountSchedulingPreference|OrderAccountsBySchedulingPreference|BuildOpenAISelectionOrder|GatewayLegacyWithoutLoadBatch)' -count=1
+cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/__tests__/SchedulingRulesModal.spec.ts src/components/admin/account/__tests__/AccountTableActions.schedulingRules.spec.ts src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts
 ```
 
 ## Required Verification
