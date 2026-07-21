@@ -232,7 +232,7 @@ func TestAccountSchedulingRate_UsesManualSourceByDefault(t *testing.T) {
 func TestAccountSchedulingRate_UsesFreshUpstreamSnapshotAndPeakMultiplier(t *testing.T) {
 	rate := 0.9
 	receivedAt := time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC)
-	freshUntil := receivedAt.Add(time.Hour)
+	freshUntil := receivedAt.Add(6 * time.Hour)
 	account := &Account{
 		RateMultiplier: &rate,
 		Extra: map[string]any{
@@ -257,7 +257,7 @@ func TestAccountSchedulingRate_UsesFreshUpstreamSnapshotAndPeakMultiplier(t *tes
 	got, known, source := account.SchedulingRate(time.Date(2026, 7, 22, 4, 0, 0, 0, time.UTC))
 
 	require.True(t, known)
-	require.Equal(t, 0.6, got)
+	require.InDelta(t, 0.6, got, 1e-9)
 	require.Equal(t, SchedulingRateSourceUpstream, source)
 }
 
@@ -291,6 +291,92 @@ func TestOrderAccountLoadsBySchedulingPreference_PutsUnknownRatesLast(t *testing
 	orderAccountLoadsBySchedulingPreference(items, cfg)
 
 	require.Equal(t, []int64{2, 3, 1}, accountLoadIDs(items))
+}
+
+func TestOpenAIAdvancedLowestCost_BypassesMovableSessionSticky(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(88)
+	expensiveRate, cheapRate := 0.9, 0.1
+	accounts := []Account{
+		{ID: 881, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, RateMultiplier: &expensiveRate},
+		{ID: 882, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, RateMultiplier: &cheapRate},
+	}
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:cost-session": 881}}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	cfg.RunMode = config.RunModeSimple
+	cfg.Gateway.OpenAIWS.LBTopK = 2
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              cache,
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true", "false"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+	stickySelection, _, stickyErr := scheduler.selectBySessionHash(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID: &groupID, SessionHash: "cost-session", RequestedModel: "gpt-5.1", Platform: PlatformOpenAI,
+		RequiredTransport: OpenAIUpstreamTransportAny,
+	})
+	require.NoError(t, stickyErr)
+	require.NotNil(t, stickySelection)
+	require.Equal(t, int64(881), stickySelection.Account.ID)
+	if stickySelection.ReleaseFunc != nil {
+		stickySelection.ReleaseFunc()
+	}
+	selection, decision, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID:           &groupID,
+		SessionHash:       "cost-session",
+		RequestedModel:    "gpt-5.1",
+		RequiredTransport: OpenAIUpstreamTransportAny,
+		Platform:          PlatformOpenAI,
+		StickyWeighted:    false,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(882), selection.Account.ID)
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+	require.False(t, decision.StickySessionHit)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIAdvancedLowestCost_PreservesStrictPreviousResponseAffinity(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	ctx := context.Background()
+	groupID := int64(89)
+	expensiveRate, cheapRate := 0.9, 0.1
+	expensive := Account{ID: 891, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, RateMultiplier: &expensiveRate, Extra: map[string]any{"openai_apikey_responses_websockets_v2_enabled": true}}
+	cheap := Account{ID: 892, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, RateMultiplier: &cheapRate}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	cfg.Gateway.OpenAIWS.Enabled = true
+	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
+	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
+	cfg.Gateway.OpenAIWS.StickyResponseIDTTLSeconds = 3600
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{expensive, cheap}},
+		cache:              &schedulerTestGatewayCache{},
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	require.NoError(t, svc.getOpenAIWSStateStore().BindResponseAccount(ctx, groupID, "resp_cost_strict", expensive.ID, time.Hour))
+
+	selection, decision, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "resp_cost_strict", "cost-session", "gpt-5.1", nil,
+		OpenAIUpstreamTransportAny, false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, expensive.ID, selection.Account.ID)
+	require.Equal(t, openAIAccountScheduleLayerPreviousResponse, decision.Layer)
+	require.True(t, decision.StickyPreviousHit)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
 }
 
 func TestGatewayLegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *testing.T) {
