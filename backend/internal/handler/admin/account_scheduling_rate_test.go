@@ -24,6 +24,10 @@ func (s *schedulingRateAdminService) GetAccount(_ context.Context, _ int64) (*se
 	return s.account, nil
 }
 
+func (s *schedulingRateAdminService) ListAccounts(_ context.Context, _ int, _ int, _ string, _ string, _ string, _ string, _ int64, _ string, _ string, _ string, _ bool) ([]service.Account, int64, error) {
+	return []service.Account{*s.account}, 1, nil
+}
+
 func (s *schedulingRateAdminService) UpdateAccount(_ context.Context, id int64, input *service.UpdateAccountInput) (*service.Account, error) {
 	s.input = input
 	updated := *s.account
@@ -47,7 +51,42 @@ func setupSchedulingRateRouter(adminSvc service.AdminService) *gin.Engine {
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := gin.New()
 	router.PUT("/admin/accounts/:id/scheduling-rate", handler.UpdateSchedulingRate)
+	router.GET("/admin/accounts", handler.List)
 	return router
+}
+
+func TestAccountHandlerListIncludesSchedulingRateMetadata(t *testing.T) {
+	rate := 0.35
+	adminSvc := &schedulingRateAdminService{
+		stubAdminService: newStubAdminService(),
+		account: &service.Account{
+			ID:             42,
+			Platform:       service.PlatformOpenAI,
+			Type:           service.AccountTypeAPIKey,
+			Status:         service.StatusActive,
+			RateMultiplier: &rate,
+			Extra:          map[string]any{service.SchedulingRateSourceExtraKey: service.SchedulingRateSourceManual},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	setupSchedulingRateRouter(adminSvc).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/accounts?page=1&page_size=20", nil))
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var payload struct {
+		Data struct {
+			Items []struct {
+				SchedulingRateMultiplier *float64 `json:"scheduling_rate_multiplier"`
+				SchedulingRateKnown      bool     `json:"scheduling_rate_known"`
+				SchedulingRateSource     string   `json:"scheduling_rate_source"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 1)
+	require.True(t, payload.Data.Items[0].SchedulingRateKnown)
+	require.Equal(t, service.SchedulingRateSourceManual, payload.Data.Items[0].SchedulingRateSource)
+	require.NotNil(t, payload.Data.Items[0].SchedulingRateMultiplier)
+	require.InDelta(t, 0.35, *payload.Data.Items[0].SchedulingRateMultiplier, 1e-9)
 }
 
 func schedulingRateRequest(t *testing.T, router http.Handler, body string) *httptest.ResponseRecorder {
