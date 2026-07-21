@@ -61,6 +61,7 @@ type SettingHandler struct {
 	notificationEmailService *service.NotificationEmailService
 	totpService              *service.TotpService
 	userService              *service.UserService
+	superPriorityService     *service.SuperPriorityService
 }
 
 // NewSettingHandler 创建系统设置处理器
@@ -89,6 +90,12 @@ func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *s
 func (h *SettingHandler) SetStepUpDeps(totpService *service.TotpService, userService *service.UserService) {
 	h.totpService = totpService
 	h.userService = userService
+}
+
+// SetSuperPriorityService attaches the super-priority state machine without
+// changing the constructor signature used by existing unit tests.
+func (h *SettingHandler) SetSuperPriorityService(superPriorityService *service.SuperPriorityService) {
+	h.superPriorityService = superPriorityService
 }
 
 // GetSettings 获取所有系统设置

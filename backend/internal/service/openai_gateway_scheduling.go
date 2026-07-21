@@ -796,6 +796,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		}
 		return s.isBetterAccount(a, b)
 	})
+	orderAccountsBySchedulingPreference(eligible, s.cfg)
 	return eligible[0], compactBlocked
 }
 
@@ -854,6 +855,41 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if sessionHash != "" && s.cache != nil {
 		if accountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash); err == nil {
 			stickyAccountID = accountID
+		}
+	}
+	if s.concurrencyService != nil && !cfg.LoadBatchEnabled && usesCustomAccountSchedulingPreference(s.cfg) {
+		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
+		var fallbackAccount *Account
+		for {
+			account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, effectiveExcludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
+			if err != nil {
+				if fallbackAccount == nil {
+					return nil, err
+				}
+				return s.newSelectionResult(ctx, fallbackAccount, false, nil, &AccountWaitPlan{
+					AccountID:      fallbackAccount.ID,
+					MaxConcurrency: fallbackAccount.Concurrency,
+					Timeout:        cfg.FallbackWaitTimeout,
+					MaxWaiting:     cfg.FallbackMaxWaiting,
+				})
+			}
+
+			result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			if acquireErr == nil && result != nil && result.Acquired {
+				return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+			}
+
+			// Prefer waiting on the first ordinary/base-strategy account after
+			// super-priority capacity has been exhausted. Without the overlay,
+			// keep the first (lowest-cost) account as the wait fallback.
+			if fallbackAccount == nil ||
+				(superPrioritySchedulingActive(s.cfg) && accountHasSuperPriority(fallbackAccount) && !accountHasSuperPriority(account)) {
+				fallbackAccount = account
+			}
+			if effectiveExcludedIDs == nil {
+				effectiveExcludedIDs = make(map[int64]struct{})
+			}
+			effectiveExcludedIDs[account.ID] = struct{}{}
 		}
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
@@ -1062,6 +1098,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		} else {
 			selectionOrder = append(selectionOrder, available...)
 		}
+		orderAccountLoadsBySchedulingPreference(selectionOrder, s.cfg)
 
 		for _, item := range selectionOrder {
 			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, item.account, platform, requestedModel, false, requiredCapability)
@@ -1102,6 +1139,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if requireCompact {
 			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
+		orderAccountsBySchedulingPreference(ordered, s.cfg)
 		for _, acc := range ordered {
 			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 			if fresh == nil {
@@ -1152,6 +1190,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}
+	orderAccountsBySchedulingPreference(candidates, s.cfg)
 	for _, acc := range candidates {
 		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {

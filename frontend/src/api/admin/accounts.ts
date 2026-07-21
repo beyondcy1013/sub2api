@@ -245,6 +245,23 @@ export async function restoreAccount(id: number): Promise<{ message: string }> {
   return data
 }
 
+/**
+ * Set account super-priority flag (extra.super_priority)
+ * @param id - Account ID
+ * @param enabled - true 标记为超级优先；false 取消标记
+ */
+export async function setAccountSuperPriority(
+  id: number,
+  enabled: boolean,
+): Promise<{ message: string; super_priority: boolean; updated_at: string }> {
+  const { data } = await apiClient.post<{
+    message: string
+    super_priority: boolean
+    updated_at: string
+  }>(`/admin/accounts/${id}/super-priority`, { enabled })
+  return data
+}
+
 export interface StickySessionSource {
   account_id: number
   account_name: string
@@ -1014,6 +1031,7 @@ export const accountsAPI = {
   delete: deleteAccount,
   recycle: recycleAccount,
   restore: restoreAccount,
+  setSuperPriority: setAccountSuperPriority,
   toggleStatus,
   testAccount,
   refreshCredentials,

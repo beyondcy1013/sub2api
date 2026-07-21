@@ -392,3 +392,58 @@ func openAICodexPlanGatedOAuthAccount() *Account {
 		Credentials: map[string]any{},
 	}
 }
+
+func TestRateLimitService_HandleUpstreamError_OpenAI403ModelNotAllowedUsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"code":"model_not_allowed","message":"当前分组不支持模型「claude-fable-5」。支持的模型：gpt-5.6。"}`),
+		"claude-fable-5",
+	)
+
+	require.True(t, handled)
+	// The whole account must NOT be temp-unscheduled: only the model pair.
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "claude-fable-5", call.scope)
+	require.Equal(t, openAIModelNotAllowed403Reason, call.reason)
+	require.WithinDuration(t, time.Now().Add(openAIModelNotAllowed403Cooldown), call.resetAt, 5*time.Second)
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenAI403ModelNotAllowedKeepsAccountSchedulableForOtherModels(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"The model claude-fable-5 is not allowed in this group."}}`),
+		"claude-fable-5",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+
+	account.Extra = map[string]any{
+		modelRateLimitsKey: map[string]any{
+			"claude-fable-5": map[string]any{
+				"rate_limit_reset_at": repo.modelRateLimitCalls[0].resetAt.UTC().Format(time.RFC3339),
+			},
+		},
+	}
+	// Account is excluded for claude-fable-5 but stays fully schedulable for other models.
+	require.False(t, account.IsSchedulableForModelWithContext(context.Background(), "claude-fable-5"))
+	require.True(t, account.IsSchedulableForModelWithContext(context.Background(), "gpt-5.6"))
+}

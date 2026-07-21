@@ -1103,9 +1103,33 @@ balance_check:
   # 可选的余额下降百分比暂停规则，0 表示关闭。
   pause_when_drop_percent: 0
 
-  # Keep the legacy guard: only accounts with extra.quota_hourly_limit > 0 are checked.
-  # 保持旧逻辑：只检测 extra.quota_hourly_limit > 0 的账号。
+  # Keep the legacy guard for the configured API. API-key accounts with a custom
+  # base_url are still probed once for sub2api /v1/usage compatibility.
+  # 保持配置 API 的旧筛选条件；带自定义 base_url 的 API Key 账号仍会探测一次
+  # sub2api /v1/usage 兼容性。
   require_quota_hourly_limit: true
+
+# =============================================================================
+# Account Scheduling Strategy and Super-Priority Overlay
+# 账号基础调度策略与超级优先覆盖层
+# =============================================================================
+super_priority:
+  # Optional overlay: normal keeps only the base strategy; super_priority tries
+  # accounts with extra.super_priority=true first and falls back automatically.
+  # 可选覆盖层：normal 只使用基础策略；super_priority 先尝试
+  # extra.super_priority=true 的账号，不可用时自动回退。
+  mode: normal
+
+  # default preserves the built-in priority/load/LRU algorithm.
+  # lowest_cost tries lower account rate_multiplier tiers first.
+  # default 保留系统原有优先级/负载/LRU 算法；lowest_cost 按账号
+  # rate_multiplier 从低到高分层尝试。
+  base_strategy: default
+
+  failure_threshold: 2
+  check_interval: "@every 1m"
+  test_model_id: ""
+  test_prompt: ""
 
 # =============================================================================
 # Rate Limiting

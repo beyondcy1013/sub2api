@@ -107,6 +107,7 @@ func provideCleanup(
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	scheduledAccountActionRunner *service.ScheduledAccountActionRunner,
+	superPriorityRunner *service.SuperPriorityRunner,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
@@ -305,6 +306,12 @@ func provideCleanup(
 			{"ScheduledAccountActionRunner", func() error {
 				if scheduledAccountActionRunner != nil {
 					scheduledAccountActionRunner.Stop()
+				}
+				return nil
+			}},
+			{"SuperPriorityRunner", func() error {
+				if superPriorityRunner != nil {
+					superPriorityRunner.Stop()
 				}
 				return nil
 			}},

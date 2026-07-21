@@ -34,6 +34,7 @@ import affiliatesAPI from './affiliates'
 import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
 import balanceCheckSettingsAPI from './balanceCheckSettings'
+import superPriorityAPI from './superPriority'
 import auditAPI from './audit'
 
 /**
@@ -71,6 +72,7 @@ export const adminAPI = {
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
   balanceCheckSettings: balanceCheckSettingsAPI,
+  superPriority: superPriorityAPI,
   audit: auditAPI
 }
 
@@ -106,6 +108,7 @@ export {
   riskControlAPI,
   adminComplianceAPI,
   balanceCheckSettingsAPI,
+  superPriorityAPI,
   auditAPI
 }
 

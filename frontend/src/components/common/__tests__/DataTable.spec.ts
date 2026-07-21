@@ -101,6 +101,61 @@ describe('DataTable', () => {
     expect(sortIndicator.classes()).toContain('shrink-0')
   })
 
+  it('uses content-sized columns without wrapping cells when requested', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'status', label: 'Status', sortable: true, width: '80px' }],
+        data: [{ id: 1, status: 'A status value that can widen the column' }],
+        singleLineCells: true,
+        dynamicColumnWidths: true
+      }
+    })
+
+    const tableWrapper = wrapper.get('.table-wrapper')
+    const table = wrapper.get('table')
+    const header = wrapper.get('th')
+    const cell = wrapper.get('tbody tr[data-index] td')
+
+    expect(tableWrapper.classes()).toContain('single-line-cells')
+    expect(table.classes()).toContain('content-sized-columns')
+    expect(header.classes()).toContain('whitespace-nowrap')
+    expect(cell.classes()).toContain('whitespace-nowrap')
+    expect(header.attributes('style')).toContain('min-width: 80px')
+    expect(header.attributes('style')).not.toContain('max-width')
+    expect(header.attributes('style')).not.toMatch(/(^|;)\s*width:/)
+    expect(cell.attributes('style')).toContain('min-width: 80px')
+    expect(cell.attributes('style')).not.toContain('max-width')
+  })
+
+  it('uses 2px vertical padding for desktop data rows in compact mode', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 1, name: 'Compact account' }],
+        compactRows: true,
+        selectable: true
+      }
+    })
+
+    const cells = wrapper.findAll('tbody tr[data-index] td')
+    expect(cells).toHaveLength(2)
+    expect(cells.every(cell => cell.classes().includes('py-0.5'))).toBe(true)
+    expect(cells.every(cell => !cell.classes().includes('py-4'))).toBe(true)
+  })
+
+  it('keeps the default desktop row spacing when compact mode is off', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 1, name: 'Default spacing' }]
+      }
+    })
+
+    const cell = wrapper.get('tbody tr[data-index] td')
+    expect(cell.classes()).toContain('py-4')
+    expect(cell.classes()).not.toContain('py-0.5')
+  })
+
   it('renders every row with no virtual padding spacer for small datasets (virtualization off)', async () => {
     const data = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
     const wrapper = mount(DataTable, {

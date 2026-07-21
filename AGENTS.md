@@ -73,20 +73,24 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
 - `MergePreservingSensitiveCreds` must preserve an existing `api_key` when an older or partial frontend update omits it.
 - `frontend/src/components/account/EditAccountModal.vue` should preload `credentials.api_key` and render API key inputs as `type="text"` for account API key fields.
 - **Account management table column layout** (`frontend/src/views/admin/AccountsView.vue` `allColumns`):
-  - The leading order is `选择` -> `名称` -> `容量` -> `状态` -> `调度` -> `用量窗口` -> `平台/类型`.
+  - The leading order is `选择` -> `操作` -> `名称` -> `容量` -> `状态` -> `调度` -> `用量窗口` -> `平台/类型`.
   - After `创建时间`, keep `今日费用` -> `分组` (when visible) -> `余额` -> `5h请求` -> `5h Token` -> `7d请求` -> `7d Token` -> `窗口总费用`.
-  - The ending order is `过期时间` -> `备注` -> `账号ID` -> `上游声明费率` -> `操作`.
-  - `名称` (name) column has explicit `width: '126px'`.
+  - After `今日统计`, keep `7d(%)` -> `7d`; the ending order is `过期时间` -> `备注` -> `账号ID` -> `上游声明费率` -> `5h(%)` -> `5h`.
+  - The utilization headers use the compact labels `5h(%)` and `7d(%)`.
+  - `名称` (name) column has explicit `width: '176px'`; its inner content is capped at `176px` and long names truncate without wrapping or escaping the cell.
   - The selection column has explicit `width: '36px'`, and `DataTable.vue` keeps `--select-col-width` at `36px`.
-  - `状态` (status) has explicit `width: '80px'`.
-  - Table headers, labels, and sort indicators remain single-line and non-shrinking.
-  - Fixed-width columns apply `width`, `minWidth`, and `maxWidth`.
+  - `状态` (status) has explicit `width: '80px'` as its minimum width on the account table.
+  - Table headers, labels, sort indicators, and desktop cell content remain single-line and non-shrinking.
+  - `AccountsView.vue` enables `DataTable`'s `single-line-cells` and `dynamic-column-widths` modes. In this opt-in mode, declared `column.width` values are minimum widths and other content may expand columns, while the name cell keeps its explicit `176px` cap; the table scrolls horizontally when necessary.
+  - Other `DataTable` consumers retain the default fixed-width behavior where declared widths apply `width`, `minWidth`, and `maxWidth`.
   - The first and last table cells use `4px` outer padding so the table has no unnecessary edge whitespace.
   - Non-final columns retain 1px vertical separators in light and dark mode.
-  - `平台/类型` (platform_type) column has explicit `width: '170px'` (absorbs the freed width).
-  - `账号ID` (id) column has explicit `width: '130px'`.
+  - `平台/类型` (platform_type) column has explicit `width: '170px'` as its minimum width.
+  - `账号ID` (id) column has explicit `width: '130px'` as its minimum width.
   - The `Column` interface in `frontend/src/components/common/types.ts` has an optional `width?: string` property.
-  - The `DataTable` component in `frontend/src/components/common/DataTable.vue` applies `column.width` as `width` + `minWidth` inline style on `<th>` and `<td>` elements.
+  - The `DataTable` component in `frontend/src/components/common/DataTable.vue` applies `column.width` as `width` + `minWidth` + `maxWidth` by default, and as `minWidth` only when `dynamicColumnWidths` is enabled.
+  - `AccountsView.vue` enables `DataTable`'s `compact-rows` mode. Desktop loading and data cells use `py-0.5` (2px top/bottom padding); other tables retain the default spacing.
+  - Direct account actions remain single-line `h-6 w-6` icon buttons with accessible labels/tooltips so they do not force extra row height.
   - Do NOT revert these columns to their upstream positions or remove the width properties.
 - Preserve every local commit and dirty file during upgrades. Follow [docs/UPGRADE_RUNBOOK.md](docs/UPGRADE_RUNBOOK.md) and audit [docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md](docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md); do not use the WebUI binary updater for this customized build.
 - **OpenAI sticky-session concurrency spillover must be preserved**:
@@ -108,7 +112,7 @@ cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/
   label, progress/utilization, and reset state. Do not put request, token, `A`,
   or `U` totals back inside the progress bar.
 - `AccountsView.vue` exposes separate columns for `5h请求`, `5h Token`,
-  `7d请求`, `7d Token`, `5h使用比例`, `5h重置`, `7d使用比例`, `7d重置`, and
+  `7d请求`, `7d Token`, `5h(%)`, `5h重置`, `7d(%)`, `7d重置`, and
   `窗口总费用`. The cost column renders separate 5h/7d lines with upstream
   (`A`) and user (`U`) values when available.
 - When a window contains valid `window_stats`, zero requests/tokens/cost are
@@ -186,6 +190,9 @@ pnpm vitest run \
 - All callers of `ListAccounts`, `ListWithFilters`, `ListAllWithFilters` must pass the `recycled bool` as the final parameter.
 - Backend routes: `POST /api/v1/admin/accounts/:id/recycle` and `POST /api/v1/admin/accounts/:id/restore`.
 - Frontend: `AccountTableActions.vue` has a trash toggle button; `AccountsView.vue` shows Recycle/Restore buttons in the action column depending on mode.
+- Active account rows keep the direct action order `编辑` -> `测试连接` -> `回收` -> `更多`; `测试连接` is not duplicated inside `AccountActionMenu.vue`.
+- `AccountTestModal.vue` defaults `自动测试` to enabled, waits for the default model to load before starting, and persists checkbox changes in browser storage under `sub2api.account-test.auto-start`.
+- Account names stay inside the fixed-width name cell with single-line truncation and overflow clipping. Do not restore the name-triggered hover tooltip that teleports content outside the cell.
 - sub2freeApi has an additional `clone` function in `accounts.ts` that sub2api does not — re-add it when syncing files.
 - Status/Groups/Capacity table cells use plain text (text-color classes only), NOT badge/card styling. See `references/account-table-column-layout.md`.
 - **Usage auto-load skips non-active accounts**: `AccountUsageCell.vue` `shouldAutoLoadUsageOnMount` must gate on `props.account.status === 'active'`. Accounts with status `inactive` or `error` do NOT auto-fetch `/usage` on page mount, avoiding useless upstream queries against known-unavailable accounts. Manual refresh (via `usageManualRefreshToken`) remains unaffected for all statuses.

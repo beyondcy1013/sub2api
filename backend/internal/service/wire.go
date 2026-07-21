@@ -516,6 +516,22 @@ func ProvideScheduledAccountActionRunner(service *ScheduledAccountActionService)
 	return runner
 }
 
+// ProvideSuperPriorityService creates the global super-priority state machine.
+func ProvideSuperPriorityService(accountRepo AccountRepository, cfg *config.Config) *SuperPriorityService {
+	return NewSuperPriorityService(accountRepo, cfg)
+}
+
+// ProvideSuperPriorityRunner creates and starts the periodic probe runner.
+func ProvideSuperPriorityRunner(
+	state *SuperPriorityService,
+	accountTestSvc *AccountTestService,
+	accountRepo AccountRepository,
+) *SuperPriorityRunner {
+	runner := NewSuperPriorityRunner(state, accountTestSvc, accountRepo)
+	runner.Start()
+	return runner
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -774,6 +790,8 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestRunnerService,
 	ProvideScheduledAccountActionService,
 	ProvideScheduledAccountActionRunner,
+	ProvideSuperPriorityService,
+	ProvideSuperPriorityRunner,
 	NewGroupCapacityService,
 	NewChannelService,
 	NewModelPricingResolver,

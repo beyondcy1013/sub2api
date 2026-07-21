@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +27,13 @@ const defaultBalanceCheckURL = "https://ai.router.team/api/public/cc-switch/bala
 const defaultBalanceCheckMaxConcurrent = 1
 const balanceCheckPauseReasonMarker = "auto-pause by balance check"
 const balanceCheckStopReasonMarker = "auto-stop by balance check"
+const maxBalanceCheckResponseBytes int64 = 1 << 20
+
+const (
+	BalanceCheckTypeExtraKey      = "balance_check_type"
+	BalanceCheckTypeConfiguredAPI = "configured_api"
+	BalanceCheckTypeSub2API       = "sub2api"
+)
 
 // BalanceCheckResult represents the result of a balance check
 type BalanceCheckResult struct {
@@ -34,6 +44,7 @@ type BalanceCheckResult struct {
 	PreviousBal float64
 	CurrentBal  float64
 	IsDecreased bool
+	CheckType   string
 	Error       string
 }
 
@@ -56,9 +67,14 @@ func NewBalanceCheckService(
 ) *BalanceCheckService {
 	runtimeCfg := resolveBalanceCheckRuntimeConfig(cfg)
 	return &BalanceCheckService{
-		accountRepo:  accountRepo,
-		cfg:          cfg,
-		httpClient:   &http.Client{Timeout: runtimeCfg.RequestTimeout},
+		accountRepo: accountRepo,
+		cfg:         cfg,
+		httpClient: &http.Client{
+			Timeout: runtimeCfg.RequestTimeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		balanceCache: make(map[int64]float64),
 	}
 }
@@ -251,7 +267,7 @@ func (s *BalanceCheckService) checkAccountBalance(ctx context.Context, account *
 			logger.LegacyPrintf("service.balance_check", "[BalanceCheck] failed to resume stopped account=%d: %v", account.ID, err)
 		}
 	} else if runtimeCfg.isStopped(account) {
-		s.updateBalanceAfterCheck(ctx, account.ID, result.CurrentBal)
+		s.updateBalanceAfterCheck(ctx, account.ID, result.CurrentBal, result.CheckType)
 		return
 	}
 
@@ -267,7 +283,7 @@ func (s *BalanceCheckService) checkAccountBalance(ctx context.Context, account *
 		} else {
 			logger.LegacyPrintf("service.balance_check", "[BalanceCheck] account=%d stopped until %v", account.ID, stopUntil)
 		}
-		s.updateBalanceAfterCheck(ctx, account.ID, result.CurrentBal)
+		s.updateBalanceAfterCheck(ctx, account.ID, result.CurrentBal, result.CheckType)
 		return
 	}
 
@@ -288,11 +304,15 @@ func (s *BalanceCheckService) checkAccountBalance(ctx context.Context, account *
 		}
 	}
 
-	s.updateBalanceAfterCheck(ctx, account.ID, result.CurrentBal)
+	s.updateBalanceAfterCheck(ctx, account.ID, result.CurrentBal, result.CheckType)
 }
 
-func (s *BalanceCheckService) updateBalanceAfterCheck(ctx context.Context, accountID int64, balance float64) {
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{"balance": balance}); err != nil {
+func (s *BalanceCheckService) updateBalanceAfterCheck(ctx context.Context, accountID int64, balance float64, checkType string) {
+	updates := map[string]any{"balance": balance}
+	if checkType != "" {
+		updates[BalanceCheckTypeExtraKey] = checkType
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
 		logger.LegacyPrintf("service.balance_check", "[BalanceCheck] failed to update balance for account=%d: %v", accountID, err)
 	}
 	s.cacheMu.Lock()
@@ -404,10 +424,34 @@ func (c balanceCheckRuntimeConfig) isAccountEnabled(account Account) bool {
 	if accountExtraBool(account.Extra, "balance_check_disabled") {
 		return false
 	}
+	checkType := accountBalanceCheckType(account)
+	if checkType == BalanceCheckTypeSub2API {
+		return accountHasSub2APIBalanceCredentials(account)
+	}
 	if !c.RequireQuotaHourlyLimit {
 		return true
 	}
+	if checkType == "" && accountHasSub2APIBalanceCredentials(account) {
+		return true
+	}
 	return isBalanceCheckEnabledAccount(account)
+}
+
+func accountBalanceCheckType(account Account) string {
+	value, _ := account.Extra[BalanceCheckTypeExtraKey].(string)
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case BalanceCheckTypeSub2API:
+		return BalanceCheckTypeSub2API
+	case BalanceCheckTypeConfiguredAPI:
+		return BalanceCheckTypeConfiguredAPI
+	default:
+		return ""
+	}
+}
+
+func accountHasSub2APIBalanceCredentials(account Account) bool {
+	return strings.TrimSpace(account.GetCredential("api_key")) != "" &&
+		strings.TrimSpace(account.GetCredential("base_url")) != ""
 }
 
 func isBalanceCheckHeldAccount(account Account) bool {
@@ -527,54 +571,149 @@ func accountExtraBool(extra map[string]any, key string) bool {
 	return false
 }
 
-// BalanceAPIResponse represents the response from the balance check API
+// BalanceAPIResponse accepts the wallet and quota response shapes exposed by
+// sub2api-compatible /v1/usage endpoints and the configured legacy API.
 type BalanceAPIResponse struct {
-	Balance float64 `json:"balance"`
+	Balance   json.RawMessage `json:"balance"`
+	Remaining json.RawMessage `json:"remaining"`
+	Quota     struct {
+		Remaining json.RawMessage `json:"remaining"`
+	} `json:"quota"`
 }
 
 // fetchBalance calls the balance check API and returns the current balance
 func (s *BalanceCheckService) fetchBalance(ctx context.Context, account *Account) *BalanceCheckResult {
+	if account == nil {
+		return nil
+	}
 	result := &BalanceCheckResult{
 		AccountID: account.ID,
 		Platform:  account.Platform,
+		APIKey:    strings.TrimSpace(account.GetCredential("api_key")),
+	}
+	if result.APIKey == "" {
+		result.Error = "missing api_key"
+		return result
 	}
 
-	// Extract api_key from credentials
-	if account.Credentials != nil {
-		if v, ok := account.Credentials["api_key"].(string); ok {
-			result.APIKey = v
+	switch accountBalanceCheckType(*account) {
+	case BalanceCheckTypeSub2API:
+		return s.fetchSub2APIBalance(ctx, account, result)
+	case BalanceCheckTypeConfiguredAPI:
+		return s.fetchBalanceFromURL(ctx, result, s.runtimeConfig().BalanceURL, BalanceCheckTypeConfiguredAPI)
+	}
+
+	// Untyped custom upstreams are probed once. A successful detector is stored
+	// with the balance so later checks use only the classified API.
+	if accountHasSub2APIBalanceCredentials(*account) {
+		if detected := s.fetchSub2APIBalance(ctx, account, result); detected.Error == "" {
+			return detected
 		}
 	}
+	return s.fetchBalanceFromURL(ctx, result, s.runtimeConfig().BalanceURL, BalanceCheckTypeConfiguredAPI)
+}
 
-	balanceURL := s.runtimeConfig().BalanceURL
+func (s *BalanceCheckService) fetchSub2APIBalance(ctx context.Context, account *Account, base *BalanceCheckResult) *BalanceCheckResult {
+	usageURL, err := buildSub2APIUsageURL(account.GetCredential("base_url"))
+	if err != nil {
+		result := *base
+		result.CheckType = BalanceCheckTypeSub2API
+		result.Error = fmt.Sprintf("invalid sub2api base_url: %v", err)
+		return &result
+	}
+	return s.fetchBalanceFromURL(ctx, base, usageURL, BalanceCheckTypeSub2API)
+}
+
+func buildSub2APIUsageURL(rawBaseURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawBaseURL))
+	if err != nil {
+		return "", err
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return "", fmt.Errorf("http(s) URL with host is required")
+	}
+
+	cleanPath := strings.TrimRight(parsed.Path, "/")
+	switch {
+	case strings.HasSuffix(cleanPath, "/v1/usage"):
+	case strings.HasSuffix(cleanPath, "/v1"):
+		cleanPath += "/usage"
+	default:
+		cleanPath += "/v1/usage"
+	}
+	if cleanPath == "" || cleanPath[0] != '/' {
+		cleanPath = "/" + cleanPath
+	}
+	parsed.Path = cleanPath
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String(), nil
+}
+
+func (s *BalanceCheckService) fetchBalanceFromURL(
+	ctx context.Context,
+	base *BalanceCheckResult,
+	balanceURL string,
+	checkType string,
+) *BalanceCheckResult {
+	result := *base
+	result.BaseURL = balanceURL
+	result.CheckType = checkType
 
 	req, err := http.NewRequestWithContext(ctx, "GET", balanceURL, nil)
 	if err != nil {
 		result.Error = fmt.Sprintf("failed to create request: %v", err)
-		return result
+		return &result
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", result.APIKey))
+	req.Header.Set("Authorization", "Bearer "+result.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		result.Error = fmt.Sprintf("HTTP request failed: %v", err)
-		return result
+		return &result
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		result.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
-		return result
+		return &result
 	}
 
 	var apiResp BalanceAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxBalanceCheckResponseBytes)).Decode(&apiResp); err != nil {
 		result.Error = fmt.Sprintf("failed to decode response: %v", err)
-		return result
+		return &result
 	}
 
-	result.CurrentBal = apiResp.Balance
-	return result
+	balance, ok := firstBalanceValue(apiResp.Balance, apiResp.Remaining, apiResp.Quota.Remaining)
+	if !ok {
+		result.Error = "balance field missing or invalid"
+		return &result
+	}
+	result.CurrentBal = balance
+	return &result
+}
+
+func firstBalanceValue(values ...json.RawMessage) (float64, bool) {
+	for _, raw := range values {
+		if len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		var number json.Number
+		if err := json.Unmarshal(raw, &number); err == nil {
+			if parsed, err := number.Float64(); err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+				return parsed, true
+			}
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			if parsed, err := strconv.ParseFloat(strings.TrimSpace(text), 64); err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+				return parsed, true
+			}
+		}
+	}
+	return 0, false
 }

@@ -64,11 +64,18 @@ type AccountHandler struct {
 	stickySessionAdminStore service.StickySessionAdminStore
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
+	superPriorityService    *service.SuperPriorityService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
 func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamBillingProbeService) {
 	h.upstreamBillingProbe = probe
+}
+
+// SetSuperPriorityService attaches the super-priority state machine for the
+// per-account toggle endpoint.
+func (h *AccountHandler) SetSuperPriorityService(superPriorityService *service.SuperPriorityService) {
+	h.superPriorityService = superPriorityService
 }
 
 // NewAccountHandler creates a new admin account handler

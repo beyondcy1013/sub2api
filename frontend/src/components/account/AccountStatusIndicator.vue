@@ -150,6 +150,12 @@ const emit = defineEmits<{
 
 const quotaRateLimit = computed(() => props.account.quota_rate_limit ?? null)
 
+// 超级优先账号标记：extra.super_priority === true。状态文本优先显示"超级优先"。
+const isSuperPriority = computed(() => {
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  return !!(extra && extra.super_priority === true)
+})
+
 const rateLimitResetAt = computed(() => {
   return quotaRateLimit.value?.reset_at || props.account.rate_limit_reset_at
 })
@@ -321,6 +327,9 @@ const overloadCountdown = computed(() => {
 // Computed: status badge class
 // Plain-text color class for table display (no badge/card styling)
 const statusTextClass = computed(() => {
+  if (isSuperPriority.value) {
+    return 'text-fuchsia-600 dark:text-fuchsia-400 font-semibold'
+  }
   if (hasError.value) {
     return 'text-red-600 dark:text-red-400'
   }
@@ -343,6 +352,9 @@ const statusTextClass = computed(() => {
 
 // Computed: status text
 const statusText = computed(() => {
+  if (isSuperPriority.value) {
+    return t('admin.accounts.superPriority')
+  }
   if (hasError.value) {
     return t('admin.accounts.status.error')
   }

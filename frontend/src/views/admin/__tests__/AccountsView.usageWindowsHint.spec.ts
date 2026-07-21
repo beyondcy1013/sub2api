@@ -64,7 +64,12 @@ vi.mock('vue-i18n', async () => {
 
 // Render the per-column header slots so we can assert the usage-window header hint.
 const DataTableStub = {
-  props: ['columns', 'data'],
+  props: {
+    columns: { type: Array, required: true },
+    data: { type: Array, required: true },
+    singleLineCells: { type: Boolean, default: false },
+    dynamicColumnWidths: { type: Boolean, default: false }
+  },
   template: `
     <div data-test="data-table">
       <div data-test="row-order">{{ data.map(row => row.name).join(',') }}</div>
@@ -260,7 +265,16 @@ describe('admin AccountsView usage windows hint', () => {
     await wrapper.get('[data-test="emit-usage-3"]').trigger('click')
 
     const table = wrapper.getComponent(DataTableStub)
-    const columns = table.props('columns') as Array<{ key: string; label: string; sortable: boolean }>
+    const columns = table.props('columns') as Array<{ key: string; label: string; sortable: boolean; width?: string }>
+    expect(table.props('singleLineCells')).toBe(true)
+    expect(table.props('dynamicColumnWidths')).toBe(true)
+    expect(columns.find(column => column.key === 'name')?.width).toBe('176px')
+    expect(columns.slice(0, 3).map(column => column.key)).toEqual(['select', 'actions', 'name'])
+    expect(columns.slice(-3).map(column => column.key)).toEqual([
+      'upstream_billing_rate',
+      'five_hour_utilization',
+      'five_hour_reset'
+    ])
     expect(columns
       .filter(column => [
         'five_hour_utilization',
@@ -271,17 +285,17 @@ describe('admin AccountsView usage windows hint', () => {
       .map(column => ({ key: column.key, label: column.label, sortable: column.sortable })))
       .toEqual([
         {
-          key: 'five_hour_utilization',
-          label: 'admin.accounts.columns.fiveHourUtilization',
-          sortable: true
-        },
-        { key: 'five_hour_reset', label: 'admin.accounts.columns.fiveHour', sortable: true },
-        {
           key: 'seven_day_utilization',
           label: 'admin.accounts.columns.sevenDayUtilization',
           sortable: true
         },
-        { key: 'seven_day_reset', label: 'admin.accounts.columns.sevenDay', sortable: true }
+        { key: 'seven_day_reset', label: 'admin.accounts.columns.sevenDay', sortable: true },
+        {
+          key: 'five_hour_utilization',
+          label: 'admin.accounts.columns.fiveHourUtilization',
+          sortable: true
+        },
+        { key: 'five_hour_reset', label: 'admin.accounts.columns.fiveHour', sortable: true }
       ])
 
     table.vm.$emit('sort', 'seven_day_utilization', 'desc')
@@ -315,7 +329,7 @@ describe('admin AccountsView usage windows hint', () => {
     )
   })
 
-  it('places usage windows after schedulable, platform/type after usage windows, and upstream declared rate last', async () => {
+  it('places actions before name and the upstream declared rate before the trailing 5h columns', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -324,7 +338,9 @@ describe('admin AccountsView usage windows hint', () => {
 
     expect(keys.indexOf('usage')).toBe(keys.indexOf('schedulable') + 1)
     expect(keys.indexOf('platform_type')).toBe(keys.indexOf('usage') + 1)
-    expect(keys.indexOf('upstream_billing_rate')).toBe(keys.indexOf('actions') - 1)
+    expect(keys.indexOf('actions')).toBe(keys.indexOf('select') + 1)
+    expect(keys.indexOf('name')).toBe(keys.indexOf('actions') + 1)
+    expect(keys.indexOf('five_hour_utilization')).toBe(keys.indexOf('upstream_billing_rate') + 1)
   })
 
   it('places today cost, groups, and balance directly after created time', async () => {

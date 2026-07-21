@@ -112,3 +112,57 @@ func TestIsOpenAICodexPlanGatedModelError(t *testing.T) {
 		})
 	}
 }
+
+func TestIsOpenAIModelNotAllowed403Error(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "403 model_not_allowed code with zh group message",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"code":"model_not_allowed","message":"当前分组不支持模型「claude-fable-5」。支持的模型：gpt-5.6。"}`),
+			want:       true,
+		},
+		{
+			name:       "403 zh group message without code field",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"当前分组不支持模型「claude-fable-5」"}}`),
+			want:       true,
+		},
+		{
+			name:       "403 english model is not allowed",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"The model claude-fable-5 is not allowed in this group."}}`),
+			want:       true,
+		},
+		{
+			name:       "404 model_not_allowed code is not a 403",
+			statusCode: http.StatusNotFound,
+			body:       []byte(`{"code":"model_not_allowed","message":"model not allowed"}`),
+			want:       false,
+		},
+		{
+			name:       "403 unrelated forbidden is not model routing",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"Access forbidden: account suspended"}}`),
+			want:       false,
+		},
+		{
+			name:       "403 empty body does not match",
+			statusCode: http.StatusForbidden,
+			body:       nil,
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isOpenAIModelNotAllowed403Error(tt.statusCode, tt.body); got != tt.want {
+				t.Fatalf("isOpenAIModelNotAllowed403Error() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

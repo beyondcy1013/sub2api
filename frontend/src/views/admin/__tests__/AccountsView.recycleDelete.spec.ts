@@ -80,8 +80,18 @@ const DataTableStub = {
   template: `
     <div>
       <div v-for="row in data" :key="row.id" :data-test="'account-row-' + row.id">
+        <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-actions" :row="row" />
       </div>
+    </div>
+  `
+}
+
+const AccountTestModalStub = {
+  props: ['show', 'account'],
+  template: `
+    <div v-if="show && account" data-test="account-test-modal">
+      {{ account.name }}
     </div>
   `
 }
@@ -132,7 +142,7 @@ function mountView() {
         AccountActionMenu: AccountActionMenuStub,
         ImportDataModal: true,
         ReAuthAccountModal: true,
-        AccountTestModal: true,
+        AccountTestModal: AccountTestModalStub,
         AccountStatsModal: true,
         StickySessionReassignModal: true,
         ScheduledTestsPanel: true,
@@ -203,5 +213,42 @@ describe('admin AccountsView recycle-bin deletion', () => {
 
     expect(deleteAccount).toHaveBeenCalledOnce()
     expect(deleteAccount).toHaveBeenCalledWith(42)
+  })
+
+  it('shows edit, test connection, recycle and more in that order, and opens the test modal', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const row = wrapper.get('[data-test="account-row-42"]')
+    expect(row.findAll('button').map(button => button.text())).toEqual([
+      'common.edit',
+      'admin.accounts.testConnection',
+      'admin.accounts.recycle',
+      'common.more'
+    ])
+
+    await row.findAll('button')[1].trigger('click')
+
+    expect(wrapper.get('[data-test="account-test-modal"]').text()).toContain(account.name)
+  })
+
+  it('keeps an overlong account name on one line and clips it to the fixed name column', async () => {
+    listAccounts.mockResolvedValueOnce({
+      items: [{ ...account, name: 'account-name-that-is-far-too-long-for-the-name-column' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const name = wrapper.get('[data-test="account-name-value"]')
+    expect(name.classes()).toContain('whitespace-nowrap')
+    expect(name.classes()).toContain('truncate')
+    expect(name.element.parentElement?.classList.contains('inline-flex')).toBe(true)
+    expect(name.element.parentElement?.classList.contains('w-[176px]')).toBe(true)
+    expect(name.element.parentElement?.classList.contains('max-w-[176px]')).toBe(true)
   })
 })

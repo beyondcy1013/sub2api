@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -333,4 +335,148 @@ func TestBalanceCheckService_RunBalanceCheck_RefreshesAutoPausedAccounts(t *test
 	require.Len(t, repo.updateExtraCalls, 2)
 	require.ElementsMatch(t, []int64{201, 202}, []int64{repo.updateExtraCalls[0].id, repo.updateExtraCalls[1].id})
 	require.Empty(t, repo.clearCalls)
+}
+
+func TestBalanceCheckService_Sub2APIProbePersistsDetectedTypeAndBalance(t *testing.T) {
+	var requestPath string
+	var authorization string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"balance":12.5}`)
+	}))
+	defer upstream.Close()
+
+	repo := &balanceCheckRepoStub{}
+	svc := NewBalanceCheckService(repo, nil)
+	account := &Account{
+		ID:          401,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sub2-key", "base_url": upstream.URL + "/v1/"},
+	}
+
+	svc.checkAccountBalance(context.Background(), account)
+
+	require.Equal(t, "/v1/usage", requestPath)
+	require.Equal(t, "Bearer sub2-key", authorization)
+	require.Len(t, repo.updateExtraCalls, 1)
+	require.Equal(t, 12.5, repo.updateExtraCalls[0].updates["balance"])
+	require.Equal(t, BalanceCheckTypeSub2API, repo.updateExtraCalls[0].updates[BalanceCheckTypeExtraKey])
+}
+
+func TestBalanceCheckService_Sub2APIParsesCompatibleRemainingShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want float64
+	}{
+		{name: "top level remaining", body: `{"remaining":23.75}`, want: 23.75},
+		{name: "quota remaining", body: `{"quota":{"remaining":9.5}}`, want: 9.5},
+		{name: "numeric string", body: `{"balance":"7.25"}`, want: 7.25},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &balanceCheckRepoStub{}
+			svc := NewBalanceCheckService(repo, nil)
+			svc.httpClient = &http.Client{Transport: balanceRoundTripper(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(tt.body)),
+					Header:     make(http.Header),
+				}, nil
+			})}
+			account := &Account{
+				ID:          402,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "key", "base_url": "https://sub2.example"},
+				Extra:       map[string]any{BalanceCheckTypeExtraKey: BalanceCheckTypeSub2API},
+			}
+
+			svc.checkAccountBalance(context.Background(), account)
+
+			require.Len(t, repo.updateExtraCalls, 1)
+			require.Equal(t, tt.want, repo.updateExtraCalls[0].updates["balance"])
+			require.Equal(t, BalanceCheckTypeSub2API, repo.updateExtraCalls[0].updates[BalanceCheckTypeExtraKey])
+		})
+	}
+}
+
+func TestBalanceCheckService_UnknownTypeFallsBackToConfiguredAPI(t *testing.T) {
+	repo := &balanceCheckRepoStub{}
+	cfg := &config.Config{BalanceCheck: config.BalanceCheckConfig{BalanceURL: "https://configured.example/balance"}}
+	svc := NewBalanceCheckService(repo, cfg)
+	var paths []string
+	svc.httpClient = &http.Client{Transport: balanceRoundTripper(func(req *http.Request) (*http.Response, error) {
+		paths = append(paths, req.URL.String())
+		if req.URL.Host == "sub2.example" {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(`{}`)), Header: make(http.Header)}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"balance":31}`)), Header: make(http.Header)}, nil
+	})}
+	account := &Account{
+		ID:          403,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "key", "base_url": "https://sub2.example/api"},
+	}
+
+	svc.checkAccountBalance(context.Background(), account)
+
+	require.Equal(t, []string{"https://sub2.example/api/v1/usage", "https://configured.example/balance"}, paths)
+	require.Len(t, repo.updateExtraCalls, 1)
+	require.Equal(t, 31.0, repo.updateExtraCalls[0].updates["balance"])
+	require.Equal(t, BalanceCheckTypeConfiguredAPI, repo.updateExtraCalls[0].updates[BalanceCheckTypeExtraKey])
+}
+
+func TestBalanceCheckService_Sub2APIRedirectDoesNotLeakBearerKey(t *testing.T) {
+	var redirectedCalls atomic.Int32
+	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectedCalls.Add(1)
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("redirect target received Authorization header")
+		}
+		_, _ = io.WriteString(w, `{"balance":99}`)
+	}))
+	defer redirectTarget.Close()
+	redirectSource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirectTarget.URL+"/v1/usage", http.StatusFound)
+	}))
+	defer redirectSource.Close()
+
+	repo := &balanceCheckRepoStub{}
+	svc := NewBalanceCheckService(repo, nil)
+	account := &Account{
+		ID:          404,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "must-not-leak", "base_url": redirectSource.URL},
+		Extra:       map[string]any{BalanceCheckTypeExtraKey: BalanceCheckTypeSub2API},
+	}
+
+	svc.checkAccountBalance(context.Background(), account)
+
+	require.Zero(t, redirectedCalls.Load())
+	require.Empty(t, repo.updateExtraCalls)
+}
+
+func TestBalanceCheckRuntimeConfig_Sub2APIAccountsBypassLegacyQuotaMarker(t *testing.T) {
+	runtimeCfg := resolveBalanceCheckRuntimeConfig(nil)
+	typed := Account{
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "key", "base_url": "https://sub2.example"},
+		Extra:       map[string]any{BalanceCheckTypeExtraKey: BalanceCheckTypeSub2API},
+	}
+	untypedCandidate := Account{
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "key", "base_url": "https://sub2.example"},
+	}
+	legacyWithoutQuota := Account{
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "key"},
+		Extra:       map[string]any{BalanceCheckTypeExtraKey: BalanceCheckTypeConfiguredAPI},
+	}
+
+	require.True(t, runtimeCfg.isAccountEnabled(typed))
+	require.True(t, runtimeCfg.isAccountEnabled(untypedCandidate))
+	require.False(t, runtimeCfg.isAccountEnabled(legacyWithoutQuota))
 }

@@ -376,6 +376,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)
 		accounts.DELETE("/:id/temp-unschedulable", h.Admin.Account.ClearTempUnschedulable)
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
+		accounts.POST("/:id/super-priority", h.Admin.Account.SetAccountSuperPriority)
 		accounts.GET("/:id/scheduled-action", h.Admin.ScheduledAccountAction.Get)
 		accounts.PUT("/:id/scheduled-action", h.Admin.ScheduledAccountAction.Upsert)
 		accounts.DELETE("/:id/scheduled-action", h.Admin.ScheduledAccountAction.Delete)
@@ -526,6 +527,10 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, balance
 			adminSettings.GET("/balance-check", h.Admin.Setting.GetBalanceCheckSettings)
 			adminSettings.PUT("/balance-check", h.Admin.Setting.UpdateBalanceCheckSettings)
 		}
+		adminSettings.GET("/super-priority", h.Admin.Setting.GetSuperPrioritySettings)
+		adminSettings.PUT("/super-priority", h.Admin.Setting.UpdateSuperPrioritySettings)
+		adminSettings.POST("/super-priority/activate", h.Admin.Setting.ActivateSuperPriority)
+		adminSettings.POST("/super-priority/deactivate", h.Admin.Setting.DeactivateSuperPriority)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)

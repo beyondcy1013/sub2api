@@ -892,7 +892,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			}
 		}
 	}
-
 	// Reset 因子（use-it-or-lose-it）：在拥有「未来会话窗口结束时间」的账号中，
 	// 剩余时间越短 → 因子越接近 1（越早重置越优先用尽）。无活跃窗口的账号因子为 0。
 	// 仅在 weights.Reset > 0 时计算，默认关闭不影响原有行为。
@@ -987,6 +986,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
+	var cfg *config.Config
+	if s != nil && s.service != nil {
+		cfg = s.service.cfg
+	}
+	customPreference := usesCustomAccountSchedulingPreference(cfg)
 	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
@@ -1017,7 +1021,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if len(primary) == 0 {
 			primary = buildOpenAIWeightedSelectionOrder(ranked, req)
 		}
-		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
+		if (!plan.includeOverflowFallback && !customPreference) || groupTopK >= len(pool) {
 			return primary
 		}
 
@@ -1037,10 +1041,13 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		return append(primary, overflow...)
 	}
 
-	if req.RequireCompact {
-		supported := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
-		unknown := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
-		for _, candidate := range plan.candidates {
+	buildCapabilityOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if !req.RequireCompact {
+			return buildSelectionOrder(pool)
+		}
+		supported := make([]openAIAccountCandidateScore, 0, len(pool))
+		unknown := make([]openAIAccountCandidateScore, 0, len(pool))
+		for _, candidate := range pool {
 			switch openAICompactSupportTier(candidate.account) {
 			case 2:
 				supported = append(supported, candidate)
@@ -1048,16 +1055,76 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 				unknown = append(unknown, candidate)
 			}
 		}
-		selectionOrder := make([]openAIAccountCandidateScore, 0, len(plan.allCandidates))
+		selectionOrder := make([]openAIAccountCandidateScore, 0, len(pool))
 		selectionOrder = append(selectionOrder, buildSelectionOrder(supported)...)
 		selectionOrder = append(selectionOrder, buildSelectionOrder(unknown)...)
-		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
-			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
-		}
 		return selectionOrder
 	}
 
-	return buildSelectionOrder(plan.candidates)
+	buildSubscriptionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if !req.SubscriptionPriority {
+			return buildCapabilityOrder(pool)
+		}
+		subscription := make([]openAIAccountCandidateScore, 0, len(pool))
+		regular := make([]openAIAccountCandidateScore, 0, len(pool))
+		for _, candidate := range pool {
+			if candidate.account != nil && candidate.account.IsOpenAIChatGPTSubscription() {
+				subscription = append(subscription, candidate)
+			} else {
+				regular = append(regular, candidate)
+			}
+		}
+		selectionOrder := make([]openAIAccountCandidateScore, 0, len(pool))
+		selectionOrder = append(selectionOrder, buildCapabilityOrder(subscription)...)
+		selectionOrder = append(selectionOrder, buildCapabilityOrder(regular)...)
+		return selectionOrder
+	}
+
+	preferencePools := partitionOpenAICandidatesBySchedulingPreference(plan.candidates, cfg)
+	selectionOrder := make([]openAIAccountCandidateScore, 0, len(plan.allCandidates))
+	for _, pool := range preferencePools {
+		selectionOrder = append(selectionOrder, buildSubscriptionOrder(pool)...)
+	}
+	if req.RequireCompact && len(plan.staleSnapshotCompactRetry) > 0 && s != nil && s.service != nil && s.service.schedulerSnapshot != nil {
+		retry := sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)
+		orderOpenAICandidatesBySchedulingPreference(retry, cfg)
+		selectionOrder = append(selectionOrder, retry...)
+	}
+	return selectionOrder
+}
+
+func partitionOpenAICandidatesBySchedulingPreference(
+	candidates []openAIAccountCandidateScore,
+	cfg *config.Config,
+) [][]openAIAccountCandidateScore {
+	if len(candidates) == 0 {
+		return nil
+	}
+	ordered := append([]openAIAccountCandidateScore(nil), candidates...)
+	orderOpenAICandidatesBySchedulingPreference(ordered, cfg)
+	if !usesCustomAccountSchedulingPreference(cfg) {
+		return [][]openAIAccountCandidateScore{ordered}
+	}
+
+	pools := make([][]openAIAccountCandidateScore, 0, len(ordered))
+	start := 0
+	for i := 1; i <= len(ordered); i++ {
+		if i < len(ordered) && compareAccountSchedulingPreference(ordered[i-1].account, ordered[i].account, cfg) == 0 {
+			continue
+		}
+		pools = append(pools, ordered[start:i])
+		start = i
+	}
+	return pools
+}
+
+func orderOpenAICandidatesBySchedulingPreference(candidates []openAIAccountCandidateScore, cfg *config.Config) {
+	if len(candidates) < 2 || !usesCustomAccountSchedulingPreference(cfg) {
+		return
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return compareAccountSchedulingPreference(candidates[i].account, candidates[j].account, cfg) < 0
+	})
 }
 
 func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -1334,7 +1401,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 	}
 
-	if req.SubscriptionPriority {
+	if req.SubscriptionPriority && !usesCustomAccountSchedulingPreference(s.service.cfg) {
 		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
 		if len(subscriptionAccounts) > 0 {
 			attempt := s.trySelectByLoadBalancePool(ctx, req, subscriptionAccounts, loadMap, budget)
@@ -1405,7 +1472,7 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(
 	budget *openAISelectionProbeBudget,
 ) openAIAccountLoadSelectionAttempt {
 	plan := s.buildOpenAIAccountLoadPlan(ctx, req, filtered, loadMap)
-	if openAICostOverflowExpanded(req, plan) {
+	if openAICostOverflowExpanded(req, plan) || openAICustomPreferenceOverflowExpanded(s.service.cfg, plan) {
 		budget.enableLimit()
 	}
 	attempt := openAIAccountLoadSelectionAttempt{
@@ -1444,7 +1511,7 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(
 		loadReq := buildOpenAIAccountLoadRequest(filtered)
 		if freshLoadMap, loadErr := s.service.concurrencyService.GetAccountsLoadBatchFresh(ctx, loadReq); loadErr == nil {
 			freshPlan := s.buildOpenAIAccountLoadPlan(ctx, req, filtered, freshLoadMap)
-			if openAICostOverflowExpanded(req, freshPlan) {
+			if openAICostOverflowExpanded(req, freshPlan) || openAICustomPreferenceOverflowExpanded(s.service.cfg, freshPlan) {
 				budget.enableLimit()
 			}
 			if len(freshPlan.selectionOrder) > 0 {
@@ -1471,6 +1538,10 @@ func (s *defaultOpenAIAccountScheduler) trySelectByLoadBalancePool(
 	}
 
 	return attempt
+}
+
+func openAICustomPreferenceOverflowExpanded(cfg *config.Config, plan openAIAccountLoadPlan) bool {
+	return usesCustomAccountSchedulingPreference(cfg) && len(plan.selectionOrder) > plan.topK
 }
 
 func openAICostOverflowExpanded(req OpenAIAccountScheduleRequest, plan openAIAccountLoadPlan) bool {

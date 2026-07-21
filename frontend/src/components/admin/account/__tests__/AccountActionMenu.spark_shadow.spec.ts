@@ -76,6 +76,47 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
+  it('更多操作菜单不再重复显示已经外置的测试连接', () => {
+    const account = makeAccount({ platform: 'openai', type: 'oauth' })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).not.toContain('admin.accounts.testConnection')
+    wrapper.unmount()
+  })
+
+  it.each([
+    [false, 'admin.accounts.superPriorityMark'],
+    [true, 'admin.accounts.superPriorityUnmark'],
+  ])('在更多菜单中按当前标记显示超级优先操作', (enabled, label) => {
+    const account = makeAccount({ extra: { super_priority: enabled } })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    expect(getBodyText()).toContain(label)
+    wrapper.unmount()
+  })
+
+  it('点击超级优先操作触发 toggle-super-priority 事件', async () => {
+    const account = makeAccount({ extra: { super_priority: false } })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const button = getBodyButtons().find(item => item.textContent?.includes('admin.accounts.superPriorityMark'))
+    expect(button).toBeDefined()
+    button!.click()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('toggle-super-priority')?.[0]).toEqual([account])
+    wrapper.unmount()
+  })
+
   it('始终显示定时启用恢复和定时暂停调度入口', () => {
     const account = makeAccount({ status: 'error', schedulable: false })
     const wrapper = mount(AccountActionMenu, {

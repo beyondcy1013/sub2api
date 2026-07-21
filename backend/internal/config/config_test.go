@@ -381,6 +381,17 @@ func TestLoadDefaultBalanceCheckConfig(t *testing.T) {
 	require.True(t, *cfg.BalanceCheck.RequireQuotaHourlyLimit)
 }
 
+func TestLoadDefaultSuperPriorityConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "normal", cfg.SuperPriority.Mode)
+	require.Equal(t, "default", cfg.SuperPriority.BaseStrategy)
+	require.Equal(t, 2, cfg.SuperPriority.FailureThreshold)
+	require.Equal(t, "@every 1m", cfg.SuperPriority.CheckInterval)
+}
+
 func TestLoadBalanceCheckConfigFromEnvAllowsExplicitFalse(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("BALANCE_CHECK_ENABLED", "false")

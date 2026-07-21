@@ -46,6 +46,46 @@ func isOpenAICodexPlanGatedModelError(statusCode int, body []byte) bool {
 	return strings.Contains(normalized, openAICodexPlanGatedModelPhrase)
 }
 
+// openAIModelNotAllowed403Phrase matches upstream 403 responses that reject a
+// model the account's upstream group cannot serve, e.g. NewAPI-style
+// {"code":"model_not_allowed","message":"当前分组不支持模型「claude-fable-5」。支持的模型：..."}
+// or generic English "model is not allowed". Unlike an account health 403,
+// retrying the same account cannot succeed for that model, but the account is
+// fully healthy for every other supported model. Compared against the
+// normalized body (lowercased, "_"/"-" folded to spaces), matching the
+// deterministic phrases used across upstream vendors.
+const openAIModelNotAllowed403Phrase = "model is not allowed"
+const openAIModelNotAllowedGroupZhPhrase = "不支持模型"
+
+// isOpenAIModelNotAllowed403Error reports whether a 403 is a model-routing
+// rejection rather than an account health problem. Such 403s must NOT freeze
+// the whole account; instead the (account, model) pair is cooled down via
+// SetModelRateLimit, mirroring 404 model-not-found handling.
+func isOpenAIModelNotAllowed403Error(statusCode int, body []byte) bool {
+	if statusCode != http.StatusForbidden {
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" {
+		return false
+	}
+	// Vendor-specific Chinese "group does not support model" rejection.
+	if strings.Contains(string(body), openAIModelNotAllowedGroupZhPhrase) {
+		return true
+	}
+	// Structured code field, e.g. NewAPI {"code":"model_not_allowed"}.
+	if strings.Contains(normalized, "code model not allowed") {
+		return true
+	}
+	// English phrases: contiguous "model is not allowed" or a body that
+	// mentions both "model" and "not allowed" (the model name may sit between
+	// them, e.g. "The model claude-fable-5 is not allowed").
+	if strings.Contains(normalized, openAIModelNotAllowed403Phrase) || strings.Contains(normalized, "model not allowed") {
+		return true
+	}
+	return strings.Contains(normalized, "model") && strings.Contains(normalized, "not allowed")
+}
+
 func containsModelNotFoundKeyword(normalizedBody string) bool {
 	if normalizedBody == "" {
 		return false

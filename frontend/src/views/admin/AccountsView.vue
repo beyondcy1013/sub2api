@@ -149,6 +149,12 @@
                       </span>
                       <span class="flex-1 text-left">余额检测设置</span>
                     </button>
+                    <button class="account-tools-menu-item" @click="openSuperPriorityModal">
+                      <span class="account-tools-menu-icon bg-fuchsia-50 text-fuchsia-600 dark:bg-fuchsia-900/30 dark:text-fuchsia-300">
+                        <Icon name="sparkles" size="sm" />
+                      </span>
+                      <span class="flex-1 text-left">{{ t('admin.accounts.superPrioritySettings') }}</span>
+                    </button>
 
                     <div class="my-2 border-t border-gray-100 dark:border-gray-700"></div>
                     <div class="px-2 py-2">
@@ -217,13 +223,18 @@
           :columns="cols"
           :data="sortedAccounts"
           :loading="loading"
+          :sticky-first-column="false"
+          :sticky-actions-column="false"
+          compact-rows
+          single-line-cells
+          dynamic-column-widths
           row-key="id"
           :server-side-sort="true"
           @sort="handleSort"
           default-sort-key="name"
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
-          :estimate-row-height="156"
+          :estimate-row-height="36"
           :overscan="5"
           :virtualize-threshold="50"
         >
@@ -243,41 +254,40 @@
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
           </template>
           <template #cell-name="{ row, value }">
-            <div class="flex flex-col">
-              <HelpTooltip
+            <div class="inline-flex w-[176px] min-w-0 max-w-[176px] items-center gap-1 overflow-hidden whitespace-nowrap">
+              <a
                 v-if="accountHomepageUrl(row)"
-                :content="accountHomepageUrl(row)"
-                width-class="w-max max-w-sm break-all"
-                class="-ml-1 self-start"
+                :href="accountHomepageUrl(row)"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-test="account-name-value"
+                class="min-w-0 max-w-full shrink truncate whitespace-nowrap border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-gray-600 dark:text-white"
               >
-                <template #trigger>
-                  <a
-                    :href="accountHomepageUrl(row)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-gray-600 dark:text-white"
-                  >
-                    {{ value }}
-                  </a>
-                </template>
-              </HelpTooltip>
-              <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+                {{ value }}
+              </a>
+              <span
+                v-else
+                data-test="account-name-value"
+                class="min-w-0 max-w-full shrink truncate whitespace-nowrap font-medium text-gray-900 dark:text-white"
+              >
+                {{ value }}
+              </span>
               <span
                 v-if="shouldShowAccountDisplayEmail(row)"
-                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
+                class="min-w-0 shrink truncate whitespace-nowrap text-xs text-gray-500 dark:text-gray-400"
                 :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
               >
-                {{ accountDisplayEmail(row) }}
+                · {{ accountDisplayEmail(row) }}
               </span>
             </div>
           </template>
           <template #cell-notes="{ value }">
-            <span v-if="value" :title="value" class="block max-w-xs truncate text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
+            <span v-if="value" :title="value" class="whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-platform_type="{ row }">
-            <div class="flex min-w-0 flex-col gap-1">
-              <div class="flex flex-wrap items-center gap-1">
+            <div class="inline-flex items-center gap-1 whitespace-nowrap">
+              <div class="inline-flex flex-nowrap items-center gap-1">
                 <PlatformTypeBadge :platform="row.platform" :type="row.type"
                   :auth-mode="getOpenAIAuthMode(row)"
                   :plan-type="getAccountPlanType(row)"
@@ -367,7 +377,7 @@
             </span>
           </template>
           <template #cell-usage_cost="{ row }">
-            <div v-if="getUsageCostLines(row).length" class="space-y-0.5 text-xs text-gray-700 dark:text-gray-300">
+            <div v-if="getUsageCostLines(row).length" class="inline-flex items-center gap-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
               <div v-for="line in getUsageCostLines(row)" :key="line.label" class="whitespace-nowrap">
                 <span class="mr-1 text-gray-400 dark:text-gray-500">{{ line.label }}</span>
                 <span class="font-mono">A {{ formatCurrency(line.stats.cost) }}</span>
@@ -403,7 +413,7 @@
             />
           </template>
           <template #cell-proxy="{ row }">
-            <div class="flex flex-col gap-1">
+            <div class="inline-flex items-center gap-2 whitespace-nowrap">
               <div v-if="row.proxy" class="flex items-center gap-2">
                 <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
                 <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
@@ -455,14 +465,14 @@
             </div>
           </template>
           <template #cell-scheduler_score="{ row }">
-            <div v-if="getSchedulerScoreRows(row).length" class="flex min-w-[7rem] flex-col gap-0.5 font-mono text-[11px] leading-4">
+            <div v-if="getSchedulerScoreRows(row).length" class="inline-flex min-w-[7rem] items-center gap-2 whitespace-nowrap font-mono text-[11px] leading-4">
               <div
                 v-for="score in getSchedulerScoreRows(row)"
                 :key="String(score.group_id)"
                 class="flex items-center gap-1 whitespace-nowrap text-gray-700 dark:text-gray-300"
                 :title="`${formatSchedulerScoreGroup(score)} / ${formatSchedulerScore(score.base_score)} / ${formatStickySchedulerScore(score)}`"
               >
-                <span class="max-w-[4.75rem] truncate text-gray-500 dark:text-dark-400">{{ formatSchedulerScoreGroup(score) }}</span>
+                <span class="whitespace-nowrap text-gray-500 dark:text-dark-400">{{ formatSchedulerScoreGroup(score) }}</span>
                 <span class="text-gray-300 dark:text-gray-600">/</span>
                 <span>{{ formatSchedulerScore(score.base_score) }}</span>
                 <span class="text-gray-300 dark:text-gray-600">/</span>
@@ -478,7 +488,7 @@
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
           </template>
           <template #cell-expires_at="{ row, value }">
-            <div class="flex flex-col items-start gap-1">
+            <div class="inline-flex items-center gap-1 whitespace-nowrap">
               <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatExpiresAt(value) }}</span>
               <div v-if="isExpired(value) || (row.auto_pause_on_expired && value)" class="flex items-center gap-1">
                 <span
@@ -497,26 +507,56 @@
             </div>
           </template>
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1">
+            <div class="flex flex-nowrap items-center gap-1 whitespace-nowrap">
               <template v-if="recycled">
-                <button @click="handleRestore(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400">
+                <button
+                  @click="handleRestore(row)"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+                  :title="t('admin.accounts.restore')"
+                  :aria-label="t('admin.accounts.restore')"
+                >
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
-                  <span class="text-xs">{{ t('admin.accounts.restore') }}</span>
+                  <span class="sr-only">{{ t('admin.accounts.restore') }}</span>
                 </button>
               </template>
               <template v-else>
-                <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                  <span class="text-xs">{{ t('common.edit') }}</span>
+                <button
+                  @click="handleEdit(row)"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                  :title="t('common.edit')"
+                  :aria-label="t('common.edit')"
+                >
+                  <Icon name="edit" size="sm" :stroke-width="1.5" />
+                  <span class="sr-only">{{ t('common.edit') }}</span>
                 </button>
-                <button @click="handleRecycle(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-900/20 dark:hover:text-amber-400">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                  <span class="text-xs">{{ t('admin.accounts.recycle') }}</span>
+                <button
+                  data-test="account-test-action"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+                  :title="t('admin.accounts.testConnection')"
+                  :aria-label="t('admin.accounts.testConnection')"
+                  @click="handleTest(row)"
+                >
+                  <Icon name="play" size="sm" :stroke-width="1.5" />
+                  <span class="sr-only">{{ t('admin.accounts.testConnection') }}</span>
+                </button>
+                <button
+                  @click="handleRecycle(row)"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-900/20 dark:hover:text-amber-400"
+                  :title="t('admin.accounts.recycle')"
+                  :aria-label="t('admin.accounts.recycle')"
+                >
+                  <Icon name="trash" size="sm" :stroke-width="1.5" />
+                  <span class="sr-only">{{ t('admin.accounts.recycle') }}</span>
                 </button>
               </template>
-              <button @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
-                <span class="text-xs">{{ t('common.more') }}</span>
+              <button
+                @click="openMenu(row, $event)"
+                class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
+                :title="t('common.more')"
+                :aria-label="t('common.more')"
+              >
+                <Icon name="more" size="sm" :stroke-width="1.5" />
+                <span class="sr-only">{{ t('common.more') }}</span>
               </button>
             </div>
           </template>
@@ -529,11 +569,12 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <SuperPrioritySettingsModal :show="showSuperPriority" @close="closeSuperPriorityModal" @changed="reload" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @toggle-super-priority="handleToggleSuperPriority" @delete="handleDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -591,6 +632,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import EnhancedImportDataModal from '@/components/admin/account/EnhancedImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
+import SuperPrioritySettingsModal from '@/components/admin/account/SuperPrioritySettingsModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
@@ -690,6 +732,7 @@ const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
+const showSuperPriority = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
 const showScheduledAction = ref(false)
@@ -1667,15 +1710,14 @@ function getAntigravityTierClass(row: any): string {
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false, width: '36px' },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '126px' },
+    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '176px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
-    { key: 'five_hour_utilization', label: t('admin.accounts.columns.fiveHourUtilization'), sortable: true, width: '108px' },
-    { key: 'five_hour_reset', label: t('admin.accounts.columns.fiveHour'), sortable: true, width: '72px' },
     { key: 'seven_day_utilization', label: t('admin.accounts.columns.sevenDayUtilization'), sortable: true, width: '108px' },
     { key: 'seven_day_reset', label: t('admin.accounts.columns.sevenDay'), sortable: true, width: '72px' }
   ]
@@ -1702,7 +1744,8 @@ const allColumns = computed(() => {
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, width: '130px' },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
-    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
+    { key: 'five_hour_utilization', label: t('admin.accounts.columns.fiveHourUtilization'), sortable: true, width: '108px' },
+    { key: 'five_hour_reset', label: t('admin.accounts.columns.fiveHour'), sortable: true, width: '72px' }
   )
   return c
 })
@@ -2322,6 +2365,8 @@ const handleExportData = async () => {
 }
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
+const openSuperPriorityModal = () => { showSuperPriority.value = true }
+const closeSuperPriorityModal = () => { showSuperPriority.value = false }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeStickySessionsModal = () => { showStickySessions.value = false; stickySessionsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
@@ -2486,6 +2531,19 @@ const handleRestore = async (a: Account) => {
     console.error('Failed to restore account:', error)
   }
 }
+
+const handleToggleSuperPriority = async (a: Account) => {
+  const next = a.extra?.super_priority !== true
+  try {
+    await adminAPI.accounts.setSuperPriority(a.id, next)
+    reload()
+    appStore.showSuccess(next ? t('admin.accounts.superPriorityMarked') : t('admin.accounts.superPriorityUnmarked'))
+  } catch (error) {
+    console.error('Failed to toggle super priority:', error)
+    appStore.showError(t('admin.accounts.failedToToggleSuperPriority'))
+  }
+}
+
 const handleToggleSchedulable = async (a: Account) => {
   const nextSchedulable = !a.schedulable
   togglingSchedulable.value = a.id

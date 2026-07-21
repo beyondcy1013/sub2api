@@ -75,6 +75,14 @@ Both profiles must preserve all of the following:
 - Account recycle/restore uses `extra.recycled`; it does not use soft delete.
 - Normal account lists exclude recycled rows; recycle-bin lists include only
   recycled rows.
+- Active rows expose `编辑`, `测试连接`, `回收`, and `更多` directly in that order.
+  The more menu does not duplicate `测试连接`.
+- The account test dialog defaults `自动测试` to enabled, starts only after a
+  default model has loaded, and persists the operator preference in browser
+  storage under `sub2api.account-test.auto-start`.
+- Account names remain inside the fixed-width name cell with single-line
+  truncation and overflow clipping. They do not open a teleported hover
+  tooltip.
 - Status, groups, and capacity cells use plain text rather than badge/card
   styling.
 - Usage auto-load runs only for active accounts; manual refresh remains
@@ -108,21 +116,34 @@ Both profiles must preserve all of the following:
 
 ## Shared Account Table Contract
 
-- Selection column: `36px`.
-- Name column: `126px`.
-- Status column: `80px`.
-- Account ID column: `130px`.
-- Platform/type column: `170px`.
-- The free-visible balance column: `70px`.
-- Fixed-width cells apply `width`, `minWidth`, and `maxWidth`.
+- Selection column minimum: `36px`.
+- Name column and its inner content: fixed at `176px`; long names truncate.
+- Status column minimum: `80px`.
+- Account ID column minimum: `130px`.
+- Platform/type column minimum: `170px`.
+- The free-visible balance column minimum: `70px`.
+- `AccountsView.vue` opts into `DataTable`'s `single-line-cells` and
+  `dynamic-column-widths` modes. Desktop headers and all cell content remain on
+  one line; stacked/wrapped cell layouts are flattened horizontally.
+- In dynamic mode, declared widths apply only as `minWidth` at the table-cell
+  level. Other content may expand columns and the table uses horizontal
+  scrolling when it exceeds the viewport, while the name slot keeps an inner
+  `176px` cap and truncates overflow. Other `DataTable` consumers retain fixed
+  `width`/`minWidth`/`maxWidth` behavior.
 - Headers, labels, and sort indicators remain single-line and non-shrinking.
 - Custom header slots do not suppress sortable-column indicators.
 - First and last cells use `4px` outer padding.
 - Non-final columns retain vertical separators in light and dark modes.
-- Leading columns keep `schedulable -> usage -> platform/type`. After created
+- The account table enables `compact-rows`; desktop loading and data cells use
+  `2px` top/bottom padding without changing the default density of other tables.
+- Direct account actions use single-line `24px` icon buttons with accessible
+  labels/tooltips so the action column does not force a taller row.
+- Leading columns keep `actions -> name -> schedulable -> usage -> platform/type`. After today
+  stats, keep 7d utilization (`7d(%)`) -> 7d reset. After created
   time, keep today cost -> groups (when visible) -> balance -> 5h/7d
   request/token -> window cost. The ending order is account ID -> upstream
-  declared rate -> actions.
+  declared rate -> 5h utilization (`5h(%)`) -> 5h reset. The account table
+  disables sticky positioning because actions precede the name column.
 - Filters are hidden by default behind the filters toggle.
 - Sidebar width remains `154px` expanded and `67px` collapsed.
 
@@ -163,6 +184,14 @@ The `free` profile must preserve:
   account pause/resume behavior;
 - the configurable balance URL, interval, timeout, concurrency, pause/stop/
   resume thresholds, and quota-hourly-limit requirement;
+- per-account hidden balance detector classification in
+  `extra.balance_check_type`: `sub2api` uses the account `base_url` normalized
+  to `/v1/usage`, while `configured_api` preserves the configured balance API;
+  unclassified custom API-key accounts probe sub2api once and then persist the
+  successful type together with `extra.balance` in one update;
+- sub2api balance parsing accepts wallet `balance`, top-level `remaining`, or
+  `quota.remaining`; its HTTP client refuses redirects so an account Bearer key
+  cannot be forwarded to a different redirect target;
 - Redis scheduler key prefix `sub2freeApi`;
 - account clone API support.
 
@@ -187,6 +216,62 @@ Any failed live check rolls back only the affected service. Keep repository
 bundles, backup branches, patches, archives, and old binaries until all tests
 and both live matrices pass.
 
+## Super Priority Mode (超级优先)
+
+Global state machine layered on top of the normal `schedulable` account flag.
+
+- Per-account flag lives in the account `extra` JSONB under key `super_priority`
+  (bool). Toggling it enqueues a scheduler snapshot update because the flag is
+  evaluated at request time by the preference overlay; it must not be added to
+  `schedulerNeutralExtraKeys`.
+- Global mode + runtime params persist in the `super_priority` section of the
+  YAML `config.yaml` (mirrors `balance_check`), backed by
+  `config.SuperPriorityConfig` and viper defaults (`mode=normal`,
+  `base_strategy=default`, `failure_threshold=2`,
+  `check_interval=@every 1m`).
+- `SuperPriorityService` (`backend/internal/service/super_priority_service.go`)
+  owns the overlay state machine. `Activate` and `Deactivate` only switch the
+  request-time preference overlay and never rewrite persisted `schedulable`
+  state. `RecordFailure` tracks a rolling 1-minute per-account failure window
+  and signals demotion at `failure_threshold`.
+- The base strategy is `default` or `lowest_cost`; lowest-cost tiers use the
+  account's persisted `rate_multiplier`. When the overlay is active,
+  flagged accounts form the first strict preference tier; when that tier is
+  unavailable or full, scheduling naturally falls back to ordinary accounts
+  under the selected base strategy. Existing priority, load, LRU, compact,
+  capability, and bounded-wait rules remain the tie-breakers inside a tier.
+- `SuperPriorityRunner` (`super_priority_runner.go`) uses a cron ticker with the
+  `@every`/descriptor parser, probes flagged accounts via
+  `AccountTestService.RunTestBackground`, and auto-demotes on threshold.
+- Both are wired in `backend/internal/service/wire.go` (providers + Start) and
+  `backend/cmd/server/wire.go` `provideCleanup` (graceful Stop). Handler setters
+  live on `SettingHandler.SetSuperPriorityService` and
+  `AccountHandler.SetSuperPriorityService`.
+- Routes: `GET|PUT /api/v1/admin/settings/super-priority`,
+  `POST /api/v1/admin/settings/super-priority/activate`,
+  `POST /api/v1/admin/settings/super-priority/deactivate`,
+  `POST /api/v1/admin/accounts/:id/super-priority` (registered in
+  `backend/internal/server/routes/admin.go`).
+- Frontend: `frontend/src/api/admin/superPriority.ts` + `accounts.setSuperPriority`;
+  `AccountActionMenu.vue` exposes the per-account 超级优先 action and
+  `AccountsView.vue` keeps the settings entry in the account-tools menu;
+  `AccountStatusIndicator.vue` shows the 超级优先 status text/color when
+  `extra.super_priority` is set; `SuperPrioritySettingsModal.vue` exposes mode
+  toggle, base strategy, threshold/interval, and test-model parameters.
+
+When active, a flagged account's status must display as 超级优先 (fuchsia),
+not 正常/暂停. The direct action order stays
+`编辑` -> `测试连接` -> `回收` -> `更多`; the 超级优先 action remains in
+the more menu so row height and width stay compact.
+
+Focused regression verification:
+
+```bash
+cd /home/third_party/sub2api/backend && go test ./internal/service/ -run 'Test(SuperPriority|FilterByAccountSchedulingPreference|OrderAccountsBySchedulingPreference|BuildOpenAISelectionOrder_)' -count=1
+cd /home/third_party/sub2api/backend && go test -tags unit ./internal/service/ -run 'TestBalanceCheckService|TestBalanceCheckRuntimeConfig' -count=1
+cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/admin/account/__tests__/SuperPrioritySettingsModal.spec.ts src/views/admin/__tests__/AccountsView.recycleDelete.spec.ts
+```
+
 ## Required Verification
 
 Backend focused tests must cover:
@@ -209,7 +294,7 @@ Frontend focused tests must cover:
   summary, and single-request merging without exposing pasted credentials;
 - plaintext API-key editing;
 - active-only usage auto-load;
-- DataTable width/header/sort contracts;
+- DataTable width/header/sort/density contracts;
 - account table columns and bulk actions;
 - compact usage windows, complete zero-valued usage columns, reset labels, and
   bulk active-usage refresh scope/concurrency/partial-failure behavior;

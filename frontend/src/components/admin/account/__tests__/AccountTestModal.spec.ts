@@ -2,6 +2,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
 
+const AUTO_TEST_STORAGE_KEY = 'sub2api.account-test.auto-start'
+
+let storage: Map<string, string>
+
 const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
   copyToClipboard: vi.fn()
@@ -94,12 +98,16 @@ describe('AccountTestModal', () => {
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
     ])
     copyToClipboard.mockReset()
+    storage = new Map([
+      ['auth_token', 'test-token'],
+      [AUTO_TEST_STORAGE_KEY, 'false']
+    ])
     Object.defineProperty(globalThis, 'localStorage', {
       value: {
-        getItem: vi.fn((key: string) => (key === 'auth_token' ? 'test-token' : null)),
-        setItem: vi.fn(),
-        removeItem: vi.fn(),
-        clear: vi.fn()
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => storage.set(key, value)),
+        removeItem: vi.fn((key: string) => storage.delete(key)),
+        clear: vi.fn(() => storage.clear())
       },
       configurable: true
     })
@@ -114,6 +122,41 @@ describe('AccountTestModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('首次打开时默认在模型加载完成后自动开始测试', async () => {
+    storage.delete(AUTO_TEST_STORAGE_KEY)
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="account-test-auto-start"]').element).toMatchObject({ checked: true })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toMatchObject({
+      model_id: 'gemini-3.1-flash-image'
+    })
+  })
+
+  it('切换自动测试后立即保存，并在下次打开时使用该配置', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    const autoTest = wrapper.get('[data-test="account-test-auto-start"]')
+    expect((autoTest.element as HTMLInputElement).checked).toBe(false)
+    await autoTest.setValue(true)
+
+    expect(localStorage.setItem).toHaveBeenCalledWith(AUTO_TEST_STORAGE_KEY, 'true')
+
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {

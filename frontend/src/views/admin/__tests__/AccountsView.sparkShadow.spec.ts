@@ -5,7 +5,6 @@ import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import HelpTooltip from '@/components/common/HelpTooltip.vue'
 
 // 外审 F2:AccountActionMenu emit 'create-spark-shadow',但 AccountsView 此前未监听,
 // 导致按钮点击无效。本测试通过真实组件引用 emit 该事件,断言父页面接线调用 API。
@@ -329,17 +328,17 @@ describe('admin AccountsView — 账号行展示', () => {
       href: 'https://relay.example.com',
       target: '_blank',
       rel: 'noopener noreferrer',
+      'data-test': 'account-name-value',
     })
     expect(link.classes()).toEqual(expect.arrayContaining([
       'border-dotted',
+      'max-w-full',
+      'truncate',
       'text-gray-900',
       'dark:text-white',
     ]))
     expect(link.classes()).not.toContain('text-primary-600')
-    const tooltip = wrapper.findComponent(HelpTooltip)
-    expect(tooltip.props('content')).toBe('https://relay.example.com')
-    expect(tooltip.props('widthClass')).toBe('w-max max-w-sm break-all')
-    expect(tooltip.classes()).toEqual(expect.arrayContaining(['self-start']))
+    expect(wrapper.findAll('[data-test="account-name-value"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('oauth-account')
     expect(wrapper.text()).toContain('invalid-url')
 

@@ -80,6 +80,7 @@ type Config struct {
 	GoogleOAuth             EmailOAuthProviderConfig      `mapstructure:"google_oauth"`
 	Default                 DefaultConfig                 `mapstructure:"default"`
 	BalanceCheck            BalanceCheckConfig            `mapstructure:"balance_check"`
+	SuperPriority           SuperPriorityConfig           `mapstructure:"super_priority"`
 	RateLimit               RateLimitConfig               `mapstructure:"rate_limit"`
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
@@ -1433,6 +1434,27 @@ type BalanceCheckConfig struct {
 	RequireQuotaHourlyLimit *bool   `mapstructure:"require_quota_hourly_limit"`
 }
 
+// SuperPriorityConfig controls the base account-selection strategy and the
+// optional super-priority candidate overlay.
+type SuperPriorityConfig struct {
+	// Mode 当前模式："normal"（默认）或 "super_priority"。
+	Mode string `mapstructure:"mode" yaml:"mode"`
+	// BaseStrategy 基础调度策略："default" 或 "lowest_cost"。
+	BaseStrategy string `mapstructure:"base_strategy" yaml:"base_strategy"`
+	// FailureThreshold 一分钟滚动窗口内允许的失败次数，达到即降级。默认 2。
+	FailureThreshold int `mapstructure:"failure_threshold" yaml:"failure_threshold"`
+	// CheckInterval 定时探测 cron 表达式，默认 "@every 1m"。
+	CheckInterval string `mapstructure:"check_interval" yaml:"check_interval"`
+	// TestModelID 探测对话使用的模型；空则复用各平台 DefaultTestModel。
+	TestModelID string `mapstructure:"test_model_id" yaml:"test_model_id"`
+	// TestPrompt 探测对话 prompt，空则复用测试连接默认 prompt。
+	TestPrompt string `mapstructure:"test_prompt" yaml:"test_prompt"`
+	// DemotedAt 最近一次自动降级的时间戳（RFC3339），用于 UI 展示。
+	DemotedAt string `mapstructure:"demoted_at" yaml:"demoted_at"`
+	// ActivatedAt 最近一次激活超级优先模式的时间戳（RFC3339）。
+	ActivatedAt string `mapstructure:"activated_at" yaml:"activated_at"`
+}
+
 type RateLimitConfig struct {
 	OverloadCooldownMinutes int `mapstructure:"overload_cooldown_minutes"`  // 529过载冷却时间(分钟)
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
@@ -2009,6 +2031,14 @@ func setDefaults() {
 	viper.SetDefault("balance_check.stop_when_current_below", 0)
 	viper.SetDefault("balance_check.resume_when_current_above", 0)
 	viper.SetDefault("balance_check.require_quota_hourly_limit", true)
+
+	// SuperPriority 默认处于 normal 模式；failure_threshold 默认 2（一分钟内失败 2 次降级）。
+	viper.SetDefault("super_priority.mode", "normal")
+	viper.SetDefault("super_priority.base_strategy", "default")
+	viper.SetDefault("super_priority.failure_threshold", 2)
+	viper.SetDefault("super_priority.check_interval", "@every 1m")
+	viper.SetDefault("super_priority.test_model_id", "")
+	viper.SetDefault("super_priority.test_prompt", "")
 
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)

@@ -1,8 +1,8 @@
 <template>
   <div v-if="groups && groups.length > 0" class="relative">
-    <!-- Plain text group names (comma-separated), truncated to fit -->
+    <!-- Plain text group names (comma-separated), kept on one line in account tables. -->
     <div class="flex items-center gap-1">
-      <span class="text-xs text-gray-700 dark:text-gray-300 truncate max-w-44">
+      <span class="whitespace-nowrap text-xs text-gray-700 dark:text-gray-300">
         {{ displayGroups.map(g => g.name).join(', ') }}
       </span>
       <button

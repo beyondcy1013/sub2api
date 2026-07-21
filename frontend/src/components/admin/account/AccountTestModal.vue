@@ -11,14 +11,14 @@
         v-if="account"
         class="flex items-center justify-between rounded-xl border border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 p-3 dark:border-dark-500 dark:from-dark-700 dark:to-dark-600"
       >
-        <div class="flex items-center gap-3">
+        <div class="flex min-w-0 items-center gap-3">
           <div
-            class="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600"
           >
             <Icon name="play" size="md" class="text-white" :stroke-width="2" />
           </div>
-          <div>
-            <div class="font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
+          <div class="min-w-0">
+            <div class="truncate font-semibold text-gray-900 dark:text-gray-100">{{ account.name }}</div>
             <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
               <span
                 class="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium uppercase dark:bg-dark-500"
@@ -31,7 +31,7 @@
         </div>
         <span
           :class="[
-            'rounded-full px-2.5 py-1 text-xs font-semibold',
+            'ml-3 shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
             account.status === 'active'
               ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
               : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
@@ -196,46 +196,58 @@
     </div>
 
     <template #footer>
-      <div class="flex justify-end gap-3">
-        <button
-          @click="handleClose"
-          class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
-        >
-          {{ t('common.close') }}
-        </button>
-        <button
-          @click="startTest"
-          :disabled="status === 'connecting' || !selectedModelId"
-          :class="[
-            'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-            status === 'connecting' || !selectedModelId
-              ? 'cursor-not-allowed bg-primary-400 text-white'
-              : status === 'success'
-                ? 'bg-green-500 text-white hover:bg-green-600'
-                : status === 'error'
-                  ? 'bg-orange-500 text-white hover:bg-orange-600'
-                  : 'bg-primary-500 text-white hover:bg-primary-600'
-          ]"
-        >
-          <Icon
-            v-if="status === 'connecting'"
-            name="refresh"
-            size="sm"
-            class="animate-spin"
-            :stroke-width="2"
+      <div class="flex w-full flex-wrap items-center justify-between gap-3">
+        <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <input
+            v-model="autoStartTest"
+            type="checkbox"
+            data-test="account-test-auto-start"
+            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            @change="persistAutoStartTest"
           />
-          <Icon v-else-if="status === 'idle'" name="play" size="sm" :stroke-width="2" />
-          <Icon v-else name="refresh" size="sm" :stroke-width="2" />
-          <span>
-            {{
-              status === 'connecting'
-                ? t('admin.accounts.testing')
-                : status === 'idle'
-                  ? t('admin.accounts.startTest')
-                  : t('admin.accounts.retry')
-            }}
-          </span>
-        </button>
+          <span>{{ t('admin.accounts.autoTest') }}</span>
+        </label>
+        <div class="flex items-center gap-3">
+          <button
+            @click="handleClose"
+            class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+          >
+            {{ t('common.close') }}
+          </button>
+          <button
+            @click="startTest"
+            :disabled="status === 'connecting' || !selectedModelId"
+            :class="[
+              'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
+              status === 'connecting' || !selectedModelId
+                ? 'cursor-not-allowed bg-primary-400 text-white'
+                : status === 'success'
+                  ? 'bg-green-500 text-white hover:bg-green-600'
+                  : status === 'error'
+                    ? 'bg-orange-500 text-white hover:bg-orange-600'
+                    : 'bg-primary-500 text-white hover:bg-primary-600'
+            ]"
+          >
+            <Icon
+              v-if="status === 'connecting'"
+              name="refresh"
+              size="sm"
+              class="animate-spin"
+              :stroke-width="2"
+            />
+            <Icon v-else-if="status === 'idle'" name="play" size="sm" :stroke-width="2" />
+            <Icon v-else name="refresh" size="sm" :stroke-width="2" />
+            <span>
+              {{
+                status === 'connecting'
+                  ? t('admin.accounts.testing')
+                  : status === 'idle'
+                    ? t('admin.accounts.startTest')
+                    : t('admin.accounts.retry')
+              }}
+            </span>
+          </button>
+        </div>
       </div>
     </template>
   </BaseDialog>
@@ -256,6 +268,7 @@ import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
+const AUTO_TEST_STORAGE_KEY = 'sub2api.account-test.auto-start'
 
 interface OutputLine {
   text: string
@@ -289,6 +302,21 @@ let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
 const testMode = ref<'default' | 'compact'>('default')
+const readAutoStartTest = () => {
+  try {
+    return localStorage.getItem(AUTO_TEST_STORAGE_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+const autoStartTest = ref(readAutoStartTest())
+const persistAutoStartTest = () => {
+  try {
+    localStorage.setItem(AUTO_TEST_STORAGE_KEY, String(autoStartTest.value))
+  } catch (error) {
+    console.warn('Failed to persist account auto-test preference:', error)
+  }
+}
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
@@ -326,10 +354,19 @@ watch(
   () => props.show,
   async (newVal) => {
     if (newVal && props.account) {
+      const openedAccountId = props.account.id
       testPrompt.value = ''
       testMode.value = 'default'
       resetState()
       await loadAvailableModels()
+      if (
+        props.show &&
+        props.account?.id === openedAccountId &&
+        autoStartTest.value &&
+        selectedModelId.value
+      ) {
+        await startTest()
+      }
     } else {
       abortStream()
     }

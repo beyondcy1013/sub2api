@@ -150,10 +150,34 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		for k, v := range excludedIDs {
 			localExcluded[k] = v
 		}
+		customPreference := s.concurrencyService != nil && usesCustomAccountSchedulingPreference(s.cfg)
+		var fullAccounts []*Account
 
 		for {
 			account, err := s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, localExcluded)
 			if err != nil {
+				if customPreference {
+					if fallback := s.selectLegacyCustomPreferenceWaitAccount(ctx, fullAccounts, sessionHash); fallback != nil {
+						if sessionHash != "" && s.cache != nil {
+							_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, fallback.ID, stickySessionTTL)
+						}
+						waitTimeout := cfg.FallbackWaitTimeout
+						maxWaiting := cfg.FallbackMaxWaiting
+						if stickyAccountID > 0 && stickyAccountID == fallback.ID {
+							waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, fallback.ID)
+							if waitingCount < cfg.StickySessionMaxWaiting {
+								waitTimeout = cfg.StickySessionWaitTimeout
+								maxWaiting = cfg.StickySessionMaxWaiting
+							}
+						}
+						return s.newSelectionResult(ctx, fallback, false, nil, &AccountWaitPlan{
+							AccountID:      fallback.ID,
+							MaxConcurrency: fallback.Concurrency,
+							Timeout:        waitTimeout,
+							MaxWaiting:     maxWaiting,
+						})
+					}
+				}
 				return nil, err
 			}
 
@@ -166,6 +190,12 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					continue                               // 重新选择
 				}
 				return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+			}
+
+			if customPreference {
+				fullAccounts = append(fullAccounts, account)
+				localExcluded[account.ID] = struct{}{}
+				continue
 			}
 
 			// 对于等待计划的情况，也需要先检查会话限制
@@ -683,8 +713,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
 		for len(available) > 0 {
-			// 1. 取优先级最小的集合
-			candidates := filterByMinPriority(available)
+			// 1. 先应用超级优先/低费率外层偏好，再进入原有分层选择。
+			candidates := filterByAccountSchedulingPreference(available, s.cfg)
+			candidates = filterByMinPriority(candidates)
 			// 2. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
 			if cfg.PreferSoonestReset {
 				candidates = filterBySoonestReset(candidates)
@@ -739,9 +770,34 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	return nil, ErrNoAvailableAccounts
 }
 
+func (s *GatewayService) selectLegacyCustomPreferenceWaitAccount(ctx context.Context, fullAccounts []*Account, sessionHash string) *Account {
+	ordered := fullAccounts
+	if superPrioritySchedulingActive(s.cfg) {
+		ordered = make([]*Account, 0, len(fullAccounts))
+		for _, account := range fullAccounts {
+			if !accountHasSuperPriority(account) {
+				ordered = append(ordered, account)
+			}
+		}
+		for _, account := range fullAccounts {
+			if accountHasSuperPriority(account) {
+				ordered = append(ordered, account)
+			}
+		}
+	}
+
+	for _, account := range ordered {
+		if s.checkAndRegisterSession(ctx, account, sessionHash) {
+			return account
+		}
+	}
+	return nil
+}
+
 func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
 	ordered := append([]*Account(nil), candidates...)
 	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
+	orderAccountsBySchedulingPreference(ordered, s.cfg)
 
 	for _, acc := range ordered {
 		result, err := s.tryAcquireAccountSlot(ctx, acc.ID, acc.Concurrency)
@@ -1674,6 +1730,7 @@ func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOA
 		// 默认按最后使用时间排序
 		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
 	}
+	orderAccountsBySchedulingPreference(accounts, s.cfg)
 }
 
 // sortAccountsByPriorityOnly 仅按优先级排序
@@ -1820,6 +1877,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				selected = acc
 				continue
 			}
+			if preference := compareAccountSchedulingPreference(acc, selected, s.cfg); preference != 0 {
+				if preference < 0 {
+					selected = acc
+				}
+				continue
+			}
 			if acc.Priority < selected.Priority {
 				selected = acc
 			} else if acc.Priority == selected.Priority {
@@ -1932,6 +1995,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		}
 		if selected == nil {
 			selected = acc
+			continue
+		}
+		if preference := compareAccountSchedulingPreference(acc, selected, s.cfg); preference != 0 {
+			if preference < 0 {
+				selected = acc
+			}
 			continue
 		}
 		if acc.Priority < selected.Priority {
@@ -2080,6 +2149,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				selected = acc
 				continue
 			}
+			if preference := compareAccountSchedulingPreference(acc, selected, s.cfg); preference != 0 {
+				if preference < 0 {
+					selected = acc
+				}
+				continue
+			}
 			if acc.Priority < selected.Priority {
 				selected = acc
 			} else if acc.Priority == selected.Priority {
@@ -2193,6 +2268,12 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		}
 		if selected == nil {
 			selected = acc
+			continue
+		}
+		if preference := compareAccountSchedulingPreference(acc, selected, s.cfg); preference != 0 {
+			if preference < 0 {
+				selected = acc
+			}
 			continue
 		}
 		if acc.Priority < selected.Priority {

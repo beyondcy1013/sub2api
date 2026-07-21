@@ -95,10 +95,14 @@
     class="table-wrapper"
     :class="{
       'actions-expanded': actionsExpanded,
-      'is-scrollable': isScrollable
+      'is-scrollable': isScrollable,
+      'single-line-cells': singleLineCells
     }"
   >
-    <table class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700">
+    <table
+      class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700"
+      :class="{ 'content-sized-columns': dynamicColumnWidths }"
+    >
       <thead class="table-header bg-gray-50 dark:bg-dark-800">
         <tr>
           <th
@@ -121,7 +125,7 @@
             :key="column.key"
             scope="col"
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
-            :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
+            :style="getColumnStyle(column)"
             :class="[
               'sticky-header-cell whitespace-nowrap py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
               getAdaptivePaddingClass(),
@@ -169,10 +173,13 @@
       <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
         <!-- Loading skeleton -->
         <tr v-if="loading" v-for="i in 5" :key="i">
-          <td v-if="selectable" class="w-9 min-w-9 max-w-9 px-1 py-4">
+          <td
+            v-if="selectable"
+            :class="['w-9 min-w-9 max-w-9 px-1', compactRows ? 'py-0.5' : 'py-4']"
+          >
             <div class="mx-auto h-4 w-4 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
           </td>
-          <td v-for="column in columns" :key="column.key" :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
+          <td v-for="column in columns" :key="column.key" :style="getColumnStyle(column)" :class="['whitespace-nowrap', compactRows ? 'py-0.5' : 'py-4', getAdaptivePaddingClass()]">
             <div class="animate-pulse">
               <div class="h-4 w-3/4 rounded bg-gray-200 dark:bg-dark-700"></div>
             </div>
@@ -220,7 +227,10 @@
             }"
             @click="clickableRows && emit('rowClick', item.row)"
           >
-            <td v-if="selectable" class="w-9 min-w-9 max-w-9 px-1 py-4 text-center">
+            <td
+              v-if="selectable"
+              :class="['w-9 min-w-9 max-w-9 px-1 text-center', compactRows ? 'py-0.5' : 'py-4']"
+            >
               <input
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
@@ -234,9 +244,10 @@
             <td
               v-for="(column, colIndex) in columns"
               :key="column.key"
-              :style="column.width ? { width: column.width, minWidth: column.width, maxWidth: column.width } : undefined"
+              :style="getColumnStyle(column)"
               :class="[
-                'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
+                'whitespace-nowrap text-sm text-gray-900 dark:text-gray-100',
+                compactRows ? 'py-0.5' : 'py-4',
                 getAdaptivePaddingClass(),
                 getStickyColumnClass(column, colIndex),
                 column.class
@@ -451,6 +462,12 @@ interface Props {
   serverSideSort?: boolean
   /** Emit 'rowClick' on row/card click and show pointer cursor. */
   clickableRows?: boolean
+  /** Use 2px vertical padding for dense desktop data rows. */
+  compactRows?: boolean
+  /** Keep desktop cell content on one visual line, including stacked flex/space layouts. */
+  singleLineCells?: boolean
+  /** Treat column.width as a minimum and let content expand the column. */
+  dynamicColumnWidths?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
@@ -476,6 +493,9 @@ const props = withDefaults(defineProps<Props>(), {
   expandableActions: true,
   defaultSortOrder: 'asc',
   serverSideSort: false,
+  compactRows: false,
+  singleLineCells: false,
+  dynamicColumnWidths: false,
   selectable: false,
   selectedKeys: () => []
 })
@@ -892,6 +912,18 @@ const getAdaptivePaddingClass = () => {
   }
 }
 
+const getColumnStyle = (column: Column) => {
+  if (!column.width) return undefined
+  if (props.dynamicColumnWidths) {
+    return { minWidth: column.width }
+  }
+  return {
+    width: column.width,
+    minWidth: column.width,
+    maxWidth: column.width
+  }
+}
+
 // Init + keep persisted sort state consistent with current columns
 const didInitSort = ref(false)
 
@@ -956,6 +988,37 @@ defineExpose({
   flex: 1;
   min-height: 0;
   isolation: isolate;
+}
+
+.content-sized-columns {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.single-line-cells :deep(tbody td) {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.single-line-cells :deep(tbody td [class~='flex-col']) {
+  flex-direction: row !important;
+  align-items: center;
+}
+
+.single-line-cells :deep(tbody td [class~='flex-wrap']) {
+  flex-wrap: nowrap !important;
+}
+
+.single-line-cells :deep(tbody td [class*='space-y-']) {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.single-line-cells :deep(tbody td [class*='space-y-'] > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 
 /* 表头容器，确保在滚动时覆盖表体内容 */
