@@ -159,7 +159,7 @@ func TestBuildOpenAISelectionOrder_SuperPriorityPrecedesSubscriptionPreference(t
 	require.Equal(t, []int64{1, 2}, openAISelectionIDs(order))
 }
 
-func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *testing.T) {
+func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterCheapestAccountIsFull(t *testing.T) {
 	superRate := 0.8
 	cheapRate := 0.1
 	accounts := []Account{
@@ -194,7 +194,7 @@ func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *te
 		cache:       &schedulerTestGatewayCache{},
 		cfg:         cfg,
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
-			acquireResults: map[int64]bool{11: false, 12: true},
+			acquireResults: map[int64]bool{11: true, 12: false},
 			acquiredIDs:    &acquired,
 		}),
 	}
@@ -215,8 +215,8 @@ func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *te
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.True(t, selection.Acquired)
-	require.Equal(t, int64(12), selection.Account.ID)
-	require.Equal(t, []int64{12}, acquired)
+	require.Equal(t, int64(11), selection.Account.ID)
+	require.Equal(t, []int64{12, 11}, acquired)
 }
 
 func TestAccountSchedulingRate_UsesManualSourceByDefault(t *testing.T) {
@@ -380,7 +380,7 @@ func TestOpenAIAdvancedLowestCost_PreservesStrictPreviousResponseAffinity(t *tes
 	}
 }
 
-func TestGatewayLegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *testing.T) {
+func TestGatewayLegacyWithoutLoadBatch_FallsBackAfterCheapestAccountIsFull(t *testing.T) {
 	superRate := 0.8
 	cheapRate := 0.1
 	accounts := []Account{
@@ -416,7 +416,7 @@ func TestGatewayLegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *t
 		cache:       &schedulerTestGatewayCache{},
 		cfg:         cfg,
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
-			acquireResults: map[int64]bool{21: false, 22: true},
+			acquireResults: map[int64]bool{21: true, 22: false},
 			acquiredIDs:    &acquired,
 		}),
 	}
@@ -435,11 +435,11 @@ func TestGatewayLegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *t
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.True(t, selection.Acquired)
-	require.Equal(t, int64(22), selection.Account.ID)
-	require.Equal(t, []int64{21, 22}, acquired)
+	require.Equal(t, int64(21), selection.Account.ID)
+	require.Equal(t, []int64{22, 21}, acquired)
 }
 
-func TestGatewayLegacyWithoutLoadBatch_WaitsOnBaseAccountAfterAllAccountsAreFull(t *testing.T) {
+func TestGatewayLegacyWithoutLoadBatch_WaitsOnCheapestAccountAfterAllAccountsAreFull(t *testing.T) {
 	superRate := 0.8
 	cheapRate := 0.1
 	accounts := []Account{
@@ -496,5 +496,5 @@ func TestGatewayLegacyWithoutLoadBatch_WaitsOnBaseAccountAfterAllAccountsAreFull
 	require.NotNil(t, selection.WaitPlan)
 	require.Equal(t, int64(32), selection.Account.ID)
 	require.Equal(t, int64(32), selection.WaitPlan.AccountID)
-	require.Equal(t, []int64{31, 32}, acquired)
+	require.Equal(t, []int64{32, 31}, acquired)
 }
