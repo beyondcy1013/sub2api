@@ -218,6 +218,18 @@ type AccountSchedulerGroupScore struct {
 	AccountSchedulerScore
 }
 
+func setSchedulingRateMetadata(item *AccountWithConcurrency, account *service.Account) {
+	if item == nil || account == nil {
+		return
+	}
+	rate, known, source := account.SchedulingRate(time.Now())
+	item.SchedulingRateKnown = known
+	item.SchedulingRateSource = source
+	if known {
+		item.SchedulingRateMultiplier = &rate
+	}
+}
+
 const accountListGroupUngroupedQueryValue = "ungrouped"
 
 func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, account *service.Account) AccountWithConcurrency {
@@ -229,12 +241,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	if account == nil {
 		return item
 	}
-	rate, known, source := account.SchedulingRate(time.Now())
-	item.SchedulingRateKnown = known
-	item.SchedulingRateSource = source
-	if known {
-		item.SchedulingRateMultiplier = &rate
-	}
+	setSchedulingRateMetadata(&item, account)
 
 	if h.concurrencyService != nil {
 		if counts, err := h.concurrencyService.GetAccountConcurrencyBatch(ctx, []int64{account.ID}); err == nil {
@@ -660,6 +667,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScore:     schedulerScores[acc.ID],
 			SchedulerScores:    schedulerGroupScores[acc.ID],
 		}
+		setSchedulingRateMetadata(&item, acc)
 
 		// 添加窗口费用（仅当启用时）
 		if windowCosts != nil {
