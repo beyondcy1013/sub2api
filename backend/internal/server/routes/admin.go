@@ -352,6 +352,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.PUT("/:id", h.Admin.Account.Update)
 		accounts.PUT("/:id/upstream-billing-probe", h.Admin.Account.SetUpstreamBillingProbeEnabled)
 		accounts.POST("/:id/upstream-billing-probe", h.Admin.Account.ProbeUpstreamBilling)
+		accounts.PUT("/:id/scheduling-rate", h.Admin.Account.UpdateSchedulingRate)
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
 		accounts.POST("/:id/recycle", h.Admin.Account.Recycle)
 		accounts.POST("/:id/restore", h.Admin.Account.Restore)

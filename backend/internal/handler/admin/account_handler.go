@@ -191,10 +191,13 @@ type CheckMixedChannelRequest struct {
 // AccountWithConcurrency extends Account with real-time concurrency info
 type AccountWithConcurrency struct {
 	*dto.Account
-	CurrentConcurrency int                                 `json:"current_concurrency"`
-	QuotaRateLimit     *service.OpenAIQuotaRateLimitStatus `json:"quota_rate_limit,omitempty"`
-	SchedulerScore     *AccountSchedulerScore              `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore        `json:"scheduler_scores,omitempty"`
+	CurrentConcurrency       int                                 `json:"current_concurrency"`
+	QuotaRateLimit           *service.OpenAIQuotaRateLimitStatus `json:"quota_rate_limit,omitempty"`
+	SchedulingRateMultiplier *float64                            `json:"scheduling_rate_multiplier,omitempty"`
+	SchedulingRateKnown      bool                                `json:"scheduling_rate_known"`
+	SchedulingRateSource     string                              `json:"scheduling_rate_source"`
+	SchedulerScore           *AccountSchedulerScore              `json:"scheduler_score,omitempty"`
+	SchedulerScores          []AccountSchedulerGroupScore        `json:"scheduler_scores,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -225,6 +228,12 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 	if account == nil {
 		return item
+	}
+	rate, known, source := account.SchedulingRate(time.Now())
+	item.SchedulingRateKnown = known
+	item.SchedulingRateSource = source
+	if known {
+		item.SchedulingRateMultiplier = &rate
 	}
 
 	if h.concurrencyService != nil {

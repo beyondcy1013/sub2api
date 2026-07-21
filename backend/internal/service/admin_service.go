@@ -349,15 +349,19 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
-	Name                  string
-	Notes                 *string
-	Type                  string // Account type: oauth, setup-token, apikey
-	Credentials           map[string]any
-	Extra                 map[string]any
-	ProxyID               *int64
-	Concurrency           *int     // 使用指针区分"未提供"和"设置为0"
-	Priority              *int     // 使用指针区分"未提供"和"设置为0"
-	RateMultiplier        *float64 // 账号计费倍率（>=0，允许 0）
+	Name           string
+	Notes          *string
+	Type           string // Account type: oauth, setup-token, apikey
+	Credentials    map[string]any
+	Extra          map[string]any
+	ProxyID        *int64
+	Concurrency    *int     // 使用指针区分"未提供"和"设置为0"
+	Priority       *int     // 使用指针区分"未提供"和"设置为0"
+	RateMultiplier *float64 // 账号计费倍率（>=0，允许 0）
+	// SchedulingRateSource controls which multiplier the lowest-cost scheduler
+	// uses. It is persisted in account extra without replacing other runtime
+	// fields. Nil preserves the existing source for regular account edits.
+	SchedulingRateSource  *string
 	LoadFactor            *int
 	Status                string
 	GroupIDs              *[]int64

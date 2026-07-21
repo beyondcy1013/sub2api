@@ -32,7 +32,9 @@ func (s *schedulingRateAdminService) UpdateAccount(_ context.Context, id int64, 
 	for key, value := range s.account.Extra {
 		updated.Extra[key] = value
 	}
-	updated.Extra[service.SchedulingRateSourceExtraKey] = input.SchedulingRateSource
+	if input.SchedulingRateSource != nil {
+		updated.Extra[service.SchedulingRateSourceExtraKey] = *input.SchedulingRateSource
+	}
 	if input.RateMultiplier != nil {
 		updated.RateMultiplier = input.RateMultiplier
 	}
@@ -72,7 +74,8 @@ func TestAccountHandlerUpdateSchedulingRateStoresManualRate(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.NotNil(t, adminSvc.input)
-	require.Equal(t, service.SchedulingRateSourceManual, adminSvc.input.SchedulingRateSource)
+	require.NotNil(t, adminSvc.input.SchedulingRateSource)
+	require.Equal(t, service.SchedulingRateSourceManual, *adminSvc.input.SchedulingRateSource)
 	require.NotNil(t, adminSvc.input.RateMultiplier)
 	require.InDelta(t, 0.35, *adminSvc.input.RateMultiplier, 1e-9)
 
@@ -115,7 +118,8 @@ func TestAccountHandlerUpdateSchedulingRateFollowsUpstreamWithoutOverwritingManu
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.NotNil(t, adminSvc.input)
-	require.Equal(t, service.SchedulingRateSourceUpstream, adminSvc.input.SchedulingRateSource)
+	require.NotNil(t, adminSvc.input.SchedulingRateSource)
+	require.Equal(t, service.SchedulingRateSourceUpstream, *adminSvc.input.SchedulingRateSource)
 	require.Nil(t, adminSvc.input.RateMultiplier)
 	require.InDelta(t, 0.9, adminSvc.account.BillingRateMultiplier(), 1e-9)
 }
@@ -137,4 +141,3 @@ func TestAccountHandlerUpdateSchedulingRateValidatesRequest(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
 	}
 }
-
