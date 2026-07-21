@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Rebalance (Fast)"
+  short_description: "Force rebalance by disabling the active account for a short window"
+  default_prompt: "Use $sub2api-rebalance-fast to apply the safe fixes and then briefly disable the active account so all new sessions bind to the idle one. Always require --apply."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Rebalance (Safe)"
+  short_description: "Slowest, lowest-risk traffic rebalance by fixing load_factor and base_url"
+  default_prompt: "Use $sub2api-rebalance-safe to dry-run and (with --apply) patch an apikey/openai account's load_factor and base_url so the 5-factor scheduler stops mis-scoring it. Always dry-run first."
+
+policy:
+  allow_implicit_invocation: true

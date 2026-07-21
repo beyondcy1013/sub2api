@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Rebalance (Redirect)"
+  short_description: "Rewrite existing sticky_session values from one account to another"
+  default_prompt: "Use $sub2api-rebalance-redirect to forcibly migrate sticky_session bindings from a saturated account to an idle one. Always require --apply. Always require sub2api-rebalance-safe to have been applied first. Recommend --batch-size when the target's concurrency is small."
+
+policy:
+  allow_implicit_invocation: true

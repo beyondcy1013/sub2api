@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sub2API Switch Session Account"
+  short_description: "Move one sticky session to a target account"
+  default_prompt: "Use $sub2api-switch-session-account to dry-run and, with --apply, move one Sub2API sticky session or response binding to a target account."

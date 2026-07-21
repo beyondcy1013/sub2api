@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Rebalance (Aggressive)"
+  short_description: "Instant rebalance by deleting the group's sticky_session keys in Redis"
+  default_prompt: "Use $sub2api-rebalance-aggressive to apply the safe fixes and then DEL all sticky_session keys for the target group. Always require --apply. Always require sub2api-rebalance-safe to have been applied first."
+
+policy:
+  allow_implicit_invocation: true
