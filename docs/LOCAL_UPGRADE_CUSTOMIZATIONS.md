@@ -142,7 +142,7 @@ Both profiles must preserve all of the following:
   stats, keep 7d utilization (`7d(%)`) -> 7d reset. After created
   time, keep today cost -> groups (when visible) -> balance -> 5h/7d
   request/token -> window cost. The ending order is account ID -> upstream
-  declared rate -> 5h utilization (`5h(%)`) -> 5h reset. The account table
+  declared rate -> scheduling rate -> 5h utilization (`5h(%)`) -> 5h reset. The account table
   disables sticky positioning because actions precede the name column.
 - Filters are hidden by default behind the filters toggle.
 - Sidebar width remains `154px` expanded and `67px` collapsed.

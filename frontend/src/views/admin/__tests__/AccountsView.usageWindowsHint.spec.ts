@@ -199,6 +199,7 @@ describe('admin AccountsView usage windows hint', () => {
     )).toBe(true)
     const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; sortable: boolean }>
     expect(columns.find(column => column.key === 'upstream_billing_rate')?.sortable).toBe(true)
+    expect(columns.find(column => column.key === 'scheduling_rate')).toMatchObject({ sortable: false })
   })
 
   it('renders separate sortable 5h and 7d columns and sorts the current page by each metric', async () => {
@@ -270,8 +271,9 @@ describe('admin AccountsView usage windows hint', () => {
     expect(table.props('dynamicColumnWidths')).toBe(true)
     expect(columns.find(column => column.key === 'name')?.width).toBe('176px')
     expect(columns.slice(0, 3).map(column => column.key)).toEqual(['select', 'actions', 'name'])
-    expect(columns.slice(-3).map(column => column.key)).toEqual([
+    expect(columns.slice(-4).map(column => column.key)).toEqual([
       'upstream_billing_rate',
+      'scheduling_rate',
       'five_hour_utilization',
       'five_hour_reset'
     ])
@@ -340,7 +342,8 @@ describe('admin AccountsView usage windows hint', () => {
     expect(keys.indexOf('platform_type')).toBe(keys.indexOf('usage') + 1)
     expect(keys.indexOf('actions')).toBe(keys.indexOf('select') + 1)
     expect(keys.indexOf('name')).toBe(keys.indexOf('actions') + 1)
-    expect(keys.indexOf('five_hour_utilization')).toBe(keys.indexOf('upstream_billing_rate') + 1)
+    expect(keys.indexOf('scheduling_rate')).toBe(keys.indexOf('upstream_billing_rate') + 1)
+    expect(keys.indexOf('five_hour_utilization')).toBe(keys.indexOf('scheduling_rate') + 1)
   })
 
   it('places today cost, groups, and balance directly after created time', async () => {

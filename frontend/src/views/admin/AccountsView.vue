@@ -455,6 +455,9 @@
               @probe="handleProbeUpstreamBilling(row)"
             />
           </template>
+          <template #cell-scheduling_rate="{ row }">
+            <SchedulingRateCell :account="row" @manage="openSchedulingRateModal(row)" />
+          </template>
           <template #cell-priority="{ value }">
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
           </template>
@@ -570,6 +573,16 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <SuperPrioritySettingsModal :show="showSuperPriority" @close="closeSuperPriorityModal" @changed="reload" />
+    <SchedulingRateModal
+      :show="showSchedulingRate"
+      :account="schedulingRateAcc"
+      :upstream-rate="schedulingRateUpstreamRate"
+      :upstream-known="schedulingRateUpstreamKnown"
+      :conflict="schedulingRateConflict"
+      :saving="savingSchedulingRate"
+      @close="closeSchedulingRateModal"
+      @save="saveSchedulingRate"
+    />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
@@ -646,6 +659,8 @@ import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vu
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
+import SchedulingRateCell from '@/components/account/SchedulingRateCell.vue'
+import SchedulingRateModal from '@/components/account/SchedulingRateModal.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
@@ -657,7 +672,7 @@ import { formatUsageWindowReset, formatUsageWindowUtilization } from '@/utils/us
 import { refreshAccountUsageInBatches } from '@/utils/batchAccountUsageRefresh'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress } from '@/types'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress, UpdateSchedulingRateRequest } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -757,6 +772,13 @@ const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 const upstreamBillingNow = ref(Date.now())
+const showSchedulingRate = ref(false)
+const schedulingRateAcc = ref<Account | null>(null)
+const schedulingRateUpstreamRate = ref<number | undefined>(undefined)
+const schedulingRateUpstreamKnown = ref(false)
+const schedulingRateConflict = ref(false)
+const savingSchedulingRate = ref(false)
+const schedulingRateConflictQueue = ref<Account[]>([])
 let lastUpstreamBillingSortRefreshMinute = -1
 useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 
@@ -1380,6 +1402,7 @@ const isAnyModalOpen = computed(() => {
     showDeleteDialog.value ||
     showReAuth.value ||
     showTest.value ||
+    showSchedulingRate.value ||
     showStats.value ||
     showStickySessions.value ||
     showScheduledAction.value ||
@@ -1744,6 +1767,7 @@ const allColumns = computed(() => {
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, width: '130px' },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
+    { key: 'scheduling_rate', label: t('admin.accounts.columns.schedulingRate'), sortable: false },
     { key: 'five_hour_utilization', label: t('admin.accounts.columns.fiveHourUtilization'), sortable: true, width: '108px' },
     { key: 'five_hour_reset', label: t('admin.accounts.columns.fiveHour'), sortable: true, width: '72px' }
   )
@@ -1865,13 +1889,32 @@ const handleBulkProbeUpstreamBilling = async () => {
   try {
     const results = await adminAPI.accounts.probeUpstreamBillingBatch(accountIDs)
     let patched = false
-    results.forEach(result => {
+    const conflicts: Account[] = []
+    for (const result of results) {
       if (result.snapshot) {
-        patchUpstreamBillingSnapshot(result.account_id, result.snapshot)
+        let account = accounts.value.find(item => item.id === result.account_id)
+        if (account) {
+          account = { ...account, extra: { ...account.extra, upstream_billing_probe: result.snapshot } }
+          patchUpstreamBillingSnapshot(result.account_id, result.snapshot)
+        } else {
+          try {
+            account = await adminAPI.accounts.getById(result.account_id)
+          } catch (error) {
+            console.error('Failed to load probed account rate:', error)
+          }
+        }
+        if (account) {
+          const upstreamRate = upstreamDeclaredBaseRate(account)
+          const manualRate = account.rate_multiplier ?? 1
+          if (account.scheduling_rate_source !== 'upstream' && upstreamRate != null && Math.abs(manualRate - upstreamRate) > 1e-9) {
+            conflicts.push(account)
+          }
+        }
         patched = true
       }
-    })
+    }
     if (patched) await refreshUpstreamBillingSortedList(true)
+    enqueueSchedulingRateConflicts(conflicts)
     const failed = results.filter(result => result.error).length
     if (failed > 0) {
       appStore.showError(t('admin.accounts.upstreamBilling.batchPartial', { success: results.length - failed, failed }))
@@ -2289,13 +2332,81 @@ const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBilli
     extra: { ...account.extra, upstream_billing_probe: snapshot }
   })
 }
+const upstreamDeclaredBaseRate = (account: Account | null): number | undefined => {
+  const snapshot = account?.extra?.upstream_billing_probe
+  if (!snapshot || !['ok', 'failed'].includes(snapshot.status)) return undefined
+  const receivedAt = typeof snapshot.received_at === 'string' ? Date.parse(snapshot.received_at) : Number.NaN
+  const freshUntil = typeof snapshot.fresh_until === 'string' ? Date.parse(snapshot.fresh_until) : Number.NaN
+  const now = Date.now()
+  if (!Number.isFinite(receivedAt) || !Number.isFinite(freshUntil) || receivedAt > now || now >= freshUntil) return undefined
+  const data = snapshot.data as Record<string, unknown> | undefined
+  const resolved = data?.resolved_rate_multiplier
+  if (typeof resolved === 'number' && Number.isFinite(resolved) && resolved >= 0) return resolved
+  const effective = data?.effective_rate_multiplier
+  if (typeof effective === 'number' && Number.isFinite(effective) && effective >= 0) return effective
+  return undefined
+}
+const setSchedulingRateModalState = (account: Account, conflict: boolean) => {
+  schedulingRateAcc.value = account
+  schedulingRateUpstreamRate.value = upstreamDeclaredBaseRate(account)
+  schedulingRateUpstreamKnown.value = schedulingRateUpstreamRate.value != null
+  schedulingRateConflict.value = conflict
+  showSchedulingRate.value = true
+}
+const enqueueSchedulingRateConflicts = (items: Account[]) => {
+  const currentID = schedulingRateAcc.value?.id
+  const queued = new Set(schedulingRateConflictQueue.value.map(item => item.id))
+  for (const item of items) {
+    if (item.id !== currentID && !queued.has(item.id)) {
+      schedulingRateConflictQueue.value.push(item)
+      queued.add(item.id)
+    }
+  }
+  if (!showSchedulingRate.value) {
+    const next = schedulingRateConflictQueue.value.shift()
+    if (next) setSchedulingRateModalState(next, true)
+  }
+}
+const openSchedulingRateModal = (account: Account) => setSchedulingRateModalState(account, false)
+const closeSchedulingRateModal = () => {
+  showSchedulingRate.value = false
+  schedulingRateAcc.value = null
+  schedulingRateConflict.value = false
+  const next = schedulingRateConflictQueue.value.shift()
+  if (next) setSchedulingRateModalState(next, true)
+}
+const saveSchedulingRate = async (payload: UpdateSchedulingRateRequest) => {
+  const account = schedulingRateAcc.value
+  if (!account || savingSchedulingRate.value) return
+  savingSchedulingRate.value = true
+  try {
+    const updated = await adminAPI.accounts.updateSchedulingRate(account.id, payload)
+    patchAccountInList(updated)
+    appStore.showSuccess(t('admin.accounts.schedulingRate.updated'))
+    closeSchedulingRateModal()
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.schedulingRate.updateFailed')))
+  } finally {
+    savingSchedulingRate.value = false
+  }
+}
 const handleProbeUpstreamBilling = async (account: Account) => {
   if (probingUpstreamBilling.has(account.id)) return
   probingUpstreamBilling.add(account.id)
   try {
     const result = await adminAPI.accounts.probeUpstreamBilling(account.id)
     if (result.snapshot) {
+      const updatedAccount = {
+        ...account,
+        extra: { ...account.extra, upstream_billing_probe: result.snapshot }
+      }
       patchUpstreamBillingSnapshot(account.id, result.snapshot)
+      const upstreamRate = upstreamDeclaredBaseRate(updatedAccount)
+      const manualRate = account.rate_multiplier ?? 1
+      if (account.scheduling_rate_source !== 'upstream' && upstreamRate != null && Math.abs(manualRate - upstreamRate) > 1e-9) {
+        setSchedulingRateModalState(updatedAccount, true)
+      }
       await refreshUpstreamBillingSortedList(true)
     }
   } catch (error) {

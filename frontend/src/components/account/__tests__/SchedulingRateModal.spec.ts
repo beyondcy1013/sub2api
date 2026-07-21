@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SchedulingRateModal from '../SchedulingRateModal.vue'
 import type { Account } from '@/types'
+
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 const account: Account = {
   id: 1,
@@ -45,5 +47,16 @@ describe('SchedulingRateModal', () => {
     await wrapper.get('[data-testid="scheduling-rate-save"]').trigger('click')
     expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ source: 'upstream' })
   })
-})
 
+  it('copies the detected upstream rate into the manual rate on request', async () => {
+    const wrapper = mount(SchedulingRateModal, {
+      props: { show: true, account, upstreamRate: 0.35, upstreamKnown: true, conflict: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
+    })
+
+    await wrapper.get('[data-testid="scheduling-rate-copy-upstream"]').trigger('click')
+    await wrapper.get('[data-testid="scheduling-rate-save"]').trigger('click')
+
+    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ source: 'manual', rate_multiplier: 0.35 })
+  })
+})

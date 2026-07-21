@@ -22,7 +22,8 @@ import type {
   CheckMixedChannelRequest,
   CheckMixedChannelResponse,
   UpstreamBillingProbeResult,
-  UpstreamBillingProbeSettings
+  UpstreamBillingProbeSettings,
+  UpdateSchedulingRateRequest
 } from '@/types'
 
 /**
@@ -1019,6 +1020,11 @@ export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<U
   return data.results
 }
 
+export async function updateSchedulingRate(id: number, payload: UpdateSchedulingRateRequest): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/scheduling-rate`, payload)
+  return data
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
@@ -1079,7 +1085,8 @@ export const accountsAPI = {
   updateUpstreamBillingProbeSettings,
   setUpstreamBillingProbeEnabled,
   probeUpstreamBilling,
-  probeUpstreamBillingBatch
+  probeUpstreamBillingBatch,
+  updateSchedulingRate
 }
 
 export default accountsAPI

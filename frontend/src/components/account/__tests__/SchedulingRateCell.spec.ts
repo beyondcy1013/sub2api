@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SchedulingRateCell from '../SchedulingRateCell.vue'
 import type { Account } from '@/types'
+
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 const account = (overrides: Partial<Account> = {}): Account => ({
   id: 1,
@@ -53,4 +55,3 @@ describe('SchedulingRateCell', () => {
     expect(wrapper.get('[data-testid="scheduling-rate-source"]').text()).toContain('upstream')
   })
 })
-

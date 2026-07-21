@@ -75,7 +75,7 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
 - **Account management table column layout** (`frontend/src/views/admin/AccountsView.vue` `allColumns`):
   - The leading order is `选择` -> `操作` -> `名称` -> `容量` -> `状态` -> `调度` -> `用量窗口` -> `平台/类型`.
   - After `创建时间`, keep `今日费用` -> `分组` (when visible) -> `余额` -> `5h请求` -> `5h Token` -> `7d请求` -> `7d Token` -> `窗口总费用`.
-  - After `今日统计`, keep `7d(%)` -> `7d`; the ending order is `过期时间` -> `备注` -> `账号ID` -> `上游声明费率` -> `5h(%)` -> `5h`.
+  - After `今日统计`, keep `7d(%)` -> `7d`; the ending order is `过期时间` -> `备注` -> `账号ID` -> `上游声明费率` -> `调度倍率` -> `5h(%)` -> `5h`.
   - The utilization headers use the compact labels `5h(%)` and `7d(%)`.
   - `名称` (name) column has explicit `width: '176px'`; its inner content is capped at `176px` and long names truncate without wrapping or escaping the cell.
   - The selection column has explicit `width: '36px'`, and `DataTable.vue` keeps `--select-col-width` at `36px`.

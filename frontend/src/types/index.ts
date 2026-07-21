@@ -930,6 +930,7 @@ export interface Account {
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_probe_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
+    scheduling_rate_source?: SchedulingRateSource
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null
@@ -952,6 +953,9 @@ export interface Account {
   scheduler_scores?: AccountSchedulerGroupScore[] | null
   priority: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
+  scheduling_rate_multiplier?: number
+  scheduling_rate_known?: boolean
+  scheduling_rate_source?: SchedulingRateSource
   status: 'active' | 'inactive' | 'error'
   error_message: string | null
   last_used_at: string | null
@@ -1038,6 +1042,13 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+}
+
+export type SchedulingRateSource = 'manual' | 'upstream'
+
+export interface UpdateSchedulingRateRequest {
+  source: SchedulingRateSource
+  rate_multiplier?: number
 }
 
 export interface AccountSchedulerGroupScore {
