@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -215,6 +216,81 @@ func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *te
 	require.True(t, selection.Acquired)
 	require.Equal(t, int64(12), selection.Account.ID)
 	require.Equal(t, []int64{11, 12}, acquired)
+}
+
+func TestAccountSchedulingRate_UsesManualSourceByDefault(t *testing.T) {
+	rate := 0.35
+	account := &Account{RateMultiplier: &rate}
+
+	got, known, source := account.SchedulingRate(time.Now())
+
+	require.True(t, known)
+	require.Equal(t, 0.35, got)
+	require.Equal(t, SchedulingRateSourceManual, source)
+}
+
+func TestAccountSchedulingRate_UsesFreshUpstreamSnapshotAndPeakMultiplier(t *testing.T) {
+	rate := 0.9
+	receivedAt := time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC)
+	freshUntil := receivedAt.Add(time.Hour)
+	account := &Account{
+		RateMultiplier: &rate,
+		Extra: map[string]any{
+			SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
+			UpstreamBillingProbeExtraKey: map[string]any{
+				"status":      UpstreamBillingProbeStatusOK,
+				"received_at": receivedAt,
+				"fresh_until": freshUntil,
+				"data": map[string]any{
+					"billing_scope":            "token",
+					"resolved_rate_multiplier": 0.4,
+					"peak_rate_enabled":        true,
+					"peak_start":               "09:00",
+					"peak_end":                 "18:00",
+					"peak_rate_multiplier":     1.5,
+					"timezone":                 "Asia/Shanghai",
+				},
+			},
+		},
+	}
+
+	got, known, source := account.SchedulingRate(time.Date(2026, 7, 22, 4, 0, 0, 0, time.UTC))
+
+	require.True(t, known)
+	require.Equal(t, 0.6, got)
+	require.Equal(t, SchedulingRateSourceUpstream, source)
+}
+
+func TestAccountSchedulingRate_StaleOrUnsupportedUpstreamIsUnknown(t *testing.T) {
+	for _, status := range []string{UpstreamBillingProbeStatusUnsupported, UpstreamBillingProbeStatusFailed} {
+		account := &Account{Extra: map[string]any{
+			SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
+			UpstreamBillingProbeExtraKey: map[string]any{
+				"status":      status,
+				"received_at": time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC),
+				"fresh_until": time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC),
+			},
+		}}
+		_, known, source := account.SchedulingRate(time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+		require.False(t, known)
+		require.Equal(t, SchedulingRateSourceUpstream, source)
+	}
+}
+
+func TestOrderAccountLoadsBySchedulingPreference_PutsUnknownRatesLast(t *testing.T) {
+	knownRate := 0.4
+	unknown := &Account{ID: 1, RateMultiplier: func() *float64 { v := 0.1; return &v }(), Extra: map[string]any{
+		SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
+		UpstreamBillingProbeExtraKey: map[string]any{"status": UpstreamBillingProbeStatusUnsupported},
+	}}
+	cheap := &Account{ID: 2, RateMultiplier: &knownRate}
+	expensive := &Account{ID: 3, RateMultiplier: func() *float64 { v := 0.8; return &v }()}
+	items := []accountWithLoad{schedulingTestLoad(unknown), schedulingTestLoad(expensive), schedulingTestLoad(cheap)}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+
+	orderAccountLoadsBySchedulingPreference(items, cfg)
+
+	require.Equal(t, []int64{2, 3, 1}, accountLoadIDs(items))
 }
 
 func TestGatewayLegacyWithoutLoadBatch_FallsBackAfterPreferredAccountIsFull(t *testing.T) {
