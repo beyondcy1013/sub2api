@@ -82,7 +82,26 @@ describe('TrashBinModal', () => {
   it('displays trash accounts and restore button', async () => {
     listTrashed.mockResolvedValue({
       items: [
-        { id: 1, name: 'deleted-acc', platform: 'openai', type: 'apikey', deleted_at: '2026-01-01T00:00:00Z' }
+        {
+          id: 1,
+          name: 'deleted-acc',
+          platform: 'openai',
+          type: 'apikey',
+          status: 'inactive',
+          schedulable: false,
+          concurrency: 4,
+          notes: 'archived note',
+          created_at: '2025-12-01T00:00:00Z',
+          last_used_at: '2025-12-31T12:00:00Z',
+          deleted_at: '2026-01-01T00:00:00Z',
+          usage_stats: {
+            requests: 1250,
+            tokens: 2450000,
+            cost: 12.5,
+            standard_cost: 10,
+            user_cost: 18.75
+          }
+        }
       ],
       total: 1,
       page: 1,
@@ -94,6 +113,13 @@ describe('TrashBinModal', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('deleted-acc')
+    expect(wrapper.text()).toContain('archived note')
+    expect(wrapper.get('[data-test="trash-created-at"]').text()).not.toBe('-')
+    expect(wrapper.get('[data-test="trash-deleted-at"]').text()).not.toBe('-')
+    expect(wrapper.get('[data-test="trash-requests"]').text()).toContain('1,250')
+    expect(wrapper.get('[data-test="trash-tokens"]').text()).toContain('2.5M')
+    expect(wrapper.get('[data-test="trash-account-cost"]').text()).toContain('12.50')
+    expect(wrapper.get('[data-test="trash-user-cost"]').text()).toContain('18.75')
     expect(wrapper.text()).toContain('admin.accounts.restoreFromTrash')
     expect(wrapper.text()).toContain('admin.accounts.permanentDelete')
   })
