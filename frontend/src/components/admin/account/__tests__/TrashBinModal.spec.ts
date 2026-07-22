@@ -52,6 +52,9 @@ const ConfirmDialogStub = {
 
 function mountModal() {
   return mount(TrashBinModal, {
+    props: {
+      show: false
+    },
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
