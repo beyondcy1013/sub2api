@@ -119,6 +119,12 @@ func TestSchedulerCacheKeyPrefix(t *testing.T) {
 	if got, want := cache.schedulerBucketKey(schedulerReadyPrefix, bucket), "sub2freeApi:sched:ready:2:openai:single"; got != want {
 		t.Fatalf("schedulerBucketKey() = %q, want %q", got, want)
 	}
+	if got, want := cache.schedulerLastUsedKey("7"), "sub2freeApi:sched:acc:last_used:7"; got != want {
+		t.Fatalf("schedulerLastUsedKey() = %q, want %q", got, want)
+	}
+	if got, want := cache.schedulerSnapshotKeyPrefix(bucket), "sub2freeApi:sched:2:openai:single:v"; got != want {
+		t.Fatalf("schedulerSnapshotKeyPrefix() = %q, want %q", got, want)
+	}
 	if got, want := normalizeRedisKeyPrefix(" sub2freeApi:: "), "sub2freeApi:"; got != want {
 		t.Fatalf("normalizeRedisKeyPrefix() = %q, want %q", got, want)
 	}
