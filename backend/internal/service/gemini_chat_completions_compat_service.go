@@ -902,7 +902,6 @@ func (s *GeminiMessagesCompatService) writeChatCompletionsError(c *gin.Context, 
 		"error": gin.H{
 			"type":    errType,
 			"message": clientMessage,
-
 		},
 	})
 	return fmt.Errorf("%s", message)

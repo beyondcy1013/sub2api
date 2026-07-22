@@ -277,12 +277,6 @@ type googleErrorResponse struct {
 	} `json:"error"`
 }
 
-func requireGoogleErrorSource(t *testing.T, resp googleErrorResponse, message string) {
-	t.Helper()
-	require.Equal(t, clienterror.WithSource(message), resp.Error.Message)
-	require.Equal(t, clienterror.Source, resp.Error.Source)
-}
-
 func newTestAPIKeyService(repo service.APIKeyRepository) *service.APIKeyService {
 	return service.NewAPIKeyService(
 		repo,

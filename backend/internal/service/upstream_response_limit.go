@@ -70,7 +70,6 @@ func anthropicTooLargeError(c *gin.Context) {
 		"error": gin.H{
 			"type":    "upstream_error",
 			"message": clienterror.Upstream("Upstream response too large"),
-
 		},
 	})
 }
@@ -81,7 +80,6 @@ func openAITooLargeError(c *gin.Context) {
 		"error": gin.H{
 			"type":    "upstream_error",
 			"message": clienterror.Upstream("Upstream response too large"),
-
 		},
 	})
 }

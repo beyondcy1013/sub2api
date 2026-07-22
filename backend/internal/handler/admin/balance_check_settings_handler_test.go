@@ -79,7 +79,10 @@ balance_check:
 	if data["restart_required"] != false {
 		t.Fatalf("restart_required=%v, want false", data["restart_required"])
 	}
-	cfg := data["config"].(map[string]any)
+	cfg, ok := data["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing config object: %#v", data)
+	}
 	if cfg["interval"] != "@every 7m" || cfg["balance_url"] != "https://example.com/balance" {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}

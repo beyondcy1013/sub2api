@@ -45,7 +45,6 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.True(t, got.CredentialsStatus["has_id_token"])
 	require.False(t, got.CredentialsStatus["has_api_key"])
 
-
 	// JSON 序列化校验：响应体里不会出现敏感子串
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)

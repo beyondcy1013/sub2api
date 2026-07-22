@@ -82,7 +82,7 @@ func (m *mockAccountRepoForGemini) ListTrashedAccounts(context.Context, paginati
 	return nil, nil, nil
 }
 func (m *mockAccountRepoForGemini) RestoreTrashedAccount(context.Context, int64) error { return nil }
-func (m *mockAccountRepoForGemini) PermanentDelete(context.Context, int64) error { return nil }
+func (m *mockAccountRepoForGemini) PermanentDelete(context.Context, int64) error       { return nil }
 func (m *mockAccountRepoForGemini) List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }

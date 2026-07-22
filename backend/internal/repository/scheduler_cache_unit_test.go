@@ -28,7 +28,7 @@ func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.M
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	cache, ok := newSchedulerCacheWithChunkSizes(rdb, defaultSchedulerSnapshotMGetChunkSize, defaultSchedulerSnapshotWriteChunkSize).(*schedulerCache)
+	cache, ok := newSchedulerCacheWithOptions(rdb, defaultSchedulerSnapshotMGetChunkSize, defaultSchedulerSnapshotWriteChunkSize, "").(*schedulerCache)
 	require.True(t, ok)
 	return cache, mr
 }

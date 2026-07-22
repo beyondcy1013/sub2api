@@ -231,10 +231,6 @@ func NewSchedulerCache(rdb *redis.Client) service.SchedulerCache {
 	return newSchedulerCacheWithOptions(rdb, defaultSchedulerSnapshotMGetChunkSize, defaultSchedulerSnapshotWriteChunkSize, "")
 }
 
-func newSchedulerCacheWithChunkSizes(rdb *redis.Client, mgetChunkSize, writeChunkSize int) service.SchedulerCache {
-	return newSchedulerCacheWithOptions(rdb, mgetChunkSize, writeChunkSize, "")
-}
-
 func newSchedulerCacheWithOptions(rdb *redis.Client, mgetChunkSize, writeChunkSize int, keyPrefix string) service.SchedulerCache {
 	if mgetChunkSize <= 0 {
 		mgetChunkSize = defaultSchedulerSnapshotMGetChunkSize

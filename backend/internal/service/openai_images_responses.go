@@ -1025,7 +1025,6 @@ func writeOpenAIImagesUpstreamErrorResponse(c *gin.Context, err *OpenAIImagesUps
 	errorObj := gin.H{
 		"type":    err.clientErrorType(),
 		"message": clienterror.Prefix(err.clientErrorType(), err.clientMessage()),
-
 	}
 	if code := strings.TrimSpace(err.Code); code != "" {
 		errorObj["code"] = code

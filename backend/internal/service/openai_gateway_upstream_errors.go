@@ -422,7 +422,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			"error": gin.H{
 				"type":    errType,
 				"message": clienterror.Upstream(errMsg),
-
 			},
 		})
 		if upstreamMsg == "" {
@@ -527,7 +526,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		"error": gin.H{
 			"type":    errType,
 			"message": clienterror.Upstream(errMsg),
-
 		},
 	})
 

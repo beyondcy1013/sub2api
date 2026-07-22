@@ -675,7 +675,7 @@ func (s *BalanceCheckService) fetchBalanceFromURL(
 		result.Error = fmt.Sprintf("HTTP request failed: %v", err)
 		return &result
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		result.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)

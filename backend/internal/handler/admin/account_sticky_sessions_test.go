@@ -113,7 +113,7 @@ func TestReassignStickySessionsMovesWithinSharedGroup(t *testing.T) {
 }
 
 func TestGetStickySessionSummaryRejectsUnschedulableTarget(t *testing.T) {
-	router, store := newStickySessionTestRouter(t, 2)
+	_, store := newStickySessionTestRouter(t, 2)
 	base := newStubAdminService()
 	target := service.Account{
 		ID: 20, Name: "target", Platform: service.PlatformOpenAI, Status: service.StatusActive,
@@ -125,7 +125,7 @@ func TestGetStickySessionSummaryRejectsUnschedulableTarget(t *testing.T) {
 	}
 	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	handler.stickySessionAdminStore = store
-	router = gin.New()
+	router := gin.New()
 	router.GET("/accounts/:id/sticky-sessions", handler.GetStickySessionSummary)
 
 	req := httptest.NewRequest(http.MethodGet, "/accounts/20/sticky-sessions", nil)

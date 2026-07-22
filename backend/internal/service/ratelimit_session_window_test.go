@@ -88,7 +88,7 @@ func (m *sessionWindowMockRepo) ListTrashedAccounts(context.Context, pagination.
 	return nil, nil, nil
 }
 func (m *sessionWindowMockRepo) RestoreTrashedAccount(context.Context, int64) error { return nil }
-func (m *sessionWindowMockRepo) PermanentDelete(context.Context, int64) error { return nil }
+func (m *sessionWindowMockRepo) PermanentDelete(context.Context, int64) error       { return nil }
 func (m *sessionWindowMockRepo) RestoreAccount(context.Context, int64) error {
 	panic("unexpected")
 }

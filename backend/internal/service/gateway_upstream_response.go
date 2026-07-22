@@ -451,7 +451,6 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 			"error": gin.H{
 				"type":    errType,
 				"message": clienterror.Upstream(errMsg),
-
 			},
 		})
 
@@ -512,7 +511,6 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		"error": gin.H{
 			"type":    errType,
 			"message": clienterror.Upstream(errMsg),
-
 		},
 	})
 
