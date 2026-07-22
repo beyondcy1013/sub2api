@@ -101,7 +101,10 @@ export const FeatureFlags = {
   }),
   stickySessionReassignment: defineFlag({
     key: 'sticky_session_reassignment_enabled',
-    mode: 'opt-in',
+    // Main exposes this capability by default; free explicitly sends false.
+    // Keeping the fallback enabled avoids hiding the action while injected
+    // public settings are still loading.
+    mode: 'opt-out',
     label: 'Sticky Session Reassignment',
   }),
   channelMonitor: defineFlag({

@@ -861,6 +861,7 @@ func TestAPIContracts(t *testing.T) {
 					"hide_ccs_import_button": false,
 					"purchase_subscription_enabled": false,
 					"purchase_subscription_url": "",
+					"redeem_purchase_url": "",
 					"table_default_page_size": 20,
 						"table_page_size_options": [10, 20, 50, 100],
 					"min_claude_code_version": "",
@@ -1112,6 +1113,7 @@ func TestAPIContracts(t *testing.T) {
 					"hide_ccs_import_button": false,
 					"purchase_subscription_enabled": false,
 					"purchase_subscription_url": "",
+					"redeem_purchase_url": "",
 					"table_default_page_size": 20,
 					"table_page_size_options": [10, 20, 50],
 					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null}},
@@ -1793,6 +1795,18 @@ func (s *stubAccountRepo) RecycleAccount(context.Context, int64) error {
 }
 
 func (s *stubAccountRepo) RestoreAccount(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) ListTrashedAccounts(context.Context, pagination.PaginationParams, string, string, string) ([]service.Account, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) RestoreTrashedAccount(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) PermanentDelete(context.Context, int64) error {
 	return errors.New("not implemented")
 }
 

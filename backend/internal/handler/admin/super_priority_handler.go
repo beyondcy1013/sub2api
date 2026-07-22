@@ -52,7 +52,8 @@ func (h *SettingHandler) GetSuperPrioritySettings(c *gin.Context) {
 }
 
 // UpdateSuperPrioritySettings 更新阈值/间隔/测试模型等参数。
-// 这些字段不直接切换模式；CheckInterval 变更需要重启服务才生效（与 balance_check 一致）。
+// These fields do not switch the strategy. The liveness runner evaluates the
+// interval per account, so changes take effect without restarting the service.
 // PUT /api/v1/admin/settings/super-priority
 func (h *SettingHandler) UpdateSuperPrioritySettings(c *gin.Context) {
 	svc := h.superPriorityService
@@ -70,7 +71,7 @@ func (h *SettingHandler) UpdateSuperPrioritySettings(c *gin.Context) {
 		response.Error(c, 500, "persist config failed: "+err.Error())
 		return
 	}
-	response.Success(c, gin.H{"message": "super priority settings updated", "restart_required": true})
+	response.Success(c, gin.H{"message": "scheduling settings updated", "restart_required": false})
 }
 
 // ActivateSuperPriority 激活超级优先模式。

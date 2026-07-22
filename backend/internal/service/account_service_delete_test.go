@@ -77,6 +77,11 @@ func (s *accountRepoStub) RecycleAccount(context.Context, int64) error {
 	panic("unexpected RecycleAccount call")
 }
 
+func (s *accountRepoStub) ListTrashedAccounts(context.Context, pagination.PaginationParams, string, string, string) ([]Account, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
+func (s *accountRepoStub) RestoreTrashedAccount(context.Context, int64) error { return nil }
+func (s *accountRepoStub) PermanentDelete(context.Context, int64) error { return nil }
 func (s *accountRepoStub) RestoreAccount(context.Context, int64) error {
 	panic("unexpected RestoreAccount call")
 }

@@ -2154,6 +2154,8 @@ func setDefaults() {
 	viper.SetDefault("super_priority.check_interval", "@every 1m")
 	viper.SetDefault("super_priority.test_model_id", "")
 	viper.SetDefault("super_priority.test_prompt", "")
+	viper.SetDefault("super_priority.activated_at", "")
+	viper.SetDefault("super_priority.demoted_at", "")
 
 	// RateLimit
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)
@@ -2427,6 +2429,9 @@ func setDefaults() {
 // environment. Any subsystem that wants a richer default still applies it after
 // unmarshal, exactly as before.
 func setEnvReachableDefaults() {
+	// load() replaces this registered zero value with the profile-specific
+	// default after config and DEPLOYMENT_PROFILE have been read.
+	viper.SetDefault("balance_check.enabled", false)
 	viper.SetDefault("gateway.forced_codex_instructions_template_file", "")
 	viper.SetDefault("gateway.session_idle_timeout_minutes", 0)
 	viper.SetDefault("gateway.user_message_queue.mode", "")

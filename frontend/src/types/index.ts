@@ -211,6 +211,7 @@ export interface PublicSettings {
   site_subtitle: string
   api_base_url: string
   contact_info: string
+  redeem_purchase_url: string
   doc_url: string
   home_content: string
   hide_ccs_import_button: boolean
@@ -914,6 +915,7 @@ export interface UpstreamBillingProbeSnapshot {
 export interface UpstreamBillingProbeSettings {
   enabled: boolean
   interval_minutes: number
+  notify_on_change_only?: boolean
 }
 
 export interface UpstreamBillingProbeResult {
@@ -942,6 +944,7 @@ export interface Account {
     upstream_billing_probe_enabled?: boolean
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
     scheduling_rate_source?: SchedulingRateSource
+    scheduling_rate_sync_mode?: SchedulingRateSyncMode
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null
@@ -967,6 +970,9 @@ export interface Account {
   scheduling_rate_multiplier?: number
   scheduling_rate_known?: boolean
   scheduling_rate_source?: SchedulingRateSource
+  scheduling_rate_sync_mode?: SchedulingRateSyncMode
+  scheduling_liveness_status?: 'unknown' | 'alive' | 'suspect' | 'dead'
+  scheduling_rate_optimal?: boolean
   status: 'active' | 'inactive' | 'error'
   error_message: string | null
   last_used_at: string | null
@@ -1057,8 +1063,10 @@ export interface Account {
 
 export type SchedulingRateSource = 'manual' | 'upstream'
 
+export type SchedulingRateSyncMode = 'auto_overwrite' | 'manual_lock'
+
 export interface UpdateSchedulingRateRequest {
-  source: SchedulingRateSource
+  sync_mode: SchedulingRateSyncMode
   rate_multiplier?: number
 }
 
@@ -2133,6 +2141,7 @@ export interface ScheduledTestPlan {
   enabled: boolean
   max_results: number
   auto_recover: boolean
+  auto_recover_schedulable: boolean
   last_run_at: string | null
   next_run_at: string | null
   created_at: string
@@ -2158,6 +2167,7 @@ export interface CreateScheduledTestPlanRequest {
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+  auto_recover_schedulable?: boolean
 }
 
 export interface UpdateScheduledTestPlanRequest {
@@ -2166,6 +2176,7 @@ export interface UpdateScheduledTestPlanRequest {
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+  auto_recover_schedulable?: boolean
 }
 
 // Payment types

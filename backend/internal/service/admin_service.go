@@ -87,6 +87,13 @@ type AdminService interface {
 	DeleteAccount(ctx context.Context, id int64) error
 	RecycleAccount(ctx context.Context, id int64) error
 	RestoreAccount(ctx context.Context, id int64) error
+	// Recycle bin: list soft-deleted accounts (archive only, no connect/refresh/schedule)
+	ListTrashedAccounts(ctx context.Context, page, pageSize int, platform, accountType, search string) ([]Account, int64, error)
+	// RestoreFromTrash un-deletes a soft-deleted account, re-creates its group associations,
+	// and re-enters it into the scheduler.
+	RestoreFromTrash(ctx context.Context, id int64) error
+	// PermanentDelete physically removes a soft-deleted account and all its data.
+	PermanentDeleteAccount(ctx context.Context, id int64) error
 	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
 	ClearAccountError(ctx context.Context, id int64) (*Account, error)
 	SetAccountError(ctx context.Context, id int64, errorMsg string) error
@@ -369,13 +376,16 @@ type UpdateAccountInput struct {
 	// SchedulingRateSource controls which multiplier the lowest-cost scheduler
 	// uses. It is persisted in account extra without replacing other runtime
 	// fields. Nil preserves the existing source for regular account edits.
-	SchedulingRateSource  *string
-	LoadFactor            *int
-	Status                string
-	GroupIDs              *[]int64
-	ExpiresAt             *int64
-	AutoPauseOnExpired    *bool
-	SkipMixedChannelCheck bool // 跳过混合渠道检查（用户已确认风险）
+	SchedulingRateSource *string
+	// SchedulingRateSyncMode controls whether successful upstream probes may
+	// overwrite RateMultiplier. RateMultiplier remains the sole scheduler input.
+	SchedulingRateSyncMode *string
+	LoadFactor             *int
+	Status                 string
+	GroupIDs               *[]int64
+	ExpiresAt              *int64
+	AutoPauseOnExpired     *bool
+	SkipMixedChannelCheck  bool // 跳过混合渠道检查（用户已确认风险）
 }
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.

@@ -10,8 +10,12 @@ const {
   getUpstreamBillingProbeSettings,
   getAllProxies,
   getAllGroups,
+  probeUpstreamBilling,
   probeUpstreamBillingBatch,
-  bulkUpdateAccounts
+  bulkUpdateAccounts,
+  showError,
+  showSuccess,
+  showWarning
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
@@ -19,8 +23,12 @@ const {
   getUpstreamBillingProbeSettings: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
+  probeUpstreamBilling: vi.fn(),
   probeUpstreamBillingBatch: vi.fn(),
-  bulkUpdateAccounts: vi.fn()
+  bulkUpdateAccounts: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+  showWarning: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -31,8 +39,14 @@ vi.mock('@/api/admin', () => ({
       getBatchTodayStats,
       getUpstreamBillingProbeSettings,
       delete: vi.fn(),
+      recycle: vi.fn(),
+      restore: vi.fn(),
+      listTrashed: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 }),
+      restoreFromTrash: vi.fn(),
+      permanentDelete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
+      probeUpstreamBilling,
       probeUpstreamBillingBatch,
       bulkUpdate: bulkUpdateAccounts,
       toggleSchedulable: vi.fn()
@@ -44,8 +58,9 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError,
+    showSuccess,
+    showWarning,
     showInfo: vi.fn()
   })
 }))
@@ -124,6 +139,7 @@ function mountView(extraStubs: Record<string, unknown> = {}) {
         SyncFromCrsModal: true,
         TempUnschedStatusModal: true,
         ErrorPassthroughRulesModal: true,
+        TrashBinModal: true,
         TLSFingerprintProfilesModal: true,
         CreateAccountModal: true,
         EditAccountModal: true,
@@ -150,8 +166,12 @@ describe('admin AccountsView bulk edit scope', () => {
     getUpstreamBillingProbeSettings.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
+    probeUpstreamBilling.mockReset()
     probeUpstreamBillingBatch.mockReset()
     bulkUpdateAccounts.mockReset()
+    showError.mockReset()
+    showSuccess.mockReset()
+    showWarning.mockReset()
 
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
@@ -159,6 +179,7 @@ describe('admin AccountsView bulk edit scope', () => {
     getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    probeUpstreamBilling.mockResolvedValue({})
     probeUpstreamBillingBatch.mockResolvedValue([])
     bulkUpdateAccounts.mockResolvedValue({ success: 1, failed: 0, results: [] })
   })
@@ -267,6 +288,7 @@ describe('admin AccountsView bulk edit scope', () => {
           SyncFromCrsModal: true,
           TempUnschedStatusModal: true,
           ErrorPassthroughRulesModal: true,
+        TrashBinModal: true,
           TLSFingerprintProfilesModal: true,
           CreateAccountModal: true,
           EditAccountModal: true,
@@ -426,6 +448,75 @@ describe('admin AccountsView bulk edit scope', () => {
     expect(wrapper.get('[data-test="upstream-billing-cell"]').attributes('data-global-enabled')).toBe('false')
   })
 
+  it('refreshes the upstream rate cell and shows a toast after a single probe completes', async () => {
+    const account = {
+      id: 7,
+      name: 'cheap-upstream',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active',
+      schedulable: true,
+      created_at: '2026-07-13T00:00:00Z',
+      updated_at: '2026-07-13T00:00:00Z',
+      extra: {
+        upstream_billing_probe: {
+          status: 'ok',
+          data: { effective_rate_multiplier: 1 },
+          received_at: '2026-07-12T00:00:00Z',
+          fresh_until: '2026-07-12T01:00:00Z',
+          last_attempt_at: '2026-07-12T00:00:00Z',
+          next_probe_at: '2026-07-12T00:30:00Z'
+        }
+      }
+    }
+    const receivedAt = new Date().toISOString()
+    const snapshot = {
+      status: 'ok' as const,
+      data: { effective_rate_multiplier: 0.25 },
+      received_at: receivedAt,
+      fresh_until: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      last_attempt_at: receivedAt,
+      next_probe_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: true })
+    probeUpstreamBilling.mockResolvedValue({ account_id: 7, snapshot })
+
+    const wrapper = mountView({
+      DataTable: {
+        props: ['data'],
+        template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-upstream_billing_rate" :row="row" /></div></div>'
+      },
+      UpstreamBillingRateCell: {
+        props: ['account'],
+        emits: ['probe'],
+        template: '<button data-test="single-probe" :data-status="account.extra?.upstream_billing_probe?.status" :data-rate="account.extra?.upstream_billing_probe?.data?.effective_rate_multiplier" @click="$emit(\'probe\')">probe</button>'
+      }
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="single-probe"]').trigger('click')
+    await flushPromises()
+
+    expect(probeUpstreamBilling).toHaveBeenCalledWith(7)
+    expect(wrapper.get('[data-test="single-probe"]').attributes('data-status')).toBe('ok')
+    expect(wrapper.get('[data-test="single-probe"]').attributes('data-rate')).toBe('0.25')
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.upstreamBilling.probeCompleted')
+
+    showSuccess.mockClear()
+    const unchangedSnapshot = {
+      ...snapshot,
+      received_at: new Date().toISOString(),
+      last_attempt_at: new Date().toISOString()
+    }
+    probeUpstreamBilling.mockResolvedValue({ account_id: 7, snapshot: unchangedSnapshot })
+    await wrapper.get('[data-test="single-probe"]').trigger('click')
+    await flushPromises()
+
+    expect(probeUpstreamBilling).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-test="single-probe"]').attributes('data-rate')).toBe('0.25')
+    expect(showSuccess).not.toHaveBeenCalled()
+  })
+
   it('submits selected account IDs from every page for backend eligibility checks', async () => {
     const account = (id: number) => ({ id, name: `account-${id}`, platform: 'openai', type: 'apikey', status: 'active', schedulable: true, created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z' })
     listAccounts.mockResolvedValueOnce({ items: [account(7)], total: 2, page: 1, page_size: 1, pages: 2 }).mockResolvedValueOnce({ items: [account(11)], total: 2, page: 2, page_size: 1, pages: 2 })
@@ -454,5 +545,28 @@ describe('admin AccountsView bulk edit scope', () => {
 
     expect(probeUpstreamBillingBatch).toHaveBeenCalledWith([7])
     expect(listAccounts).toHaveBeenCalledTimes(2)
+  })
+
+  it('suppresses a successful batch toast when change-only notification is enabled and rates are unchanged', async () => {
+    const snapshot = {
+      status: 'ok' as const,
+      data: { effective_rate_multiplier: 0.5 },
+      received_at: '2026-07-13T00:00:00Z',
+      fresh_until: '2026-07-14T00:00:00Z',
+      last_attempt_at: '2026-07-13T00:00:00Z',
+      next_probe_at: '2026-07-13T00:30:00Z'
+    }
+    const account = { id: 7, name: 'account-7', platform: 'openai', type: 'apikey', status: 'active', schedulable: true, created_at: '2026-07-13T00:00:00Z', updated_at: '2026-07-13T00:00:00Z', extra: { upstream_billing_probe: snapshot } }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: true })
+    probeUpstreamBillingBatch.mockResolvedValue([{ account_id: 7, snapshot: { ...snapshot, last_attempt_at: '2026-07-13T00:15:00Z' } }])
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="select-row"] input').trigger('change')
+    await wrapper.get('[data-test="probe-upstream-billing"]').trigger('click')
+    await flushPromises()
+
+    expect(probeUpstreamBillingBatch).toHaveBeenCalledWith([7])
+    expect(showSuccess).not.toHaveBeenCalled()
   })
 })

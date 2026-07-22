@@ -69,6 +69,12 @@ type AccountRepository interface {
 	RecycleAccount(ctx context.Context, id int64) error
 	// RestoreAccount un-marks a recycled account by removing extra.recycled.
 	RestoreAccount(ctx context.Context, id int64) error
+	// ListTrashedAccounts returns soft-deleted accounts for the recycle bin.
+	ListTrashedAccounts(ctx context.Context, params pagination.PaginationParams, platform, accountType, search string) ([]Account, *pagination.PaginationResult, error)
+	// RestoreTrashedAccount un-deletes a soft-deleted account and restores its group associations.
+	RestoreTrashedAccount(ctx context.Context, id int64) error
+	// PermanentDelete physically removes a soft-deleted account and all its data.
+	PermanentDelete(ctx context.Context, id int64) error
 
 	List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error)
 	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]Account, *pagination.PaginationResult, error)

@@ -319,10 +319,12 @@ export default {
       upstreamBillingProbe: {
         title: '上游倍率自动探测',
         description: '定期获取 OpenAI API Key 所连接上游 Sub2API 站点声明的计费倍率。',
-        enabled: '启用全局自动探测',
-        enabledHint: '开启后，仅对账号自身已启用自动检测的账号执行定时探测；关闭后停止所有定时探测，手动探测不受影响。',
+        enabled: '自动检测全部账号',
+        enabledHint: '开启后，定时检测所有活跃的 OpenAI API Key 账号；关闭后停止所有定时检测，手动检测不受影响。',
         intervalMinutes: '探测周期（分钟）',
         intervalHint: '范围 5–1440 分钟。成功探测结果的有效期为两个探测周期。',
+        notifyOnChangeOnly: '有变更才通知',
+        notifyOnChangeOnlyHint: '默认关闭。开启后，成功检测且倍率与上次一致时不显示 Toast；失败或不支持仍会提示。',
         saved: '上游倍率自动探测设置已保存',
         saveFailed: '保存上游倍率自动探测设置失败'
       },
@@ -721,6 +723,12 @@ export default {
         rechargeUrl: '充值页面 URL',
         rechargeUrlPlaceholder: 'https://example.com/payment',
         rechargeUrlHint: '设置后邮件中将包含充值链接按钮',
+      },
+      redeemPurchase: {
+        title: '兑换码购买链接',
+        description: '用户兑换页展示的"购买兑换码"提示链接',
+        url: '购买链接 URL',
+        urlHint: '留空则不展示购买提示卡片',
       },
       quotaNotify: {
         title: '账号限额通知',

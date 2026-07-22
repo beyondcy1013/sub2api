@@ -25,6 +25,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -682,6 +683,14 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	// Save group associations into extra.recycle_bin_groups so the recycle bin
+	// can fully restore them later. This is done before the AccountGroup rows
+	// are physically deleted below.
+	if len(groupIDs) > 0 {
+		if err := r.UpdateExtra(ctx, id, map[string]any{"recycle_bin_groups": groupIDs}); err != nil {
+			return err
+		}
+	}
 	// 使用事务保证账号与关联分组的删除原子性
 	tx, err := r.client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -703,6 +712,7 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	if _, err := txClient.ExecContext(ctx, "DELETE FROM scheduled_test_plans WHERE account_id = $1", id); err != nil {
 		return err
 	}
+	// SoftDeleteMixin intercepts this and converts it to UPDATE deleted_at=NOW()
 	if _, err := txClient.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(ctx); err != nil {
 		return err
 	}
@@ -715,6 +725,161 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	r.deleteSchedulerAccountSnapshot(ctx, id)
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account delete failed: account=%d err=%v", id, err)
+	}
+	return nil
+}
+
+// ListTrashedAccounts returns soft-deleted accounts for the recycle bin.
+// It bypasses SoftDeleteMixin so deleted_at IS NOT NULL rows are visible.
+func (r *accountRepository) ListTrashedAccounts(ctx context.Context, params pagination.PaginationParams, platform, accountType, search string) ([]service.Account, *pagination.PaginationResult, error) {
+	trashCtx := mixins.SkipSoftDelete(ctx)
+	q := r.client.Account.Query().Where(dbaccount.DeletedAtNotNil())
+	if platform != "" {
+		q = q.Where(dbaccount.PlatformEQ(platform))
+	}
+	if accountType != "" {
+		q = q.Where(dbaccount.TypeEQ(accountType))
+	}
+	if search != "" {
+		q = q.Where(dbaccount.NameContainsFold(search))
+	}
+
+	total, err := q.Clone().Count(trashCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	accountsQuery := q.
+		Offset(params.Offset()).
+		Limit(params.Limit()).
+		Order(dbent.Desc(dbaccount.FieldDeletedAt))
+	accounts, err := accountsQuery.All(trashCtx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outAccounts, err := r.accountsToService(trashCtx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outAccounts, paginationResultFromTotal(int64(total), params), nil
+}
+
+// RestoreTrashedAccount un-deletes a soft-deleted account: clears deleted_at,
+// re-creates its saved AccountGroup rows, and clears the recycle_bin_groups key.
+func (r *accountRepository) RestoreTrashedAccount(ctx context.Context, id int64) error {
+	trashCtx := mixins.SkipSoftDelete(ctx)
+	acc, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(trashCtx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if acc.DeletedAt == nil {
+		return service.ErrAccountNotFound
+	}
+
+	// Extract saved group associations from extra.recycle_bin_groups
+	var savedGroupIDs []int64
+	if acc.Extra != nil {
+		if raw, ok := acc.Extra["recycle_bin_groups"]; ok {
+			if arr, ok := raw.([]any); ok {
+				for _, v := range arr {
+					if f, ok := v.(float64); ok {
+						savedGroupIDs = append(savedGroupIDs, int64(f))
+					}
+				}
+			}
+		}
+	}
+
+	tx, err := r.client.Tx(trashCtx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	var txClient *dbent.Client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
+	} else {
+		txClient = r.client
+	}
+
+	// Clear deleted_at to un-delete the account
+	if err := txClient.Account.UpdateOneID(id).ClearDeletedAt().Exec(trashCtx); err != nil {
+		return err
+	}
+
+	// Re-create AccountGroup rows that were physically deleted
+	if len(savedGroupIDs) > 0 {
+		builders := make([]*dbent.AccountGroupCreate, 0, len(savedGroupIDs))
+		for _, gid := range savedGroupIDs {
+			builders = append(builders, txClient.AccountGroup.Create().
+				SetAccountID(id).
+				SetGroupID(gid).
+				SetPriority(50))
+		}
+		if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(trashCtx); err != nil {
+			return err
+		}
+	}
+
+	// Clear the recycle_bin_groups key from extra via raw SQL (Ent has no RemoveExtra)
+	if _, err := txClient.ExecContext(trashCtx, "UPDATE accounts SET extra = extra - 'recycle_bin_groups', updated_at = NOW() WHERE id = $1", id); err != nil {
+		return err
+	}
+
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	// Notify scheduler that this account is back
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, buildSchedulerGroupPayload(savedGroupIDs)); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account restore failed: account=%d err=%v", id, err)
+	}
+	return nil
+}
+
+// PermanentDelete physically removes a soft-deleted account and all remaining associations.
+func (r *accountRepository) PermanentDelete(ctx context.Context, id int64) error {
+	trashCtx := mixins.SkipSoftDelete(ctx)
+	acc, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(trashCtx)
+	if err != nil {
+		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+	if acc.DeletedAt == nil {
+		// Not soft-deleted; refuse permanent delete to prevent accidental data loss
+		return service.ErrAccountNotFound
+	}
+
+	tx, err := r.client.Tx(trashCtx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	var txClient *dbent.Client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
+	} else {
+		txClient = r.client
+	}
+
+	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(id)).Exec(trashCtx); err != nil {
+		return err
+	}
+	if _, err := txClient.ExecContext(trashCtx, "DELETE FROM scheduled_test_plans WHERE account_id = $1", id); err != nil {
+		return err
+	}
+	// Use SkipSoftDelete context so the hook does a REAL delete
+	if _, err := txClient.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(trashCtx); err != nil {
+		return err
+	}
+
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -2540,7 +2705,7 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	if account.ProxyID != nil {
 		proxyID = *account.ProxyID
 	}
-	result, err := client.ExecContext(ctx, `
+	updateSQL := `
 		UPDATE accounts
 		SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW()
 		WHERE id = $2
@@ -2551,7 +2716,26 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 			AND COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb
 			AND COALESCE(extra -> 'upstream_billing_probe_enabled', 'null'::jsonb) = $8::jsonb
 			AND deleted_at IS NULL
-	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON))
+	`
+	args := []any{string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON)}
+	if resolvedRate, ok := service.ResolvedSchedulingRateFromProbeSnapshot(snapshot); ok {
+		updateSQL = strings.Replace(updateSQL,
+			"SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb, updated_at = NOW()",
+			`SET extra = COALESCE(extra, '{}'::jsonb) || $1::jsonb,
+				rate_multiplier = CASE
+					WHEN CASE
+						WHEN extra ? 'scheduling_rate_sync_mode' THEN LOWER(BTRIM(extra ->> 'scheduling_rate_sync_mode')) <> 'manual_lock'
+						WHEN LOWER(BTRIM(COALESCE(extra ->> 'scheduling_rate_source', ''))) = 'manual' THEN FALSE
+						ELSE TRUE
+					END THEN ROUND($9::numeric, 4)
+					ELSE rate_multiplier
+				END,
+				updated_at = NOW()`,
+			1,
+		)
+		args = append(args, resolvedRate)
+	}
+	result, err := client.ExecContext(ctx, updateSQL, args...)
 	if err != nil {
 		return err
 	}
@@ -3250,7 +3434,7 @@ func (r *accountRepository) FindByExtraField(ctx context.Context, key string, va
 }
 
 // ListDueUpstreamBillingProbeAccounts bounds result hydration and network work
-// to limit. PostgreSQL must still filter and order all enabled candidates;
+// to limit. PostgreSQL must still filter and order all active eligible candidates;
 // MATERIALIZED avoids repeating the defensive timestamp parse expression.
 func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Context, now time.Time, limit int) ([]service.Account, error) {
 	if limit <= 0 {
@@ -3271,7 +3455,6 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				AND status = 'active'
 				AND platform = 'openai'
 				AND type = 'apikey'
-				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
 		), parsed AS MATERIALIZED (
 			SELECT
 				id,

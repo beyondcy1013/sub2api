@@ -111,6 +111,11 @@ func (s *sparkShadowRepoStub) Delete(_ context.Context, id int64) error {
 func (s *sparkShadowRepoStub) RecycleAccount(context.Context, int64) error { return nil }
 
 func (s *sparkShadowRepoStub) RestoreAccount(context.Context, int64) error { return nil }
+func (s *sparkShadowRepoStub) ListTrashedAccounts(context.Context, pagination.PaginationParams, string, string, string) ([]Account, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
+func (s *sparkShadowRepoStub) RestoreTrashedAccount(context.Context, int64) error { return nil }
+func (s *sparkShadowRepoStub) PermanentDelete(context.Context, int64) error { return nil }
 func (s *sparkShadowRepoStub) BatchUpdateLastUsed(_ context.Context, _ map[int64]time.Time) error {
 	return nil
 }

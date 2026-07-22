@@ -136,6 +136,18 @@ func (r *upstreamBillingProbeAccountRepo) FindByExtraField(_ context.Context, ke
 	return result, nil
 }
 
+func (r *upstreamBillingProbeAccountRepo) ListActive(_ context.Context) ([]Account, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := make([]Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if account.Status == StatusActive {
+			result = append(result, *account)
+		}
+	}
+	return result, nil
+}
+
 type upstreamBillingProbeSettingRepo struct {
 	SettingRepository
 	mu     sync.Mutex
@@ -223,6 +235,7 @@ func TestUpstreamBillingProbeSettingsDefaultsAndValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, settings.Enabled)
 	require.Equal(t, 30, settings.IntervalMinutes)
+	require.False(t, settings.NotifyOnChangeOnly)
 
 	err = settingsService.SetUpstreamBillingProbeSettings(context.Background(), &UpstreamBillingProbeSettings{
 		Enabled:         false,
@@ -232,20 +245,23 @@ func TestUpstreamBillingProbeSettingsDefaultsAndValidation(t *testing.T) {
 	require.Contains(t, err.Error(), "interval_minutes must be between 5 and 1440")
 
 	err = settingsService.SetUpstreamBillingProbeSettings(context.Background(), &UpstreamBillingProbeSettings{
-		Enabled:         false,
-		IntervalMinutes: 60,
+		Enabled:            false,
+		IntervalMinutes:    60,
+		NotifyOnChangeOnly: true,
 	})
 	require.NoError(t, err)
 	settings, err = settingsService.GetUpstreamBillingProbeSettings(context.Background())
 	require.NoError(t, err)
 	require.False(t, settings.Enabled)
 	require.Equal(t, 60, settings.IntervalMinutes)
+	require.True(t, settings.NotifyOnChangeOnly)
 
 	repo.values[SettingKeyUpstreamBillingProbeSettings] = `{"interval_minutes":45}`
 	settings, err = settingsService.GetUpstreamBillingProbeSettings(context.Background())
 	require.NoError(t, err)
 	require.True(t, settings.Enabled)
 	require.Equal(t, 45, settings.IntervalMinutes)
+	require.False(t, settings.NotifyOnChangeOnly)
 	repo.values[SettingKeyUpstreamBillingProbeSettings] = `{"enabled":false}`
 	settings, err = settingsService.GetUpstreamBillingProbeSettings(context.Background())
 	require.NoError(t, err)
@@ -329,6 +345,24 @@ func TestUpstreamBillingProbeRejectsMissingRequiredMultiplier(t *testing.T) {
 	}`))
 
 	require.ErrorContains(t, err, "incomplete billing response")
+}
+
+func TestResolvedSchedulingRateFromProbeSnapshotUsesStableRoundedBaseRate(t *testing.T) {
+	rate, ok := ResolvedSchedulingRateFromProbeSnapshot(&UpstreamBillingProbeSnapshot{
+		Status: UpstreamBillingProbeStatusOK,
+		Data: map[string]any{
+			"resolved_rate_multiplier":  0.123456,
+			"effective_rate_multiplier": 9.9,
+		},
+	})
+
+	require.True(t, ok)
+	require.Equal(t, 0.1235, rate)
+	_, ok = ResolvedSchedulingRateFromProbeSnapshot(&UpstreamBillingProbeSnapshot{
+		Status: UpstreamBillingProbeStatusFailed,
+		Data:   map[string]any{"resolved_rate_multiplier": 0.1},
+	})
+	require.False(t, ok)
 }
 
 func TestUpstreamBillingProbeDiscardsResultWhenIdentityChangesInFlight(t *testing.T) {
@@ -604,7 +638,7 @@ func TestUpstreamBillingProbeRunnerIsBoundedAndManualProbeIgnoresSwitches(t *tes
 	require.Equal(t, int64(21), upstream.calls.Load())
 }
 
-func TestUpstreamBillingProbeRunnerRechecksEnabledAfterDueSelection(t *testing.T) {
+func TestUpstreamBillingProbeRunnerIgnoresLegacyAccountSwitchAfterDueSelection(t *testing.T) {
 	account := &Account{
 		ID:          26,
 		Platform:    PlatformOpenAI,
@@ -615,7 +649,7 @@ func TestUpstreamBillingProbeRunnerRechecksEnabledAfterDueSelection(t *testing.T
 		Extra:       map[string]any{UpstreamBillingProbeEnabledExtraKey: false},
 	}
 	staleDue := *account
-	staleDue.Extra = map[string]any{UpstreamBillingProbeEnabledExtraKey: true}
+	staleDue.Extra = map[string]any{UpstreamBillingProbeEnabledExtraKey: false}
 	baseRepo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
 	repo := &staleDueUpstreamBillingProbeAccountRepo{upstreamBillingProbeAccountRepo: baseRepo, due: []Account{staleDue}}
 	settingsRepo := &upstreamBillingProbeSettingRepo{values: map[string]string{
@@ -625,8 +659,8 @@ func TestUpstreamBillingProbeRunnerRechecksEnabledAfterDueSelection(t *testing.T
 	svc := newUpstreamBillingProbeTestService(repo, upstream, settingsRepo)
 
 	require.NoError(t, svc.RunDue(context.Background()))
-	require.Zero(t, upstream.calls.Load())
-	require.NotContains(t, account.Extra, UpstreamBillingProbeExtraKey)
+	require.Equal(t, int64(1), upstream.calls.Load())
+	require.Contains(t, account.Extra, UpstreamBillingProbeExtraKey)
 }
 
 func TestUpstreamBillingProbeNeverDowngradesMissingConfiguredProxyToDirect(t *testing.T) {
@@ -916,7 +950,7 @@ func TestUpstreamBillingProbeScheduledRechecksAfterWaitingForSlot(t *testing.T) 
 	}()
 	time.Sleep(20 * time.Millisecond)
 	repo.mu.Lock()
-	account.Extra[UpstreamBillingProbeEnabledExtraKey] = false
+	account.Status = StatusDisabled
 	repo.mu.Unlock()
 	<-svc.probeSlots
 

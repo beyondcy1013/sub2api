@@ -4168,6 +4168,22 @@
                   </p>
                 </div>
 
+                <div class="flex items-start justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.upstreamBillingProbe.notifyOnChangeOnly") }}
+                    </label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.upstreamBillingProbe.notifyOnChangeOnlyHint") }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="upstreamBillingProbeForm.notify_on_change_only"
+                    :aria-label="t('admin.settings.upstreamBillingProbe.notifyOnChangeOnly')"
+                    data-testid="upstream-billing-probe-notify-on-change-only"
+                  />
+                </div>
+
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
@@ -7477,6 +7493,37 @@
             </div>
           </div>
 
+          <!-- Redeem Purchase URL -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h3 class="text-base font-medium text-gray-900 dark:text-white">
+                {{ t("admin.settings.redeemPurchase.title") }}
+              </h3>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.redeemPurchase.description") }}
+              </p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >{{ t("admin.settings.redeemPurchase.url") }}</label
+                >
+                <input
+                  v-model.trim="form.redeem_purchase_url"
+                  type="url"
+                  class="input"
+                  placeholder="https://"
+                />
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.redeemPurchase.urlHint") }}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- Account Quota Notification -->
           <div class="card">
             <div
@@ -7831,6 +7878,7 @@ const upstreamBillingProbeSaving = ref(false);
 const upstreamBillingProbeForm = reactive({
   enabled: true,
   interval_minutes: 30,
+  notify_on_change_only: false,
 });
 
 // Overload Cooldown (529) 状态
@@ -8595,6 +8643,7 @@ const form = reactive<SettingsForm>({
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
   balance_low_notify_recharge_url: "",
+  redeem_purchase_url: "",
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [] as NotifyEmailEntry[],
@@ -10133,6 +10182,8 @@ async function saveSettings() {
         Number(form.balance_low_notify_threshold) || 0,
       balance_low_notify_recharge_url: (form.balance_low_notify_recharge_url =
         form.balance_low_notify_recharge_url || currentOrigin),
+      redeem_purchase_url: (form.redeem_purchase_url =
+        form.redeem_purchase_url || ""),
       subscription_expiry_notify_enabled:
         form.subscription_expiry_notify_enabled,
       account_quota_notify_enabled: form.account_quota_notify_enabled,

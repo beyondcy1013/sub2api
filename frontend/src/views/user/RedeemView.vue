@@ -3,17 +3,17 @@
     <div class="mx-auto max-w-2xl space-y-6">
       <!-- Current Balance Card -->
       <div class="card overflow-hidden">
-        <div class="bg-gradient-to-br from-primary-500 to-primary-600 px-6 py-8 text-center">
+        <div class="bg-gradient-to-br from-primary-500 to-primary-600 px-6 py-5 text-center">
           <div
-            class="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm"
+            class="mb-2 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm"
           >
-            <Icon name="creditCard" size="xl" class="text-white" />
+            <Icon name="creditCard" size="lg" class="text-white" />
           </div>
           <p class="text-sm font-medium text-primary-100">{{ t('redeem.currentBalance') }}</p>
-          <p class="mt-2 text-4xl font-bold text-white">
+          <p class="mt-1 text-3xl font-bold text-white">
             ${{ user?.balance?.toFixed(2) || '0.00' }}
           </p>
-          <p class="mt-2 text-sm text-primary-100">
+          <p class="mt-1 text-sm text-primary-100">
             {{ t('redeem.concurrency') }}: {{ user?.concurrency || 0 }} {{ t('redeem.requests') }}
           </p>
         </div>
@@ -75,6 +75,39 @@
               {{ submitting ? t('redeem.redeeming') : t('redeem.redeemButton') }}
             </button>
           </form>
+        </div>
+      </div>
+
+      <!-- Purchase Redeem Codes -->
+      <div
+        v-if="redeemPurchaseUrl"
+        class="card border-amber-200 bg-amber-50 dark:border-amber-800/50 dark:bg-amber-900/20"
+      >
+        <div class="p-6">
+          <div class="flex items-start gap-4">
+            <div
+              class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30"
+            >
+              <Icon name="gift" size="md" class="text-amber-600 dark:text-amber-400" />
+            </div>
+            <div class="flex-1">
+              <h3 class="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                {{ t('redeem.purchaseTitle') }}
+              </h3>
+              <p class="mt-2 text-sm text-amber-700 dark:text-amber-400">
+                {{ t('redeem.purchaseHint') }}
+              </p>
+              <a
+                :href="redeemPurchaseUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-primary mt-4 inline-flex w-full items-center justify-center gap-2 py-3 sm:w-auto"
+              >
+                <Icon name="creditCard" size="md" />
+                {{ t('redeem.purchaseButton') }}
+              </a>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -376,6 +409,7 @@ const errorMessage = ref('')
 const history = ref<RedeemHistoryItem[]>([])
 const loadingHistory = ref(false)
 const contactInfo = ref('')
+const redeemPurchaseUrl = ref('')
 
 // Helper functions for history display
 const isBalanceType = (type: string) => {
@@ -481,6 +515,7 @@ onMounted(async () => {
   try {
     const settings = await authAPI.getPublicSettings()
     contactInfo.value = settings.contact_info || ''
+    redeemPurchaseUrl.value = settings.redeem_purchase_url || ''
   } catch (error) {
     console.error('Failed to load contact info:', error)
   }

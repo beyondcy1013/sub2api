@@ -796,6 +796,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 ) openAIAccountLoadPlan {
 	allCandidates := make([]openAIAccountCandidateScore, 0, len(filtered))
 	for _, account := range filtered {
+		if !accountAllowedBySchedulingLiveness(account, s.service.cfg) {
+			continue
+		}
 		loadInfo, loadKnown := loadMap[account.ID]
 		if !loadKnown || loadInfo == nil {
 			loadInfo = &AccountLoadInfo{AccountID: account.ID}
@@ -879,7 +882,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
 	now := time.Now()
 	upstreamCostFactors := map[int64]float64(nil)
-	if req.UseUpstreamTokenCost && weights.UpstreamCost > 0 {
+	if accountSchedulingStrategy(s.service.cfg) != AccountSchedulingStrategyLowestCost && req.UseUpstreamTokenCost && weights.UpstreamCost > 0 {
 		accounts := make([]*Account, 0, len(candidates))
 		for _, candidate := range candidates {
 			accounts = append(accounts, candidate.account)

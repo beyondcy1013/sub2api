@@ -32,6 +32,8 @@
 - 禁止共享数据库、Redis DB/prefix、环境文件、工作目录或运行用户。
 - 一次构建后，禁止为第二个服务重新构建或修改产物。
 - 未完成测试时不得重启；一个服务失败时只回滚该服务。
+- 三种语言 README 的 sponsor 广告区段属于明确排除的上游内容；功能文档、许可证
+  和项目致谢仍正常合并。
 
 ## 1. 升级前快照
 
@@ -61,7 +63,7 @@ done
 ```bash
 cd /home/third_party/sub2api
 git fetch upstream --tags
-git merge --no-ff upstream/main
+git merge --no-ff --no-commit upstream/main
 ```
 
 逐文件组合解决冲突，禁止整文件盲选 ours/theirs。对照本地定制清单验证主服务
@@ -69,9 +71,17 @@ git merge --no-ff upstream/main
 限流恢复和 Redis prefix。保留操作前所有 staged、unstaged、untracked 和 ignored
 本地策略文件。
 
+合并完成后立即删除上游 sponsor 区段；该脚本只处理广告区段，不冻结 README
+其他内容：
+
+```bash
+bash scripts/remove-readme-sponsors.sh
+bash scripts/remove-readme-sponsors.sh --check
+```
+
 ```bash
 git diff --check
-rg -n '^(<<<<<<<|=======|>>>>>>>)' backend frontend/src docs || true
+rg -n '^(<<<<<<<|=======|>>>>>>>)' backend frontend/src docs README* || true
 ```
 
 ## 3. 验证

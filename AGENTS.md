@@ -43,8 +43,14 @@ Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/third_party/
 - Read both documents before fetching, merging, resolving conflicts, building, deploying, or pushing an upgrade.
 - Merge only `upstream/main`. `origin/main` is the customized fork backup and is only a push target.
 - Never use the WebUI binary updater for this customized deployment.
+- README sponsor advertisements are intentionally excluded. After every merge,
+  run `bash scripts/remove-readme-sponsors.sh` and verify with
+  `bash scripts/remove-readme-sponsors.sh --check`; do not restore sponsor
+  sections in `README.md`, `README_CN.md`, or `README_JA.md`.
 
 ## Deploy Checklist
+
+- Unless the user explicitly requests no deployment, finish every code-change task by automatically running the unified dual-service build, deployment, and live verification before the final response.
 
 1. Build the canonical frontend and `-tags embed` Go binary exactly once.
 2. Atomically install the same bytes to `/home/third_party/bin/sub2api/sub2api`
@@ -68,6 +74,8 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
 
 ## Local Customizations To Preserve
 
+- Keep all three README files free of sponsor advertisements while continuing
+  to merge upstream functional documentation, license text, and project credits.
 - Admin account credentials intentionally display `credentials.api_key` in plaintext for account edit/inspection workflows.
 - Do not add `api_key` back to `SensitiveCredentialKeys`; OAuth tokens, session keys, cookies, AWS secrets, service account JSON, and private keys must remain redacted.
 - `MergePreservingSensitiveCreds` must preserve an existing `api_key` when an older or partial frontend update omits it.
@@ -90,7 +98,7 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   - The `Column` interface in `frontend/src/components/common/types.ts` has an optional `width?: string` property.
   - The `DataTable` component in `frontend/src/components/common/DataTable.vue` applies `column.width` as `width` + `minWidth` + `maxWidth` by default, and as `minWidth` only when `dynamicColumnWidths` is enabled.
   - `AccountsView.vue` enables `DataTable`'s `compact-rows` mode. Desktop loading and data cells use `py-0.5` (2px top/bottom padding); other tables retain the default spacing.
-  - Direct account actions remain single-line `h-6 w-6` icon buttons with accessible labels/tooltips so they do not force extra row height.
+  - Direct account actions remain single-line `h-6` text buttons with visible labels, `px-2` horizontal padding, and an explicit `220px` operation-column minimum so all four actions remain reachable without relying on tooltips.
   - Do NOT revert these columns to their upstream positions or remove the width properties.
 - Preserve every local commit and dirty file during upgrades. Follow [docs/UPGRADE_RUNBOOK.md](docs/UPGRADE_RUNBOOK.md) and audit [docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md](docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md); do not use the WebUI binary updater for this customized build.
 - **OpenAI sticky-session concurrency spillover must be preserved**:
@@ -99,6 +107,12 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   - Do not rewrite the historical sticky binding for a one-connection overflow; if every eligible account is full, retain the normal bounded wait-plan fallback.
   - Concurrency-full spillover is mandatory even when TTFT/error health escape is disabled. Strict, non-movable `previous_response_id` affinity remains unchanged.
   - Preserve the implementation in `openai_gateway_scheduling.go` and `openai_account_scheduler.go` plus the spillover regression tests in their corresponding `*_test.go` files.
+- **Lowest-cost scheduling and rate synchronization must be preserved**:
+  - Global scheduling has only `default` and `lowest_cost`; legacy `extra.super_priority` and mode values never affect routing or status display.
+  - `accounts.rate_multiplier` is the sole lowest-cost ranking value. Successful automatic probes copy only `resolved_rate_multiplier` into it; peak/effective snapshots do not rank requests.
+  - `extra.scheduling_rate_sync_mode` is `auto_overwrite` (default) or `manual_lock`. Legacy upstream/manual source values map to those modes only when the new field is absent.
+  - In `lowest_cost`, a periodic bounded-concurrency connection test records `extra.scheduling_liveness`. Fresh `dead` accounts are excluded, while missing/stale/suspect states remain fallback candidates; later success restores eligibility without changing `status` or `schedulable`.
+  - The account table marks the current optimal scheduling rate in gold only for accounts that are schedulable, have a fresh `alive` liveness result, and tie for the lowest `rate_multiplier` in at least one scheduling group. All tied minima are marked; ungrouped accounts compare only with ungrouped accounts on the same platform. The calculation uses the full active account pool, not the current page, and is an administrative hint rather than a guarantee for every model-specific request.
 - After upstream upgrades, verify with:
 
 ```bash
@@ -179,18 +193,27 @@ pnpm vitest run \
   src/components/admin/account/__tests__/EnhancedImportDataModal.spec.ts
 ```
 
-## Account Recycle / Trash Feature
+## Account Staging Filter / Trash Bin Feature
 
 - **Bulk account editing is direct and change-tracked**:
   - Value controls in `BulkEditAccountModal.vue` remain usable before their field checkbox is selected.
   - Changing a value automatically selects only that field for submission; untouched field defaults must not enter the bulk-update payload.
   - Field checkboxes remain available for explicit operations whose desired value equals the form default, including clearing a proxy, groups, mappings, or other existing account values.
-- Accounts can be "recycled" (moved to trash) via `extra.recycled = true` in the JSONB `extra` field. This does NOT use soft-delete (`deleted_at`).
-- `accountListFilteredQuery` in `account_repo.go` accepts a `recycled bool` param: `true` shows only recycled accounts, `false` (default) excludes them.
+- **Account staging** (formerly "recycle") is an extra filter via `extra.recycled = true`. It does NOT use soft-delete (`deleted_at`). The filter toggle is labeled "暂存" (Staging) with an `inbox` icon in `AccountTableActions.vue`.
+- `accountListFilteredQuery` in `account_repo.go` accepts a `recycled bool` param: `true` shows only staged accounts, `false` (default) excludes them.
 - All callers of `ListAccounts`, `ListWithFilters`, `ListAllWithFilters` must pass the `recycled bool` as the final parameter.
-- Backend routes: `POST /api/v1/admin/accounts/:id/recycle` and `POST /api/v1/admin/accounts/:id/restore`.
-- Frontend: `AccountTableActions.vue` has a trash toggle button; `AccountsView.vue` shows Recycle/Restore buttons in the action column depending on mode.
-- Active account rows keep the direct action order `编辑` -> `测试连接` -> `回收` -> `更多`; `测试连接` is not duplicated inside `AccountActionMenu.vue`.
+- Backend staging routes: `POST /api/v1/admin/accounts/:id/recycle` and `POST /api/v1/admin/accounts/:id/restore`.
+- Frontend: `AccountTableActions.vue` has a staging toggle button (inbox icon); `AccountsView.vue` shows 暂存/取消暂存 buttons in the action column depending on mode.
+- Active account rows keep the direct action order `编辑` -> `测试连接` -> `暂存` -> `更多`; `测试连接` is not duplicated inside `AccountActionMenu.vue`.
+- **Trash bin** (真正的回收站) is a separate feature for soft-deleted accounts:
+  - `DELETE /admin/accounts/:id` already soft-deletes via `SoftDeleteMixin` (`deleted_at = NOW()`). Group associations are saved to `extra.recycle_bin_groups` before soft-delete for full restore.
+  - `GET /api/v1/admin/accounts/trash` lists soft-deleted accounts using `SkipSoftDelete`.
+  - `POST /api/v1/admin/accounts/:id/restore-from-trash` clears `deleted_at`, re-creates `AccountGroup` rows, notifies scheduler.
+  - `DELETE /api/v1/admin/accounts/:id/permanent-delete` physically removes the row (uses `SkipSoftDelete`).
+  - Frontend: `TrashBinModal.vue` is opened from the trash icon button in `AccountTableActions.vue`.
+  - Repository methods: `ListTrashedAccounts`, `RestoreTrashedAccount`, `PermanentDelete`.
+  - Service methods: `ListTrashedAccounts`, `RestoreFromTrash`, `PermanentDeleteAccount`.
+  - `AccountRepository` and `AdminService` interfaces require these new methods; all test stubs must implement them.
 - `AccountTestModal.vue` defaults `自动测试` to enabled, waits for the default model to load before starting, and persists checkbox changes in browser storage under `sub2api.account-test.auto-start`.
 - Account names stay inside the fixed-width name cell with single-line truncation and overflow clipping. Do not restore the name-triggered hover tooltip that teleports content outside the cell.
 - sub2freeApi has an additional `clone` function in `accounts.ts` that sub2api does not — re-add it when syncing files.
@@ -205,6 +228,7 @@ pnpm vitest run \
 - `AccountActionMenu.vue` always displays `恢复状态` for every account.
 - The action menu keeps `w-[7.8rem] max-h-[calc(100vh-1rem)] overflow-y-auto`; `AccountsView.vue` keeps a `125` px width estimate and a `320` px height estimate for viewport positioning.
 - `迁入粘性会话` appears for active, schedulable OpenAI target accounts and defaults to bindings active in the last 5 minutes. Allowed windows are 1, 5, 15, and 60 minutes.
+- Its frontend capability flag is opt-out while public settings are loading: an explicit `sticky_session_reassignment_enabled: false` still hides it for the free profile, but a temporarily missing field must not make the main-profile action disappear.
 - The dialog shows recent/all counts and anonymous recent suffixes. Move at most 100, newest first, and revalidate the activity window on the backend.
 - Activity age is derived from configured sticky TTL minus Redis PTTL. Migrations use compare-and-set plus `SET ... KEEPTTL`.
 - Only current 16-character lowercase-hex `session_hash` keys move. Ignore legacy 64-character copies and never move `response:` / `previous_response_id` continuation bindings.
@@ -233,3 +257,19 @@ pnpm vitest run \
 - Preserve migration `185_add_scheduled_account_actions.sql`, the account-level
   `GET|PUT|DELETE /api/v1/admin/accounts/:id/scheduled-action` routes, runner
   startup/cleanup wiring, and corresponding backend/frontend tests.
+
+## Scheduled Test Auto-Recover Schedulable
+
+- `scheduled_test_plans.auto_recover_schedulable` (migration `186`) is a per-plan
+  toggle that re-enables scheduling (`schedulable=true`) for an account after a
+  successful scheduled test proves it is healthy.
+- This is separate from `auto_recover` (which clears error/rate-limit state).
+  `auto_recover_schedulable` targets accounts manually paused via
+  `schedulable=false` — the runner re-enables them once the test passes.
+- `ScheduledTestRunnerService.tryReEnableScheduling` checks `account.Schedulable`
+  and only calls `SetSchedulable(true)` when currently paused.
+- Frontend `ScheduledTestsPanel.vue` exposes the toggle in both the add-plan and
+  edit-plan forms with the label `自动启用调度`.
+- Preserve migration `186_add_scheduled_test_auto_recover_schedulable.sql`,
+  the `AutoRecoverSchedulable` field in the `ScheduledTestPlan` struct, the
+  handler create/update request structs, and the frontend toggle.

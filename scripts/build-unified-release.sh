@@ -38,6 +38,7 @@ cleanup() {
 trap cleanup EXIT
 
 test -f "$PNPM9"
+bash "$ROOT_DIR/scripts/remove-readme-sponsors.sh" --check
 git -C "$ROOT_DIR" diff --check
 SOURCE_SHA_BEFORE="$(source_tree_sha "$ROOT_DIR")"
 

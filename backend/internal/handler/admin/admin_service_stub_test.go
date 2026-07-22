@@ -383,6 +383,14 @@ func (s *stubAdminService) RecycleAccount(context.Context, int64) error { return
 
 func (s *stubAdminService) RestoreAccount(context.Context, int64) error { return nil }
 
+func (s *stubAdminService) ListTrashedAccounts(context.Context, int, int, string, string, string) ([]service.Account, int64, error) {
+	return nil, 0, nil
+}
+
+func (s *stubAdminService) RestoreFromTrash(context.Context, int64) error { return nil }
+
+func (s *stubAdminService) PermanentDeleteAccount(context.Context, int64) error { return nil }
+
 func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ context.Context, groupID *int64) ([]service.Account, error) {
 	s.openAISchedulerScorePoolCalls++
 	accounts := s.openAISchedulerScorePoolAccounts

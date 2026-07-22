@@ -278,7 +278,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
-  it('缺失能力字段时默认隐藏迁入粘性会话操作', () => {
+  it('缺失能力字段时默认显示迁入粘性会话操作，避免设置注入期间闪退', () => {
     publicSettings.value = {}
     const account = makeAccount({ platform: 'openai', type: 'apikey', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {
@@ -286,7 +286,7 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
       attachTo: document.body,
     })
 
-    expect(getBodyText()).not.toContain('admin.accounts.stickySessions.action')
+    expect(getBodyText()).toContain('admin.accounts.stickySessions.action')
     wrapper.unmount()
   })
 

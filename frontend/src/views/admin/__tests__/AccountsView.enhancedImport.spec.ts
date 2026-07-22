@@ -66,6 +66,8 @@ const mountView = () => mount(AccountsView, {
       TempUnschedStatusModal: true,
       ErrorPassthroughRulesModal: true,
       TLSFingerprintProfilesModal: true,
+      TrashBinModal: true,
+      Teleport: true,
       CreateAccountModal: true,
       EditAccountModal: true,
       BulkEditAccountModal: true,
@@ -111,7 +113,7 @@ describe('admin AccountsView enhanced import menu', () => {
     expect(wrapper.find('[data-test="enhanced-import-modal"]').attributes('data-show')).toBe('true')
   })
 
-  it('centers the tools menu in the viewport and below its trigger on desktop', async () => {
+  it('positions the teleported tools menu below its trigger on desktop', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -119,15 +121,24 @@ describe('admin AccountsView enhanced import menu', () => {
       button.text().includes('admin.accounts.moreActions')
     )
     expect(moreButton).toBeTruthy()
+    vi.spyOn(moreButton!.element, 'getBoundingClientRect').mockReturnValue({
+      top: 40,
+      right: 1000,
+      bottom: 72,
+      left: 900,
+      width: 100,
+      height: 32,
+      x: 900,
+      y: 40,
+      toJSON: () => ({})
+    } as DOMRect)
     await moreButton!.trigger('click')
 
     const dropdown = wrapper.find('[data-test="account-tools-dropdown"]')
     expect(dropdown.exists()).toBe(true)
-    expect(dropdown.classes()).toEqual(expect.arrayContaining([
-      'fixed',
-      'left-1/2',
-      '-translate-x-1/2',
-      'md:absolute'
-    ]))
+    expect(dropdown.classes()).toContain('fixed')
+    expect(dropdown.attributes('style')).toContain('top: 80px')
+    expect(dropdown.attributes('style')).toContain('left: 680px')
+    expect(dropdown.attributes('style')).toContain('width: 320px')
   })
 })

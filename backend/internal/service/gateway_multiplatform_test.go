@@ -92,6 +92,11 @@ func (m *mockAccountRepoForPlatform) Delete(ctx context.Context, id int64) error
 func (m *mockAccountRepoForPlatform) RecycleAccount(ctx context.Context, id int64) error {
 	return nil
 }
+func (m *mockAccountRepoForPlatform) ListTrashedAccounts(context.Context, pagination.PaginationParams, string, string, string) ([]Account, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
+func (m *mockAccountRepoForPlatform) RestoreTrashedAccount(context.Context, int64) error { return nil }
+func (m *mockAccountRepoForPlatform) PermanentDelete(context.Context, int64) error { return nil }
 func (m *mockAccountRepoForPlatform) RestoreAccount(ctx context.Context, id int64) error {
 	return nil
 }

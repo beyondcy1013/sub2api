@@ -16,29 +16,22 @@
           {{ t('admin.accounts.schedulingRate.copyUpstream') }}
         </button>
       </div>
-      <div class="grid gap-2">
-        <label class="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 dark:border-dark-600">
-          <input v-model="source" data-testid="scheduling-rate-source-manual" type="radio" value="manual" class="mt-0.5" />
-          <span class="flex-1">
-            <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('admin.accounts.schedulingRate.manual') }}</span>
-            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRate.manualHint') }}</span>
-            <input v-model.number="manualRate" data-testid="scheduling-rate-manual" type="number" min="0" step="0.001" class="mt-2 w-32 rounded border border-gray-300 px-2 py-1 text-sm dark:border-dark-600 dark:bg-dark-700 dark:text-white" />
-          </span>
-        </label>
-        <label class="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 dark:border-dark-600">
-          <input v-model="source" data-testid="scheduling-rate-source-upstream" type="radio" value="upstream" class="mt-0.5" />
-          <span>
-            <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('admin.accounts.schedulingRate.upstream') }}</span>
-            <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
-              {{ upstreamKnown ? t('admin.accounts.schedulingRate.upstreamHint', { rate: formatRate(upstreamRate) }) : t('admin.accounts.schedulingRate.upstreamUnknown') }}
-            </span>
-          </span>
-        </label>
-      </div>
+      <label class="block rounded border border-gray-200 p-3 dark:border-dark-600">
+        <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('admin.accounts.schedulingRate.manual') }}</span>
+        <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRate.manualHint') }}</span>
+        <input v-model.number="manualRate" data-testid="scheduling-rate-manual" type="number" min="0" step="0.001" class="mt-2 w-32 rounded border border-gray-300 px-2 py-1 text-sm dark:border-dark-600 dark:bg-dark-700 dark:text-white" />
+      </label>
+      <label class="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 dark:border-dark-600">
+        <input v-model="autoOverwrite" data-testid="scheduling-rate-auto-overwrite" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        <span>
+          <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('admin.accounts.schedulingRate.autoOverwrite') }}</span>
+          <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRate.autoOverwriteHint') }}</span>
+        </span>
+      </label>
     </div>
     <template #footer>
       <button type="button" class="btn btn-secondary" @click="$emit('close')">{{ t('common.cancel') }}</button>
-      <button type="button" data-testid="scheduling-rate-save" class="btn btn-primary" :disabled="saving || (source === 'manual' && (!Number.isFinite(manualRate) || manualRate < 0))" @click="save">
+      <button type="button" data-testid="scheduling-rate-save" class="btn btn-primary" :disabled="saving || !Number.isFinite(manualRate) || manualRate < 0" @click="save">
         {{ saving ? t('common.saving') : t('common.save') }}
       </button>
     </template>
@@ -49,7 +42,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
-import type { Account, SchedulingRateSource, UpdateSchedulingRateRequest } from '@/types'
+import type { Account, UpdateSchedulingRateRequest } from '@/types'
 
 const props = withDefaults(defineProps<{
   show: boolean
@@ -64,20 +57,23 @@ const emit = defineEmits<{
   (event: 'save', payload: UpdateSchedulingRateRequest): void
 }>()
 const { t } = useI18n()
-const source = ref<SchedulingRateSource>('manual')
+const autoOverwrite = ref(true)
 const manualRate = ref(1)
 watch(() => [props.show, props.account?.id], () => {
-  source.value = props.account?.scheduling_rate_source === 'upstream' ? 'upstream' : 'manual'
+  autoOverwrite.value = props.account?.scheduling_rate_sync_mode
+    ? props.account.scheduling_rate_sync_mode === 'auto_overwrite'
+    : props.account?.scheduling_rate_source !== 'manual'
   manualRate.value = props.account?.rate_multiplier ?? 1
 }, { immediate: true })
 const formatRate = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? `${Number(value.toPrecision(6))}x` : '?'
 const copyUpstreamToManual = () => {
   if (!props.upstreamKnown || typeof props.upstreamRate !== 'number') return
-  source.value = 'manual'
   manualRate.value = props.upstreamRate
 }
 const save = () => {
-  if (source.value === 'upstream') emit('save', { source: 'upstream' })
-  else emit('save', { source: 'manual', rate_multiplier: manualRate.value })
+  emit('save', {
+    sync_mode: autoOverwrite.value ? 'auto_overwrite' : 'manual_lock',
+    rate_multiplier: manualRate.value
+  })
 }
 </script>

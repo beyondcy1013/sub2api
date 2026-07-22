@@ -99,6 +99,7 @@ function mountView() {
         TempUnschedStatusModal: true,
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
+        TrashBinModal: true,
         CreateAccountModal: true,
         EditAccountModal: true,
         BulkEditAccountModal: true,
@@ -132,6 +133,7 @@ const baseAccount = {
 describe('admin AccountsView scheduler score column', () => {
   beforeEach(() => {
     localStorage.clear()
+    document.body.innerHTML = ''
 
     listAccounts.mockReset()
     listWithEtag.mockReset()
@@ -239,6 +241,35 @@ describe('admin AccountsView scheduler score column', () => {
 
     expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
       include_scheduler_score: '1'
+    }))
+  })
+
+  it('reloads the current page when the scheduling-rate column visibility changes', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(listAccounts.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+      include_scheduling_optimal: '1'
+    }))
+
+    await wrapper.get('[title="admin.accounts.moreActions"]').trigger('click')
+    const schedulingRateButton = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-test="account-tools-dropdown"] button')
+    ).find(button =>
+      button.textContent?.includes('admin.accounts.columns.schedulingRate')
+    )
+    expect(schedulingRateButton).toBeDefined()
+
+    schedulingRateButton!.click()
+    await flushPromises()
+    expect(listAccounts.mock.calls.at(-1)?.[2]).toEqual(expect.objectContaining({
+      include_scheduling_optimal: '0'
+    }))
+
+    schedulingRateButton!.click()
+    await flushPromises()
+    expect(listAccounts.mock.calls.at(-1)?.[2]).toEqual(expect.objectContaining({
+      include_scheduling_optimal: '1'
     }))
   })
 

@@ -17,6 +17,7 @@ const account: Account = {
   scheduling_rate_multiplier: 0.8,
   scheduling_rate_known: true,
   scheduling_rate_source: 'manual',
+  scheduling_rate_sync_mode: 'manual_lock',
   status: 'active',
   error_message: null,
   last_used_at: null,
@@ -36,16 +37,20 @@ const account: Account = {
 }
 
 describe('SchedulingRateModal', () => {
-  it('offers follow-upstream and manual overwrite choices when rates conflict', async () => {
+  it('stores the manual multiplier while allowing automatic probes to overwrite it', async () => {
     const wrapper = mount(SchedulingRateModal, {
       props: { show: true, account, upstreamRate: 0.35, upstreamKnown: true, conflict: true },
       global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
     })
 
     expect(wrapper.get('[data-testid="scheduling-rate-conflict"]').exists()).toBe(true)
-    await wrapper.get('[data-testid="scheduling-rate-source-upstream"]').setValue(true)
+    await wrapper.get('[data-testid="scheduling-rate-auto-overwrite"]').setValue(true)
+    await wrapper.get('[data-testid="scheduling-rate-manual"]').setValue('0.45')
     await wrapper.get('[data-testid="scheduling-rate-save"]').trigger('click')
-    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ source: 'upstream' })
+    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({
+      sync_mode: 'auto_overwrite',
+      rate_multiplier: 0.45
+    })
   })
 
   it('copies the detected upstream rate into the manual rate on request', async () => {
@@ -57,6 +62,6 @@ describe('SchedulingRateModal', () => {
     await wrapper.get('[data-testid="scheduling-rate-copy-upstream"]').trigger('click')
     await wrapper.get('[data-testid="scheduling-rate-save"]').trigger('click')
 
-    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ source: 'manual', rate_multiplier: 0.35 })
+    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ sync_mode: 'manual_lock', rate_multiplier: 0.35 })
   })
 })

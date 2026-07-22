@@ -110,6 +110,7 @@ function mountView() {
         TempUnschedStatusModal: true,
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
+        TrashBinModal: true,
         CreateAccountModal: true,
         EditAccountModal: true,
         BulkEditAccountModal: true,

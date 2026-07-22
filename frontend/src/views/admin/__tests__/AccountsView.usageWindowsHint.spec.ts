@@ -131,6 +131,7 @@ function mountView() {
         TempUnschedStatusModal: true,
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
+        TrashBinModal: true,
         CreateAccountModal: true,
         EditAccountModal: true,
         BulkEditAccountModal: true,
@@ -269,6 +270,7 @@ describe('admin AccountsView usage windows hint', () => {
     const columns = table.props('columns') as Array<{ key: string; label: string; sortable: boolean; width?: string }>
     expect(table.props('singleLineCells')).toBe(true)
     expect(table.props('dynamicColumnWidths')).toBe(true)
+    expect(columns.find(column => column.key === 'actions')?.width).toBe('220px')
     expect(columns.find(column => column.key === 'name')?.width).toBe('176px')
     expect(columns.slice(0, 3).map(column => column.key)).toEqual(['select', 'actions', 'name'])
     expect(columns.slice(-4).map(column => column.key)).toEqual([

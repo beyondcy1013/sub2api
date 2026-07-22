@@ -948,6 +948,7 @@ describe("admin SettingsView payment visible method controls", () => {
     getUpstreamBillingProbeSettings.mockResolvedValueOnce({
       enabled: false,
       interval_minutes: 45,
+      notify_on_change_only: false,
     });
 
     const wrapper = mountView();
@@ -963,15 +964,21 @@ describe("admin SettingsView payment visible method controls", () => {
         .checked,
     ).toBe(false);
     expect(card.find('[data-testid="upstream-billing-probe-interval"]').exists()).toBe(false);
+    expect(
+      (card.get('[data-testid="upstream-billing-probe-notify-on-change-only"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(false);
 
     await card.get('[data-testid="upstream-billing-probe-enabled"]').setValue(true);
     await card.get('[data-testid="upstream-billing-probe-interval"]').setValue(60);
+    await card.get('[data-testid="upstream-billing-probe-notify-on-change-only"]').setValue(true);
     await card.get('[data-testid="upstream-billing-probe-save"]').trigger("click");
     await flushPromises();
 
     expect(updateUpstreamBillingProbeSettings).toHaveBeenCalledWith({
       enabled: true,
       interval_minutes: 60,
+      notify_on_change_only: true,
     });
     expect(showSuccess).toHaveBeenCalledWith("上游倍率自动探测设置已保存");
   });

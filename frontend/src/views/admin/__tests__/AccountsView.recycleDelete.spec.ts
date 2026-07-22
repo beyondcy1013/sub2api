@@ -29,6 +29,9 @@ vi.mock('@/api/admin', () => ({
       delete: deleteAccount,
       recycle: vi.fn(),
       restore: vi.fn(),
+      listTrashed: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 }),
+      restoreFromTrash: vi.fn(),
+      permanentDelete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
       toggleSchedulable: vi.fn()
@@ -150,6 +153,7 @@ function mountView() {
         TempUnschedStatusModal: true,
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
+        TrashBinModal: true,
         CreateAccountModal: true,
         EditAccountModal: true,
         BulkEditAccountModal: true,
@@ -226,6 +230,8 @@ describe('admin AccountsView recycle-bin deletion', () => {
       'admin.accounts.recycle',
       'common.more'
     ])
+    expect(row.findAll('button').every(button => !button.classes().includes('w-6'))).toBe(true)
+    expect(row.findAll('button').every(button => button.classes().includes('px-2'))).toBe(true)
 
     await row.findAll('button')[1].trigger('click')
 

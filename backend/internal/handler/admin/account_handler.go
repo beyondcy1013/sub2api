@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -196,6 +197,9 @@ type AccountWithConcurrency struct {
 	SchedulingRateMultiplier *float64                            `json:"scheduling_rate_multiplier,omitempty"`
 	SchedulingRateKnown      bool                                `json:"scheduling_rate_known"`
 	SchedulingRateSource     string                              `json:"scheduling_rate_source"`
+	SchedulingRateSyncMode   string                              `json:"scheduling_rate_sync_mode"`
+	SchedulingLivenessStatus string                              `json:"scheduling_liveness_status"`
+	SchedulingRateOptimal    *bool                               `json:"scheduling_rate_optimal,omitempty"`
 	SchedulerScore           *AccountSchedulerScore              `json:"scheduler_score,omitempty"`
 	SchedulerScores          []AccountSchedulerGroupScore        `json:"scheduler_scores,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
@@ -222,12 +226,90 @@ func setSchedulingRateMetadata(item *AccountWithConcurrency, account *service.Ac
 	if item == nil || account == nil {
 		return
 	}
-	rate, known, source := account.SchedulingRate(time.Now())
-	item.SchedulingRateKnown = known
-	item.SchedulingRateSource = source
-	if known {
-		item.SchedulingRateMultiplier = &rate
+	rate := account.BillingRateMultiplier()
+	item.SchedulingRateKnown = true
+	item.SchedulingRateMultiplier = &rate
+	item.SchedulingRateSyncMode = account.SchedulingRateSyncMode()
+	item.SchedulingLivenessStatus = account.SchedulingLivenessStatus(time.Now())
+	if item.SchedulingRateSyncMode == service.SchedulingRateSyncModeAutoOverwrite {
+		item.SchedulingRateSource = service.SchedulingRateSourceUpstream
+	} else {
+		item.SchedulingRateSource = service.SchedulingRateSourceManual
 	}
+}
+
+type schedulingRatePoolKey struct {
+	groupID   int64
+	platform  string
+	ungrouped bool
+}
+
+type schedulingRateCandidate struct {
+	accountID int64
+	rate      float64
+	pools     []schedulingRatePoolKey
+}
+
+func schedulingRatePoolKeys(account *service.Account) []schedulingRatePoolKey {
+	if account == nil {
+		return nil
+	}
+	groupIDs := make(map[int64]struct{}, len(account.GroupIDs)+len(account.AccountGroups))
+	for _, groupID := range account.GroupIDs {
+		if groupID > 0 {
+			groupIDs[groupID] = struct{}{}
+		}
+	}
+	for _, accountGroup := range account.AccountGroups {
+		if accountGroup.GroupID > 0 {
+			groupIDs[accountGroup.GroupID] = struct{}{}
+		}
+	}
+	if len(groupIDs) == 0 {
+		return []schedulingRatePoolKey{{
+			platform:  strings.ToLower(strings.TrimSpace(account.Platform)),
+			ungrouped: true,
+		}}
+	}
+	keys := make([]schedulingRatePoolKey, 0, len(groupIDs))
+	for groupID := range groupIDs {
+		keys = append(keys, schedulingRatePoolKey{groupID: groupID})
+	}
+	return keys
+}
+
+func buildSchedulingRateOptimalAccountIDs(accounts []service.Account, now time.Time) map[int64]struct{} {
+	minimumByPool := make(map[schedulingRatePoolKey]float64)
+	candidates := make([]schedulingRateCandidate, 0, len(accounts))
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsSchedulable() || account.SchedulingLivenessStatus(now) != service.SchedulingLivenessStatusAlive {
+			continue
+		}
+		rate := account.BillingRateMultiplier()
+		pools := schedulingRatePoolKeys(account)
+		if len(pools) == 0 {
+			continue
+		}
+		candidates = append(candidates, schedulingRateCandidate{accountID: account.ID, rate: rate, pools: pools})
+		for _, pool := range pools {
+			minimum, exists := minimumByPool[pool]
+			if !exists || rate < minimum {
+				minimumByPool[pool] = rate
+			}
+		}
+	}
+
+	optimal := make(map[int64]struct{})
+	for _, candidate := range candidates {
+		for _, pool := range candidate.pools {
+			if math.Abs(candidate.rate-minimumByPool[pool]) <= 1e-9 {
+				optimal[candidate.accountID] = struct{}{}
+				break
+			}
+		}
+	}
+	return optimal
 }
 
 const accountListGroupUngroupedQueryValue = "ungrouped"
@@ -533,6 +615,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
 	// 调度分需要跨候选池批量打分并读取负载，默认列表不计算；只有前端列可见时才显式开启。
 	includeSchedulerScore := parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false)
+	includeSchedulingOptimal := parseBoolQueryWithDefault(c.Query("include_scheduling_optimal"), false)
 	recycled := parseBoolQueryWithDefault(c.Query("recycled"), false)
 
 	var groupID int64
@@ -582,6 +665,18 @@ func (h *AccountHandler) List(c *gin.Context) {
 	if includeSchedulerScore && pageHasOpenAIAccounts {
 		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode, recycled)
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
+	}
+
+	var schedulingRateOptimalIDs map[int64]struct{}
+	if includeSchedulingOptimal && !recycled {
+		optimalPool, optimalErr := h.adminService.ListAccountsForSchedulerScoreFilter(
+			c.Request.Context(), "", "", service.StatusActive, "", 0, "", false,
+		)
+		if optimalErr != nil {
+			slog.Warn("account_scheduling_rate_optimal_pool_failed", "error", optimalErr)
+		} else {
+			schedulingRateOptimalIDs = buildSchedulingRateOptimalAccountIDs(optimalPool, time.Now())
+		}
 	}
 
 	// 始终获取并发数（Redis ZCARD，极低开销）
@@ -668,6 +763,10 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScores:    schedulerGroupScores[acc.ID],
 		}
 		setSchedulingRateMetadata(&item, acc)
+		if includeSchedulingOptimal {
+			_, isOptimal := schedulingRateOptimalIDs[acc.ID]
+			item.SchedulingRateOptimal = &isOptimal
+		}
 
 		// 添加窗口费用（仅当启用时）
 		if windowCosts != nil {
@@ -1092,6 +1191,54 @@ func (h *AccountHandler) Restore(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "Account restored"})
+}
+
+// ListTrash returns soft-deleted accounts for the recycle bin.
+// GET /api/v1/admin/accounts/trash
+func (h *AccountHandler) ListTrash(c *gin.Context) {
+	page, pageSize := response.ParsePagination(c)
+	platform := c.Query("platform")
+	accountType := c.Query("type")
+	search := c.Query("search")
+	if len(search) > 100 {
+		search = search[:100]
+	}
+	accounts, total, err := h.adminService.ListTrashedAccounts(c.Request.Context(), page, pageSize, platform, accountType, search)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": accounts, "total": total, "page": page, "page_size": pageSize})
+}
+
+// RestoreFromTrash un-deletes a soft-deleted account, re-creating its group associations.
+// POST /api/v1/admin/accounts/:id/restore-from-trash
+func (h *AccountHandler) RestoreFromTrash(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.RestoreFromTrash(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Account restored from trash"})
+}
+
+// PermanentDelete physically removes a soft-deleted account and all its data.
+// DELETE /api/v1/admin/accounts/:id/permanent-delete
+func (h *AccountHandler) PermanentDelete(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.PermanentDeleteAccount(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Account permanently deleted"})
 }
 
 // TestAccountRequest represents the request body for testing an account

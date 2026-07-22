@@ -17,6 +17,7 @@ const account = (overrides: Partial<Account> = {}): Account => ({
   scheduling_rate_multiplier: 0.8,
   scheduling_rate_known: true,
   scheduling_rate_source: 'manual',
+  scheduling_rate_sync_mode: 'manual_lock',
   status: 'active',
   error_message: null,
   last_used_at: null,
@@ -41,17 +42,35 @@ describe('SchedulingRateCell', () => {
     const wrapper = mount(SchedulingRateCell, { props: { account: account() } })
 
     expect(wrapper.get('[data-testid="scheduling-rate-value"]').text()).toContain('0.8x')
-    expect(wrapper.get('[data-testid="scheduling-rate-source"]').text()).toContain('manual')
+    expect(wrapper.get('[data-testid="scheduling-rate-source"]').text()).toContain('manualLock')
     await wrapper.get('[data-testid="scheduling-rate-edit"]').trigger('click')
     expect(wrapper.emitted('manage')).toHaveLength(1)
   })
 
-  it('makes an upstream-following unknown rate explicit', () => {
+  it('always shows the persisted scheduling multiplier in automatic mode', () => {
     const wrapper = mount(SchedulingRateCell, {
-      props: { account: account({ scheduling_rate_known: false, scheduling_rate_multiplier: undefined, scheduling_rate_source: 'upstream' }) }
+      props: { account: account({ scheduling_rate_sync_mode: 'auto_overwrite', scheduling_rate_multiplier: 0.8 }) }
     })
 
-    expect(wrapper.get('[data-testid="scheduling-rate-value"]').text()).toContain('?')
-    expect(wrapper.get('[data-testid="scheduling-rate-source"]').text()).toContain('upstream')
+    expect(wrapper.get('[data-testid="scheduling-rate-value"]').text()).toContain('0.8x')
+    expect(wrapper.get('[data-testid="scheduling-rate-source"]').text()).toContain('autoOverwrite')
+  })
+
+  it('highlights an available live lowest-rate account in gold', () => {
+    const wrapper = mount(SchedulingRateCell, {
+      props: { account: account({ scheduling_rate_optimal: true, scheduling_liveness_status: 'alive' }) }
+    })
+
+    expect(wrapper.get('[data-testid="scheduling-rate-value"]').classes()).toContain('text-amber-500')
+    expect(wrapper.get('[data-testid="scheduling-rate-optimal"]').text()).toContain('optimal')
+  })
+
+  it('keeps a non-optimal rate neutral', () => {
+    const wrapper = mount(SchedulingRateCell, {
+      props: { account: account({ scheduling_rate_optimal: false, scheduling_liveness_status: 'alive' }) }
+    })
+
+    expect(wrapper.get('[data-testid="scheduling-rate-value"]').classes()).toContain('text-gray-800')
+    expect(wrapper.find('[data-testid="scheduling-rate-optimal"]').exists()).toBe(false)
   })
 })

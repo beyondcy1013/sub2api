@@ -10,19 +10,29 @@ describe('deployment feature flags', () => {
     setActivePinia(createPinia())
   })
 
-  it.each([
-    ['balance check', FeatureFlags.balanceCheck, 'balance_check_enabled'],
-    ['sticky reassignment', FeatureFlags.stickySessionReassignment, 'sticky_session_reassignment_enabled'],
-  ] as const)('%s is opt-in', (_name, flag, key) => {
+  it('balance check is opt-in', () => {
     const store = useAppStore()
 
     store.cachedPublicSettings = null
-    expect(isFeatureFlagEnabled(flag)).toBe(false)
+    expect(isFeatureFlagEnabled(FeatureFlags.balanceCheck)).toBe(false)
 
-    store.cachedPublicSettings = { [key]: false } as PublicSettings
-    expect(isFeatureFlagEnabled(flag)).toBe(false)
+    store.cachedPublicSettings = { balance_check_enabled: false } as PublicSettings
+    expect(isFeatureFlagEnabled(FeatureFlags.balanceCheck)).toBe(false)
 
-    store.cachedPublicSettings = { [key]: true } as PublicSettings
-    expect(isFeatureFlagEnabled(flag)).toBe(true)
+    store.cachedPublicSettings = { balance_check_enabled: true } as PublicSettings
+    expect(isFeatureFlagEnabled(FeatureFlags.balanceCheck)).toBe(true)
+  })
+
+  it('sticky reassignment is enabled until the backend explicitly disables it', () => {
+    const store = useAppStore()
+
+    store.cachedPublicSettings = null
+    expect(isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment)).toBe(true)
+
+    store.cachedPublicSettings = { sticky_session_reassignment_enabled: false } as PublicSettings
+    expect(isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment)).toBe(false)
+
+    store.cachedPublicSettings = { sticky_session_reassignment_enabled: true } as PublicSettings
+    expect(isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment)).toBe(true)
   })
 })

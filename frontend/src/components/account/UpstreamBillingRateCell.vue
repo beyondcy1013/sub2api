@@ -44,24 +44,19 @@
         </template>
         <p v-else>{{ statusLabel || '-' }}</p>
         <p
-          v-if="probeEnabled && globalProbeEnabled !== false && nextProbeAt"
+          v-if="globalProbeEnabled !== false && nextProbeAt"
           data-testid="upstream-billing-next-probe"
         >
           {{ t('admin.accounts.upstreamBilling.nextProbeAt', { value: formatDate(nextProbeAt) }) }}
         </p>
-        <p class="mt-2 border-t border-white/15 pt-2" data-testid="upstream-billing-probe-state">
-          {{ t('admin.accounts.upstreamBilling.accountProbeState') }}
-          <span :class="probeEnabled ? 'text-emerald-400' : 'text-red-400'">
-            {{ probeEnabled ? t('admin.accounts.upstreamBilling.enabled') : t('admin.accounts.upstreamBilling.disabled') }}
-          </span>
-        </p>
         <p
-          v-if="globalProbeEnabled === false"
-          class="mt-1"
+          class="mt-2 border-t border-white/15 pt-2"
           data-testid="upstream-billing-global-probe-state"
         >
           {{ t('admin.accounts.upstreamBilling.globalProbeState') }}
-          <span class="text-red-400">{{ t('admin.accounts.upstreamBilling.disabled') }}</span>
+          <span :class="globalProbeEnabled === false ? 'text-red-400' : 'text-emerald-400'">
+            {{ globalProbeEnabled === false ? t('admin.accounts.upstreamBilling.disabled') : t('admin.accounts.upstreamBilling.enabled') }}
+          </span>
         </p>
       </div>
     </HelpTooltip>
@@ -108,7 +103,6 @@ const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 const eligible = computed(() => props.account.platform === 'openai' && props.account.type === 'apikey')
 const snapshot = computed<UpstreamBillingProbeSnapshot | undefined>(() => props.account.extra?.upstream_billing_probe)
 const data = computed(() => snapshot.value?.data)
-const probeEnabled = computed(() => props.account.extra?.upstream_billing_probe_enabled === true)
 const nextProbeAt = computed(() => {
   const value = snapshot.value?.next_probe_at
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : ''
@@ -195,15 +189,15 @@ const effectiveRate = computed(() => {
 const statusLabel = computed(() => {
   if (!snapshot.value) return t('admin.accounts.upstreamBilling.notProbed')
   if (snapshot.value.status === 'unsupported') return t('admin.accounts.upstreamBilling.unsupported')
-  if (stale.value) return t('admin.accounts.upstreamBilling.stale')
   if (snapshot.value.status === 'failed') return t('admin.accounts.upstreamBilling.failed')
+  if (stale.value) return t('admin.accounts.upstreamBilling.stale')
   return ''
 })
 const statusClass = computed(() => {
   if (!snapshot.value) return 'text-gray-400 dark:text-gray-500'
   if (snapshot.value.status === 'unsupported') return 'text-gray-500 dark:text-gray-400'
-  if (stale.value) return 'text-amber-600 dark:text-amber-400'
   if (snapshot.value.status === 'failed') return 'text-red-600 dark:text-red-400'
+  if (stale.value) return 'text-amber-600 dark:text-amber-400'
   return ''
 })
 const hasEffectiveRate = computed(() => effectiveRate.value !== '-')

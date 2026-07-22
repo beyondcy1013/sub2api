@@ -78,6 +78,11 @@ func (m *mockAccountRepoForGemini) Update(ctx context.Context, account *Account)
 func (m *mockAccountRepoForGemini) Delete(ctx context.Context, id int64) error         { return nil }
 func (m *mockAccountRepoForGemini) RecycleAccount(ctx context.Context, id int64) error { return nil }
 func (m *mockAccountRepoForGemini) RestoreAccount(ctx context.Context, id int64) error { return nil }
+func (m *mockAccountRepoForGemini) ListTrashedAccounts(context.Context, pagination.PaginationParams, string, string, string) ([]Account, *pagination.PaginationResult, error) {
+	return nil, nil, nil
+}
+func (m *mockAccountRepoForGemini) RestoreTrashedAccount(context.Context, int64) error { return nil }
+func (m *mockAccountRepoForGemini) PermanentDelete(context.Context, int64) error { return nil }
 func (m *mockAccountRepoForGemini) List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }

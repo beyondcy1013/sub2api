@@ -138,8 +138,7 @@ async function submitOpenAIAPIKeyAccount(
 
 async function submitApiKeyAccount(
   platform: 'openai' | 'anthropic',
-  enableLongContextBilling = false,
-  disableUpstreamBillingProbe = false
+  enableLongContextBilling = false
 ) {
   const wrapper = mountModal()
   await selectButtonByText(wrapper, platform === 'openai' ? 'OpenAI' : 'admin.accounts.claudeConsole')
@@ -150,9 +149,6 @@ async function submitApiKeyAccount(
   await wrapper.get('form#create-account-form input[placeholder^="sk-"]').setValue('test-api-key')
   if (enableLongContextBilling) {
     await wrapper.get('[data-testid="openai-long-context-billing-toggle"]').trigger('click')
-  }
-  if (disableUpstreamBillingProbe) {
-    await wrapper.get('[data-testid="upstream-billing-auto-probe"]').trigger('click')
   }
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
   await flushPromises()
@@ -194,10 +190,10 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 
-  it('enables upstream billing probes by default for new OpenAI API key accounts', async () => {
+  it('does not send a redundant per-account upstream probe switch', async () => {
     await submitApiKeyAccount('openai')
 
-    expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBeUndefined()
   })
 
   it('waits for the initial upstream billing probe before refreshing the account list', async () => {
@@ -219,11 +215,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.emitted('created')).toHaveLength(1)
   })
 
-  it('sends an explicit disabled state when the create toggle is turned off', async () => {
-    await submitApiKeyAccount('openai', false, true)
+  it('does not render an account-level upstream probe toggle', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
 
-    expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(false)
-    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
   })
 
   it('exposes Agent Identity in the OpenAI authorization methods', async () => {

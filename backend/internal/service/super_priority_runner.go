@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,15 +15,19 @@ var superPriorityCronParser = cron.NewParser(
 	cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
 
-// SuperPriorityRunner 定时探测超级优先账号可用性。
-//
-// 每个周期：枚举 super_priority=true 的账号，复用 AccountTestService.RunTestBackground
-// 进行真实对话测试；任一账号失败则调用 SuperPriorityService.RecordFailure，当滚动窗口内
-// 失败次数达到阈值时自动 Deactivate。成功不重置窗口（窗口本身按时间自然过期）。
+const schedulingLivenessMaxWorkers = 4
+
+type accountBackgroundTester interface {
+	RunTestBackground(context.Context, int64, string) (*ScheduledTestResult, error)
+}
+
+// SuperPriorityRunner is retained as a compatibility type name. It now probes
+// every active account while lowest-cost scheduling is enabled and persists an
+// observation-only liveness snapshot; legacy super_priority flags are ignored.
 type SuperPriorityRunner struct {
-	state           *SuperPriorityService
-	accountTestSvc  *AccountTestService
-	accountRepo     AccountRepository
+	state          *SuperPriorityService
+	accountTestSvc accountBackgroundTester
+	accountRepo    AccountRepository
 
 	cron      *cron.Cron
 	startOnce sync.Once
@@ -30,7 +35,7 @@ type SuperPriorityRunner struct {
 }
 
 // NewSuperPriorityRunner 创建探测运行器。
-func NewSuperPriorityRunner(state *SuperPriorityService, accountTestSvc *AccountTestService, accountRepo AccountRepository) *SuperPriorityRunner {
+func NewSuperPriorityRunner(state *SuperPriorityService, accountTestSvc accountBackgroundTester, accountRepo AccountRepository) *SuperPriorityRunner {
 	return &SuperPriorityRunner{
 		state:          state,
 		accountTestSvc: accountTestSvc,
@@ -38,16 +43,13 @@ func NewSuperPriorityRunner(state *SuperPriorityService, accountTestSvc *Account
 	}
 }
 
-// Start 启动定时探测（仅在配置的表达式上生效；模式非激活时 runOnce 直接返回）。
+// Start scans once per minute. The configured expression is evaluated per
+// account, so changing the interval takes effect without restarting the service.
 func (r *SuperPriorityRunner) Start() {
 	if r == nil || r.state == nil || r.state.cfg == nil {
 		return
 	}
 	r.startOnce.Do(func() {
-		expr := r.state.cfg.SuperPriority.CheckInterval
-		if expr == "" {
-			expr = "@every 1m"
-		}
 		loc := time.Local
 		if r.state.cfg != nil {
 			if parsed, err := time.LoadLocation(r.state.cfg.Timezone); err == nil && parsed != nil {
@@ -56,13 +58,13 @@ func (r *SuperPriorityRunner) Start() {
 		}
 
 		c := cron.New(cron.WithParser(superPriorityCronParser), cron.WithLocation(loc))
-		if _, err := c.AddFunc(expr, func() { r.runOnce() }); err != nil {
-			logger.LegacyPrintf("service.super_priority_runner", "[SuperPriorityRunner] not started (invalid schedule %q): %v", expr, err)
+		if _, err := c.AddFunc("@every 1m", func() { r.runOnce() }); err != nil {
+			logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] not started: %v", err)
 			return
 		}
 		r.cron = c
 		r.cron.Start()
-		logger.LegacyPrintf("service.super_priority_runner", "[SuperPriorityRunner] started (schedule=%s)", expr)
+		logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] started (tick=every minute)")
 	})
 }
 
@@ -95,56 +97,88 @@ func (r *SuperPriorityRunner) runOnce() {
 }
 
 func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
-	if r == nil || r.state == nil || !r.state.IsActive() {
+	if r == nil || r.state == nil || r.accountRepo == nil || r.accountTestSvc == nil || r.state.BaseStrategy() != AccountSchedulingStrategyLowestCost {
 		return
 	}
 
-	// 枚举被标记为超级优先的账号。
-	accounts, err := r.accountRepo.FindByExtraField(ctx, SuperPriorityExtraKey, true)
+	accounts, err := r.accountRepo.ListAllWithFilters(ctx, "", "", StatusActive, "", 0, "", false)
 	if err != nil {
-		logger.LegacyPrintf("service.super_priority_runner", "[SuperPriorityRunner] FindByExtraField error: %v", err)
+		logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] list active accounts error: %v", err)
 		return
 	}
 	if len(accounts) == 0 {
 		return
 	}
 
-	modelID := ""
-	if r.state.cfg != nil {
-		modelID = r.state.cfg.SuperPriority.TestModelID
+	now := time.Now()
+	expr := r.state.CheckInterval()
+	due := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if schedulingLivenessProbeDue(decodeSchedulingLiveness(account.Extra), now, expr) {
+			due = append(due, account)
+		}
+	}
+	if len(due) == 0 {
+		return
 	}
 
-	for _, acc := range accounts {
-		// 仅探测 active 账号；inactive/error 账号视为不可用，计入失败窗口。
-		if acc.Status != "active" {
-			if r.state.RecordFailure(acc.ID) {
-				if derr := r.state.Deactivate(ctx, "super_priority account not active"); derr != nil {
-					logger.LegacyPrintf("service.super_priority_runner", "[SuperPriorityRunner] auto-demote failed: %v", derr)
-				}
+	modelID := r.state.TestModelID()
+	failureThreshold := r.state.FailureThreshold()
+	sem := make(chan struct{}, schedulingLivenessMaxWorkers)
+	var wg sync.WaitGroup
+	for i := range due {
+		account := due[i]
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			attemptedAt := time.Now()
+			result, testErr := r.accountTestSvc.RunTestBackground(ctx, account.ID, modelID)
+			succeeded := testErr == nil && result != nil && result.Status == "success"
+			errorMessage := ""
+			if testErr != nil {
+				errorMessage = testErr.Error()
+			} else if result != nil {
+				errorMessage = result.ErrorMessage
+			}
+			previous := decodeSchedulingLiveness(account.Extra)
+			snapshot := nextSchedulingLiveness(
+				previous,
+				attemptedAt,
+				schedulingLivenessFreshUntil(attemptedAt, expr),
+				succeeded,
+				errorMessage,
+				failureThreshold,
+			)
+			if err := r.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{SchedulingLivenessExtraKey: snapshot}); err != nil {
+				logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] persist account=%d failed: %v", account.ID, err)
 				return
 			}
-			continue
-		}
-
-		result, testErr := r.accountTestSvc.RunTestBackground(ctx, acc.ID, modelID)
-		failed := testErr != nil || result == nil || result.Status != "success"
-		if !failed {
-			continue
-		}
-
-		errMsg := ""
-		if testErr != nil {
-			errMsg = testErr.Error()
-		} else if result != nil {
-			errMsg = result.ErrorMessage
-		}
-		logger.LegacyPrintf("service.super_priority_runner", "[SuperPriorityRunner] probe account=%d failed: %s", acc.ID, errMsg)
-
-		if r.state.RecordFailure(acc.ID) {
-			if derr := r.state.Deactivate(ctx, "probe failure threshold reached"); derr != nil {
-				logger.LegacyPrintf("service.super_priority_runner", "[SuperPriorityRunner] auto-demote failed: %v", derr)
+			if !succeeded {
+				logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] account=%d status=%s failures=%d error=%s", account.ID, snapshot.Status, snapshot.FailureCount, strings.TrimSpace(errorMessage))
 			}
-			return
-		}
+		}()
 	}
+	wg.Wait()
+}
+
+func schedulingLivenessProbeDue(snapshot *AccountSchedulingLiveness, now time.Time, expression string) bool {
+	if snapshot == nil || snapshot.LastAttemptAt.IsZero() {
+		return true
+	}
+	return !now.Before(schedulingLivenessNextProbeAt(snapshot.LastAttemptAt, expression))
+}
+
+func schedulingLivenessNextProbeAt(from time.Time, expression string) time.Time {
+	schedule, err := superPriorityCronParser.Parse(strings.TrimSpace(expression))
+	if err != nil {
+		schedule, _ = superPriorityCronParser.Parse("@every 1m")
+	}
+	return schedule.Next(from)
+}
+
+func schedulingLivenessFreshUntil(now time.Time, expression string) time.Time {
+	next := schedulingLivenessNextProbeAt(now, expression)
+	return schedulingLivenessNextProbeAt(next, expression)
 }

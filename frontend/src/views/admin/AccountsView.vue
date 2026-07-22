@@ -20,6 +20,7 @@
             @toggle-recycled="toggleRecycled"
             @refresh="handleManualRefresh"
             @create="showCreate = true"
+            @view-trash="showTrashBin = true"
             @scheduling-rules="openSchedulingRulesModal"
           >
             <template #after>
@@ -508,56 +509,54 @@
             </div>
           </template>
           <template #cell-actions="{ row }">
-            <div class="flex flex-nowrap items-center gap-1 whitespace-nowrap">
+            <div class="flex min-w-max flex-nowrap items-center gap-1.5 whitespace-nowrap">
               <template v-if="recycled">
                 <button
                   @click="handleRestore(row)"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
                   :title="t('admin.accounts.restore')"
                   :aria-label="t('admin.accounts.restore')"
                 >
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
-                  <span class="sr-only">{{ t('admin.accounts.restore') }}</span>
+                  {{ t('admin.accounts.restore') }}
                 </button>
               </template>
               <template v-else>
                 <button
+                  data-test="account-edit-action"
                   @click="handleEdit(row)"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-gray-200 px-2 text-xs font-medium leading-none text-gray-700 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700 dark:hover:text-primary-400"
                   :title="t('common.edit')"
                   :aria-label="t('common.edit')"
                 >
-                  <Icon name="edit" size="sm" :stroke-width="1.5" />
-                  <span class="sr-only">{{ t('common.edit') }}</span>
+                  {{ t('common.edit') }}
                 </button>
                 <button
                   data-test="account-test-action"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
                   :title="t('admin.accounts.testConnection')"
                   :aria-label="t('admin.accounts.testConnection')"
                   @click="handleTest(row)"
                 >
-                  <Icon name="play" size="sm" :stroke-width="1.5" />
-                  <span class="sr-only">{{ t('admin.accounts.testConnection') }}</span>
+                  {{ t('admin.accounts.testConnection') }}
                 </button>
                 <button
+                  data-test="account-recycle-action"
                   @click="handleRecycle(row)"
-                  class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-900/20 dark:hover:text-amber-400"
+                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-amber-200 px-2 text-xs font-medium leading-none text-amber-700 transition-colors hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/20"
                   :title="t('admin.accounts.recycle')"
                   :aria-label="t('admin.accounts.recycle')"
                 >
-                  <Icon name="trash" size="sm" :stroke-width="1.5" />
-                  <span class="sr-only">{{ t('admin.accounts.recycle') }}</span>
+                  {{ t('admin.accounts.recycle') }}
                 </button>
               </template>
               <button
+                data-test="account-more-action"
                 @click="openMenu(row, $event)"
-                class="inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
+                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-gray-200 px-2 text-xs font-medium leading-none text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700 dark:hover:text-white"
                 :title="t('common.more')"
                 :aria-label="t('common.more')"
               >
-                <Icon name="more" size="sm" :stroke-width="1.5" />
-                <span class="sr-only">{{ t('common.more') }}</span>
+                {{ t('common.more') }}
               </button>
             </div>
           </template>
@@ -611,6 +610,7 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <TrashBinModal :show="showTrashBin" @close="showTrashBin = false" @restored="reload" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
@@ -647,6 +647,7 @@ import SchedulingRulesModal from '@/components/account/SchedulingRulesModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
+import TrashBinModal from '@/components/admin/account/TrashBinModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import type { ScheduledAccountActionType } from '@/api/admin/accounts'
@@ -724,6 +725,7 @@ const selTypes = computed<AccountType[]>(() => {
 const showCreate = ref(false)
 const showFilters = ref(false)
 const recycled = ref(false)
+const showTrashBin = ref(false)
 
 const toggleRecycled = () => {
   recycled.value = !recycled.value
@@ -770,6 +772,7 @@ const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:num
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
+const upstreamBillingProbeNotifyOnChangeOnly = ref(false)
 const upstreamBillingNow = ref(Date.now())
 const showSchedulingRate = ref(false)
 const schedulingRateAcc = ref<Account | null>(null)
@@ -777,7 +780,6 @@ const schedulingRateUpstreamRate = ref<number | undefined>(undefined)
 const schedulingRateUpstreamKnown = ref(false)
 const schedulingRateConflict = ref(false)
 const savingSchedulingRate = ref(false)
-const schedulingRateConflictQueue = ref<Account[]>([])
 let lastUpstreamBillingSortRefreshMinute = -1
 useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 
@@ -1192,22 +1194,24 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
-  if (key === 'scheduler_score') {
-    // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
+  if (key === 'scheduler_score' || key === 'scheduling_rate') {
+    // These derived values are only returned when their columns are visible.
     syncAccountListDerivedParams()
     load().catch((error) => {
-      console.error('Failed to reload accounts after toggling scheduler score column:', error)
+      console.error('Failed to reload accounts after toggling a derived scheduling column:', error)
     })
   }
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 const shouldIncludeSchedulerScore = () => isColumnVisible('scheduler_score')
+const shouldIncludeSchedulingOptimal = () => isColumnVisible('scheduling_rate')
 const syncAccountListDerivedParams = () => {
   // Keep every load path, including auto-refresh and sorting, aligned with the current column visibility.
   const requestParams = params as any
 
   requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
+  requestParams.include_scheduling_optimal = shouldIncludeSchedulingOptimal() ? '1' : '0'
 }
 
 const {
@@ -1230,6 +1234,7 @@ const {
     group: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
+    include_scheduling_optimal: shouldIncludeSchedulingOptimal() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
     recycled: ''
@@ -1504,6 +1509,7 @@ const refreshAccountsIncrementally = async () => {
         search?: string
         sort_by?: string
         sort_order?: AccountSortOrder
+        include_scheduling_optimal?: string
 
       },
       { etag: autoRefreshETag.value }
@@ -1539,6 +1545,7 @@ const loadUpstreamBillingProbeGlobalState = async () => {
   try {
     const settings = await adminAPI.accounts.getUpstreamBillingProbeSettings()
     upstreamBillingProbeGloballyEnabled.value = settings.enabled
+    upstreamBillingProbeNotifyOnChangeOnly.value = settings.notify_on_change_only === true
   } catch (error) {
     console.error('Failed to load upstream billing probe settings:', error)
   }
@@ -1765,7 +1772,7 @@ function getAntigravityTierClass(row: any): string {
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false, width: '36px' },
-    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false },
+    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, width: '220px' },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '176px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
@@ -1917,40 +1924,30 @@ const handleBulkProbeUpstreamBilling = async () => {
     appStore.showError(t('admin.accounts.upstreamBilling.batchLimit'))
     return
   }
+  const previousSnapshots = new Map(
+    accountIDs.map(id => [id, accounts.value.find(account => account.id === id)?.extra?.upstream_billing_probe])
+  )
   accountIDs.forEach(id => probingUpstreamBilling.add(id))
   try {
     const results = await adminAPI.accounts.probeUpstreamBillingBatch(accountIDs)
     let patched = false
-    const conflicts: Account[] = []
     for (const result of results) {
       if (result.snapshot) {
-        let account = accounts.value.find(item => item.id === result.account_id)
+        const account = accounts.value.find(item => item.id === result.account_id)
         if (account) {
-          account = { ...account, extra: { ...account.extra, upstream_billing_probe: result.snapshot } }
           patchUpstreamBillingSnapshot(result.account_id, result.snapshot)
-        } else {
-          try {
-            account = await adminAPI.accounts.getById(result.account_id)
-          } catch (error) {
-            console.error('Failed to load probed account rate:', error)
-          }
-        }
-        if (account) {
-          const upstreamRate = upstreamDeclaredBaseRate(account)
-          const manualRate = account.rate_multiplier ?? 1
-          if (account.scheduling_rate_source !== 'upstream' && upstreamRate != null && Math.abs(manualRate - upstreamRate) > 1e-9) {
-            conflicts.push(account)
-          }
         }
         patched = true
       }
     }
     if (patched) await refreshUpstreamBillingSortedList(true)
-    enqueueSchedulingRateConflicts(conflicts)
-    const failed = results.filter(result => result.error).length
+    const failed = results.filter(result => result.error || !result.snapshot || result.snapshot.status !== 'ok').length
     if (failed > 0) {
       appStore.showError(t('admin.accounts.upstreamBilling.batchPartial', { success: results.length - failed, failed }))
-    } else {
+    } else if (
+      !upstreamBillingProbeNotifyOnChangeOnly.value ||
+      results.some(result => result.snapshot && upstreamBillingProbeRateChanged(previousSnapshots.get(result.account_id), result.snapshot))
+    ) {
       appStore.showSuccess(t('admin.accounts.upstreamBilling.batchCompleted', { count: results.length }))
     }
   } catch (error) {
@@ -2359,10 +2356,34 @@ const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBilli
   if (!account) return
   markUpstreamBillingSortRefresh()
   upstreamBillingNow.value = Date.now()
+  const resolvedRate = snapshot.status === 'ok' && typeof snapshot.data?.resolved_rate_multiplier === 'number'
+    ? Number(snapshot.data.resolved_rate_multiplier.toFixed(4))
+    : undefined
+  const autoOverwrite = account.scheduling_rate_sync_mode
+    ? account.scheduling_rate_sync_mode === 'auto_overwrite'
+    : account.scheduling_rate_source !== 'manual'
   patchAccountInList({
     ...account,
+    ...(autoOverwrite && resolvedRate != null
+      ? { rate_multiplier: resolvedRate, scheduling_rate_multiplier: resolvedRate }
+      : {}),
     extra: { ...account.extra, upstream_billing_probe: snapshot }
   })
+}
+const upstreamBillingProbeRate = (snapshot?: UpstreamBillingProbeSnapshot): number | undefined => {
+  const value = snapshot?.data?.effective_rate_multiplier
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Number(value.toPrecision(12))
+    : undefined
+}
+const upstreamBillingProbeRateChanged = (
+  previous: UpstreamBillingProbeSnapshot | undefined,
+  current: UpstreamBillingProbeSnapshot
+): boolean => {
+  if (!previous) return true
+  const previousRate = upstreamBillingProbeRate(previous)
+  const currentRate = upstreamBillingProbeRate(current)
+  return previousRate == null || currentRate == null || previousRate !== currentRate
 }
 const upstreamDeclaredBaseRate = (account: Account | null): number | undefined => {
   const snapshot = account?.extra?.upstream_billing_probe
@@ -2385,27 +2406,15 @@ const setSchedulingRateModalState = (account: Account, conflict: boolean) => {
   schedulingRateConflict.value = conflict
   showSchedulingRate.value = true
 }
-const enqueueSchedulingRateConflicts = (items: Account[]) => {
-  const currentID = schedulingRateAcc.value?.id
-  const queued = new Set(schedulingRateConflictQueue.value.map(item => item.id))
-  for (const item of items) {
-    if (item.id !== currentID && !queued.has(item.id)) {
-      schedulingRateConflictQueue.value.push(item)
-      queued.add(item.id)
-    }
-  }
-  if (!showSchedulingRate.value) {
-    const next = schedulingRateConflictQueue.value.shift()
-    if (next) setSchedulingRateModalState(next, true)
-  }
+const openSchedulingRateModal = (account: Account) => {
+  const upstreamRate = upstreamDeclaredBaseRate(account)
+  const currentRate = account.rate_multiplier ?? 1
+  setSchedulingRateModalState(account, upstreamRate != null && Math.abs(currentRate - upstreamRate) > 1e-9)
 }
-const openSchedulingRateModal = (account: Account) => setSchedulingRateModalState(account, false)
 const closeSchedulingRateModal = () => {
   showSchedulingRate.value = false
   schedulingRateAcc.value = null
   schedulingRateConflict.value = false
-  const next = schedulingRateConflictQueue.value.shift()
-  if (next) setSchedulingRateModalState(next, true)
 }
 const saveSchedulingRate = async (payload: UpdateSchedulingRateRequest) => {
   const account = schedulingRateAcc.value
@@ -2428,18 +2437,27 @@ const handleProbeUpstreamBilling = async (account: Account) => {
   probingUpstreamBilling.add(account.id)
   try {
     const result = await adminAPI.accounts.probeUpstreamBilling(account.id)
-    if (result.snapshot) {
-      const updatedAccount = {
-        ...account,
-        extra: { ...account.extra, upstream_billing_probe: result.snapshot }
-      }
-      patchUpstreamBillingSnapshot(account.id, result.snapshot)
-      const upstreamRate = upstreamDeclaredBaseRate(updatedAccount)
-      const manualRate = account.rate_multiplier ?? 1
-      if (account.scheduling_rate_source !== 'upstream' && upstreamRate != null && Math.abs(manualRate - upstreamRate) > 1e-9) {
-        setSchedulingRateModalState(updatedAccount, true)
-      }
-      await refreshUpstreamBillingSortedList(true)
+    if (!result.snapshot) {
+      appStore.showError(result.error || t('admin.accounts.upstreamBilling.probeFailed'))
+      return
+    }
+
+    const previousSnapshot = account.extra?.upstream_billing_probe
+    patchUpstreamBillingSnapshot(account.id, result.snapshot)
+    await refreshUpstreamBillingSortedList(true)
+
+    const shouldNotify =
+      !upstreamBillingProbeNotifyOnChangeOnly.value ||
+      result.snapshot.status !== 'ok' ||
+      upstreamBillingProbeRateChanged(previousSnapshot, result.snapshot)
+    if (!shouldNotify) return
+
+    if (result.snapshot.status === 'ok') {
+      appStore.showSuccess(t('admin.accounts.upstreamBilling.probeCompleted', { name: account.name }))
+    } else if (result.snapshot.status === 'unsupported') {
+      appStore.showWarning(t('admin.accounts.upstreamBilling.probeUnsupported', { name: account.name }))
+    } else {
+      appStore.showError(t('admin.accounts.upstreamBilling.probeFailedForAccount', { name: account.name }))
     }
   } catch (error) {
     console.error('Failed to probe upstream billing:', error)
@@ -2514,6 +2532,7 @@ const handleSchedulingRulesSaved = () => {
   closeSchedulingRulesModal()
   appStore.showSuccess(t('admin.accounts.schedulingRules.saved'))
   enterAutoRefreshSilentWindow()
+  void loadUpstreamBillingProbeGlobalState()
   reload()
 }
 const handleSchedulingRulesError = (error: unknown) => {

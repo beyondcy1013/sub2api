@@ -12,12 +12,18 @@ const (
 	AccountSchedulingStrategyDefault    = "default"
 	AccountSchedulingStrategyLowestCost = "lowest_cost"
 
-	// SchedulingRateSourceExtraKey selects the per-account source used by the
-	// lowest-cost scheduler. Missing values retain the historical manual-rate
-	// behavior for existing accounts.
+	// SchedulingRateSourceExtraKey is retained for backwards compatibility with
+	// the first scheduling-rate UI. New writes use SchedulingRateSyncModeExtraKey.
 	SchedulingRateSourceExtraKey = "scheduling_rate_source"
 	SchedulingRateSourceManual   = "manual"
 	SchedulingRateSourceUpstream = "upstream"
+
+	// SchedulingRateSyncModeExtraKey controls whether a successful upstream
+	// billing probe may overwrite accounts.rate_multiplier. The persisted column
+	// is always the single value used by the lowest-cost scheduler.
+	SchedulingRateSyncModeExtraKey      = "scheduling_rate_sync_mode"
+	SchedulingRateSyncModeAutoOverwrite = "auto_overwrite"
+	SchedulingRateSyncModeManualLock    = "manual_lock"
 )
 
 func normalizeSchedulingRateSource(value any) string {
@@ -27,31 +33,42 @@ func normalizeSchedulingRateSource(value any) string {
 	return SchedulingRateSourceManual
 }
 
-// SchedulingRate returns the account's request-time scheduling rate. Unknown
-// upstream data is deliberately represented as unknown instead of falling back
-// to the manual value: an operator who selected "follow upstream" must not
-// accidentally make a stale declaration look cheap.
-func (a *Account) SchedulingRate(now time.Time) (rate float64, known bool, source string) {
-	source = SchedulingRateSourceManual
-	if a != nil && a.Extra != nil {
-		source = normalizeSchedulingRateSource(a.Extra[SchedulingRateSourceExtraKey])
+func normalizeSchedulingRateSyncMode(value any) string {
+	if mode, ok := value.(string); ok && strings.EqualFold(strings.TrimSpace(mode), SchedulingRateSyncModeManualLock) {
+		return SchedulingRateSyncModeManualLock
 	}
-	if source != SchedulingRateSourceUpstream {
-		return a.BillingRateMultiplier(), true, SchedulingRateSourceManual
+	return SchedulingRateSyncModeAutoOverwrite
+}
+
+// SchedulingRateSyncMode returns the account's automatic-rate overwrite
+// policy. Missing values default to automatic overwrite. The legacy source is
+// interpreted only when the new field is absent so existing choices migrate
+// without a database rewrite.
+func (a *Account) SchedulingRateSyncMode() string {
+	if a == nil || a.Extra == nil {
+		return SchedulingRateSyncModeAutoOverwrite
 	}
-	if now.IsZero() {
-		now = time.Now()
+	if value, ok := a.Extra[SchedulingRateSyncModeExtraKey]; ok {
+		return normalizeSchedulingRateSyncMode(value)
 	}
-	snapshot := decodeUpstreamBillingProbeSnapshot(a.Extra)
-	if snapshot == nil || (snapshot.Status != UpstreamBillingProbeStatusOK && snapshot.Status != UpstreamBillingProbeStatusFailed) ||
-		snapshot.ReceivedAt == nil || snapshot.FreshUntil == nil || now.Before(*snapshot.ReceivedAt) || !now.Before(*snapshot.FreshUntil) {
-		return 0, false, SchedulingRateSourceUpstream
+	if source, ok := a.Extra[SchedulingRateSourceExtraKey]; ok {
+		if normalizeSchedulingRateSource(source) == SchedulingRateSourceManual {
+			return SchedulingRateSyncModeManualLock
+		}
 	}
-	rate, known = upstreamBillingRateAt(snapshot.Data, now)
-	if !known {
-		return 0, false, SchedulingRateSourceUpstream
+	return SchedulingRateSyncModeAutoOverwrite
+}
+
+// SchedulingRate returns the persisted scheduling multiplier. Upstream probe
+// freshness never changes request-time ranking; successful automatic probes
+// first copy the stable declared rate into accounts.rate_multiplier.
+func (a *Account) SchedulingRate(_ time.Time) (rate float64, known bool, source string) {
+	if a.SchedulingRateSyncMode() == SchedulingRateSyncModeAutoOverwrite {
+		source = SchedulingRateSourceUpstream
+	} else {
+		source = SchedulingRateSourceManual
 	}
-	return rate, true, SchedulingRateSourceUpstream
+	return a.BillingRateMultiplier(), true, source
 }
 
 func normalizeAccountSchedulingStrategy(value string) string {
@@ -71,12 +88,10 @@ func accountSchedulingStrategy(cfg *config.Config) string {
 }
 
 func superPrioritySchedulingActive(cfg *config.Config) bool {
-	// Lowest-cost is a strict global policy. A legacy super-priority marker must
-	// not reintroduce a more expensive account ahead of the cheapest eligible
-	// candidate when an operator explicitly selected that policy.
-	return cfg != nil &&
-		strings.TrimSpace(cfg.SuperPriority.Mode) == superPriorityModeSuperPriority &&
-		accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost
+	// The overlay is retired. Keep the helper while compatibility endpoints and
+	// historical config fields still exist, but never let the old marker affect
+	// request routing.
+	return false
 }
 
 func accountHasSuperPriority(account *Account) bool {
@@ -84,11 +99,15 @@ func accountHasSuperPriority(account *Account) bool {
 }
 
 func usesCustomAccountSchedulingPreference(cfg *config.Config) bool {
-	return superPrioritySchedulingActive(cfg) || accountSchedulingStrategy(cfg) == AccountSchedulingStrategyLowestCost
+	return accountSchedulingStrategy(cfg) == AccountSchedulingStrategyLowestCost
 }
 
 func movableSessionStickyAllowed(cfg *config.Config) bool {
 	return accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost
+}
+
+func accountAllowedBySchedulingLiveness(account *Account, cfg *config.Config) bool {
+	return accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost || !accountSchedulingLivenessDead(account)
 }
 
 // filterByAccountSchedulingPreference returns the currently preferred strict
@@ -96,30 +115,27 @@ func movableSessionStickyAllowed(cfg *config.Config) bool {
 // the next super-priority or price tier the natural fallback.
 func filterByAccountSchedulingPreference(accounts []accountWithLoad, cfg *config.Config) []accountWithLoad {
 	preferred := accounts
-	if superPrioritySchedulingActive(cfg) {
-		super := make([]accountWithLoad, 0, len(preferred))
-		for _, item := range preferred {
-			if accountHasSuperPriority(item.account) {
-				super = append(super, item)
-			}
-		}
-		if len(super) > 0 {
-			preferred = super
-		}
-	}
-
 	if accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost || len(preferred) < 2 {
+		if len(preferred) == 1 && accountSchedulingStrategy(cfg) == AccountSchedulingStrategyLowestCost && accountSchedulingLivenessDead(preferred[0].account) {
+			return nil
+		}
 		return preferred
 	}
-	now := time.Now()
+	alive := make([]accountWithLoad, 0, len(preferred))
+	for _, item := range preferred {
+		if !accountSchedulingLivenessDead(item.account) {
+			alive = append(alive, item)
+		}
+	}
+	preferred = alive
+	if len(preferred) < 2 {
+		return preferred
+	}
 	cheapest := make([]accountWithLoad, 0, len(preferred))
 	var minRate float64
 	knownRate := false
 	for _, item := range preferred {
-		rate, known, _ := item.account.SchedulingRate(now)
-		if !known {
-			continue
-		}
+		rate := item.account.BillingRateMultiplier()
 		if !knownRate || rate < minRate {
 			minRate, knownRate = rate, true
 		}
@@ -128,8 +144,7 @@ func filterByAccountSchedulingPreference(accounts []accountWithLoad, cfg *config
 		return preferred
 	}
 	for _, item := range preferred {
-		rate, known, _ := item.account.SchedulingRate(now)
-		if known && rate == minRate {
+		if item.account.BillingRateMultiplier() == minRate {
 			cheapest = append(cheapest, item)
 		}
 	}
@@ -174,26 +189,16 @@ func compareAccountSchedulingPreferenceAt(a, b *Account, cfg *config.Config, now
 			return 0
 		}
 	}
-	if superPrioritySchedulingActive(cfg) {
-		aSuper, bSuper := accountHasSuperPriority(a), accountHasSuperPriority(b)
-		if aSuper != bSuper {
-			if aSuper {
-				return -1
-			}
-			return 1
-		}
-	}
 	if accountSchedulingStrategy(cfg) == AccountSchedulingStrategyLowestCost {
-		aRate, aKnown, _ := a.SchedulingRate(now)
-		bRate, bKnown, _ := b.SchedulingRate(now)
-		switch {
-		case aKnown != bKnown:
-			if aKnown {
-				return -1
+		aDead, bDead := accountSchedulingLivenessDeadAt(a, now), accountSchedulingLivenessDeadAt(b, now)
+		if aDead != bDead {
+			if aDead {
+				return 1
 			}
-			return 1
-		case !aKnown && !bKnown:
-			return 0
+			return -1
+		}
+		aRate, bRate := a.BillingRateMultiplier(), b.BillingRateMultiplier()
+		switch {
 		case aRate < bRate:
 			return -1
 		case aRate > bRate:

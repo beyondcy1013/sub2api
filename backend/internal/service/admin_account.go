@@ -780,6 +780,21 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		account.Extra[SchedulingRateSourceExtraKey] = source
 	}
+	if input.SchedulingRateSyncMode != nil {
+		rawMode := strings.ToLower(strings.TrimSpace(*input.SchedulingRateSyncMode))
+		if rawMode != SchedulingRateSyncModeAutoOverwrite && rawMode != SchedulingRateSyncModeManualLock {
+			return nil, infraerrors.BadRequest("INVALID_SCHEDULING_RATE_SYNC_MODE", "scheduling rate sync mode must be auto_overwrite or manual_lock")
+		}
+		if account.Extra == nil {
+			account.Extra = make(map[string]any)
+		}
+		account.Extra[SchedulingRateSyncModeExtraKey] = rawMode
+		if rawMode == SchedulingRateSyncModeManualLock {
+			account.Extra[SchedulingRateSourceExtraKey] = SchedulingRateSourceManual
+		} else {
+			account.Extra[SchedulingRateSourceExtraKey] = SchedulingRateSourceUpstream
+		}
+	}
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
@@ -1178,6 +1193,23 @@ func (s *adminServiceImpl) RecycleAccount(ctx context.Context, id int64) error {
 func (s *adminServiceImpl) RestoreAccount(ctx context.Context, id int64) error {
 	// Set recycled=false to unmark the account (filtered out of recycled list)
 	return s.accountRepo.UpdateExtra(ctx, id, map[string]any{"recycled": false})
+}
+
+func (s *adminServiceImpl) ListTrashedAccounts(ctx context.Context, page, pageSize int, platform, accountType, search string) ([]Account, int64, error) {
+	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
+	accounts, result, err := s.accountRepo.ListTrashedAccounts(ctx, params, platform, accountType, search)
+	if err != nil {
+		return nil, 0, err
+	}
+	return accounts, result.Total, nil
+}
+
+func (s *adminServiceImpl) RestoreFromTrash(ctx context.Context, id int64) error {
+	return s.accountRepo.RestoreTrashedAccount(ctx, id)
+}
+
+func (s *adminServiceImpl) PermanentDeleteAccount(ctx context.Context, id int64) error {
+	return s.accountRepo.PermanentDelete(ctx, id)
 }
 
 func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error) {

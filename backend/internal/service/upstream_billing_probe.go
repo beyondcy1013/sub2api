@@ -66,8 +66,9 @@ const (
 
 // UpstreamBillingProbeSettings controls the periodic probe runner.
 type UpstreamBillingProbeSettings struct {
-	Enabled         bool `json:"enabled"`
-	IntervalMinutes int  `json:"interval_minutes"`
+	Enabled            bool `json:"enabled"`
+	IntervalMinutes    int  `json:"interval_minutes"`
+	NotifyOnChangeOnly bool `json:"notify_on_change_only"`
 }
 
 // UpstreamBillingProbeSnapshot is persisted in accounts.extra. Data is kept as
@@ -323,12 +324,12 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
 	now := s.currentTime()
 	accounts, err := s.listDueAccounts(ctx, now)
 	if err != nil {
-		return fmt.Errorf("list enabled upstream billing probes: %w", err)
+		return fmt.Errorf("list due upstream billing probes: %w", err)
 	}
 	due := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() || !upstreamBillingProbeEnabled(&account) {
+		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() {
 			continue
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
@@ -375,8 +376,8 @@ func (s *UpstreamBillingProbeService) listDueAccounts(ctx context.Context, now t
 		return lister.ListDueUpstreamBillingProbeAccounts(ctx, now, upstreamBillingProbeMaxPerCycle)
 	}
 	// Non-production repositories and older adapters keep the generic path. The
-	// runner still truncates before issuing network requests.
-	return s.accountRepo.FindByExtraField(ctx, UpstreamBillingProbeEnabledExtraKey, true)
+	// runner still filters and truncates before issuing network requests.
+	return s.accountRepo.ListActive(ctx)
 }
 
 func (s *UpstreamBillingProbeService) getSettings(ctx context.Context) (*UpstreamBillingProbeSettings, error) {
@@ -434,7 +435,7 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requireEnabled {
-			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
+			if !account.IsActive() {
 				return nil, nil
 			}
 			if snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra); snapshot != nil &&
@@ -816,6 +817,39 @@ func equalBillingMultiplier(left, right float64) bool {
 	return math.Abs(left-right) <= 1e-9*scale
 }
 
+// ResolvedSchedulingRateFromProbeSnapshot returns the stable upstream-declared
+// base multiplier suitable for persistence. It deliberately ignores the
+// point-in-time peak/effective multiplier. The database column is decimal(10,4),
+// so comparisons and writes use the same four-decimal precision.
+func ResolvedSchedulingRateFromProbeSnapshot(snapshot *UpstreamBillingProbeSnapshot) (float64, bool) {
+	if snapshot == nil || snapshot.Status != UpstreamBillingProbeStatusOK || snapshot.Data == nil {
+		return 0, false
+	}
+	value, ok := numericBillingValue(snapshot.Data["resolved_rate_multiplier"])
+	if !ok || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	return math.Round(value*10000) / 10000, true
+}
+
+func numericBillingValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
+
 func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingProbeSnapshot {
 	if extra == nil {
 		return nil
@@ -842,14 +876,6 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 
 func isUpstreamBillingProbeAccount(account *Account) bool {
 	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
-}
-
-func upstreamBillingProbeEnabled(account *Account) bool {
-	if account == nil || account.Extra == nil {
-		return false
-	}
-	enabled, ok := account.Extra[UpstreamBillingProbeEnabledExtraKey].(bool)
-	return ok && enabled
 }
 
 func (s *UpstreamBillingProbeService) currentTime() time.Time {

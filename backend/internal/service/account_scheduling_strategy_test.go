@@ -94,7 +94,7 @@ func TestOrderAccountsBySchedulingPreference_PreservesDefaultOrderWithinTiers(t 
 	require.Equal(t, before, accountIDs(defaultAccounts))
 }
 
-func TestBuildOpenAISelectionOrder_SuperPriorityFallbackSurvivesTopK(t *testing.T) {
+func TestBuildOpenAISelectionOrder_DefaultIgnoresLegacySuperPriorityFlag(t *testing.T) {
 	superAccount := schedulingTestAccount(1, 1, true)
 	baseAccount := schedulingTestAccount(2, 1, false)
 	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{
@@ -111,7 +111,7 @@ func TestBuildOpenAISelectionOrder_SuperPriorityFallbackSurvivesTopK(t *testing.
 	}
 
 	order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{}, plan)
-	require.Equal(t, []int64{1, 2}, openAISelectionIDs(order))
+	require.Equal(t, []int64{2}, openAISelectionIDs(order))
 }
 
 func TestBuildOpenAISelectionOrder_LowestCostFallbackSurvivesTopK(t *testing.T) {
@@ -134,7 +134,7 @@ func TestBuildOpenAISelectionOrder_LowestCostFallbackSurvivesTopK(t *testing.T) 
 	require.Equal(t, []int64{1, 2}, openAISelectionIDs(order))
 }
 
-func TestBuildOpenAISelectionOrder_SuperPriorityPrecedesSubscriptionPreference(t *testing.T) {
+func TestBuildOpenAISelectionOrder_SubscriptionPreferenceIgnoresLegacySuperPriorityFlag(t *testing.T) {
 	superAccount := schedulingTestAccount(1, 1, true)
 	superAccount.Platform = PlatformOpenAI
 	superAccount.Type = AccountTypeAPIKey
@@ -156,7 +156,7 @@ func TestBuildOpenAISelectionOrder_SuperPriorityPrecedesSubscriptionPreference(t
 	}
 
 	order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{SubscriptionPriority: true}, plan)
-	require.Equal(t, []int64{1, 2}, openAISelectionIDs(order))
+	require.Equal(t, []int64{2, 1}, openAISelectionIDs(order))
 }
 
 func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterCheapestAccountIsFull(t *testing.T) {
@@ -219,7 +219,7 @@ func TestOpenAILegacyWithoutLoadBatch_FallsBackAfterCheapestAccountIsFull(t *tes
 	require.Equal(t, []int64{12, 11}, acquired)
 }
 
-func TestAccountSchedulingRate_UsesManualSourceByDefault(t *testing.T) {
+func TestAccountSchedulingRate_UsesPersistedRateAndAutomaticSyncByDefault(t *testing.T) {
 	rate := 0.35
 	account := &Account{RateMultiplier: &rate}
 
@@ -227,10 +227,10 @@ func TestAccountSchedulingRate_UsesManualSourceByDefault(t *testing.T) {
 
 	require.True(t, known)
 	require.Equal(t, 0.35, got)
-	require.Equal(t, SchedulingRateSourceManual, source)
+	require.Equal(t, SchedulingRateSourceUpstream, source)
 }
 
-func TestAccountSchedulingRate_UsesFreshUpstreamSnapshotAndPeakMultiplier(t *testing.T) {
+func TestAccountSchedulingRate_DoesNotUsePointInTimeUpstreamPeakMultiplier(t *testing.T) {
 	rate := 0.9
 	receivedAt := time.Date(2026, 7, 22, 1, 0, 0, 0, time.UTC)
 	freshUntil := receivedAt.Add(6 * time.Hour)
@@ -258,11 +258,11 @@ func TestAccountSchedulingRate_UsesFreshUpstreamSnapshotAndPeakMultiplier(t *tes
 	got, known, source := account.SchedulingRate(time.Date(2026, 7, 22, 4, 0, 0, 0, time.UTC))
 
 	require.True(t, known)
-	require.InDelta(t, 0.6, got, 1e-9)
+	require.InDelta(t, 0.9, got, 1e-9)
 	require.Equal(t, SchedulingRateSourceUpstream, source)
 }
 
-func TestAccountSchedulingRate_StaleOrUnsupportedUpstreamIsUnknown(t *testing.T) {
+func TestAccountSchedulingRate_StaleOrUnsupportedUpstreamKeepsPersistedRate(t *testing.T) {
 	for _, status := range []string{UpstreamBillingProbeStatusUnsupported, UpstreamBillingProbeStatusFailed} {
 		account := &Account{Extra: map[string]any{
 			SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
@@ -272,13 +272,14 @@ func TestAccountSchedulingRate_StaleOrUnsupportedUpstreamIsUnknown(t *testing.T)
 				"fresh_until": time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC),
 			},
 		}}
-		_, known, source := account.SchedulingRate(time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
-		require.False(t, known)
+		got, known, source := account.SchedulingRate(time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+		require.True(t, known)
+		require.Equal(t, 1.0, got)
 		require.Equal(t, SchedulingRateSourceUpstream, source)
 	}
 }
 
-func TestOrderAccountLoadsBySchedulingPreference_PutsUnknownRatesLast(t *testing.T) {
+func TestOrderAccountLoadsBySchedulingPreference_UsesPersistedRatesWhenProbeIsUnsupported(t *testing.T) {
 	knownRate := 0.4
 	unknown := &Account{ID: 1, RateMultiplier: func() *float64 { v := 0.1; return &v }(), Extra: map[string]any{
 		SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
@@ -291,7 +292,83 @@ func TestOrderAccountLoadsBySchedulingPreference_PutsUnknownRatesLast(t *testing
 
 	orderAccountLoadsBySchedulingPreference(items, cfg)
 
-	require.Equal(t, []int64{2, 3, 1}, accountLoadIDs(items))
+	require.Equal(t, []int64{1, 2, 3}, accountLoadIDs(items))
+}
+
+func TestLowestCostUsesPersistedRateMultiplierInsteadOfUpstreamSnapshot(t *testing.T) {
+	persistedExpensive := 0.8
+	persistedCheap := 0.2
+	now := time.Date(2026, 7, 22, 3, 0, 0, 0, time.UTC)
+	upstreamFreshUntil := now.Add(time.Hour)
+	upstreamReceivedAt := now.Add(-time.Minute)
+	upstreamLooksCheap := &Account{
+		ID:             1,
+		RateMultiplier: &persistedExpensive,
+		Extra: map[string]any{
+			SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
+			UpstreamBillingProbeExtraKey: map[string]any{
+				"status":      UpstreamBillingProbeStatusOK,
+				"received_at": upstreamReceivedAt,
+				"fresh_until": upstreamFreshUntil,
+				"data": map[string]any{
+					"resolved_rate_multiplier":  0.05,
+					"effective_rate_multiplier": 0.05,
+				},
+			},
+		},
+	}
+	manualCheap := &Account{ID: 2, RateMultiplier: &persistedCheap}
+	items := []accountWithLoad{schedulingTestLoad(upstreamLooksCheap), schedulingTestLoad(manualCheap)}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+
+	orderAccountLoadsBySchedulingPreference(items, cfg)
+
+	require.Equal(t, []int64{2, 1}, accountLoadIDs(items))
+}
+
+func TestDefaultStrategyIgnoresLegacySuperPriorityFlag(t *testing.T) {
+	ordinary := schedulingTestAccount(1, 1, false)
+	legacySuper := schedulingTestAccount(2, 1, true)
+	accounts := []*Account{ordinary, legacySuper}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{
+		Mode:         superPriorityModeSuperPriority,
+		BaseStrategy: AccountSchedulingStrategyDefault,
+	}}
+
+	orderAccountsBySchedulingPreference(accounts, cfg)
+
+	require.Equal(t, []int64{1, 2}, accountIDs(accounts))
+}
+
+func TestLowestCostPrefersAliveOverDeadEvenWhenDeadIsCheaper(t *testing.T) {
+	deadCheap := schedulingTestAccount(1, 0.01, false)
+	deadCheap.Extra[SchedulingLivenessExtraKey] = map[string]any{
+		"status":      SchedulingLivenessStatusDead,
+		"fresh_until": time.Now().Add(time.Minute),
+	}
+	aliveExpensive := schedulingTestAccount(2, 0.3, false)
+	aliveExpensive.Extra[SchedulingLivenessExtraKey] = map[string]any{
+		"status": SchedulingLivenessStatusAlive,
+	}
+	items := []accountWithLoad{schedulingTestLoad(deadCheap), schedulingTestLoad(aliveExpensive)}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+
+	preferred := filterByAccountSchedulingPreference(items, cfg)
+
+	require.Equal(t, []int64{2}, accountLoadIDs(preferred))
+}
+
+func TestSchedulingRateSyncModeDefaultsToAutoAndMigratesLegacySource(t *testing.T) {
+	require.Equal(t, SchedulingRateSyncModeAutoOverwrite, (&Account{}).SchedulingRateSyncMode())
+	require.Equal(t, SchedulingRateSyncModeAutoOverwrite, (&Account{Extra: map[string]any{
+		SchedulingRateSourceExtraKey: SchedulingRateSourceUpstream,
+	}}).SchedulingRateSyncMode())
+	require.Equal(t, SchedulingRateSyncModeManualLock, (&Account{Extra: map[string]any{
+		SchedulingRateSourceExtraKey: SchedulingRateSourceManual,
+	}}).SchedulingRateSyncMode())
+	require.Equal(t, SchedulingRateSyncModeManualLock, (&Account{Extra: map[string]any{
+		SchedulingRateSyncModeExtraKey: SchedulingRateSyncModeManualLock,
+	}}).SchedulingRateSyncMode())
 }
 
 func TestOpenAIAdvancedLowestCost_BypassesMovableSessionSticky(t *testing.T) {

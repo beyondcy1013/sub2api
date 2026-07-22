@@ -10,7 +10,8 @@ import (
 )
 
 type schedulingRateUpdateRequest struct {
-	Source         string   `json:"source" binding:"required"`
+	Source         string   `json:"source"`
+	SyncMode       string   `json:"sync_mode"`
 	RateMultiplier *float64 `json:"rate_multiplier"`
 }
 
@@ -30,17 +31,24 @@ func (h *AccountHandler) UpdateSchedulingRate(c *gin.Context) {
 		return
 	}
 	source := strings.ToLower(strings.TrimSpace(req.Source))
-	if source != service.SchedulingRateSourceManual && source != service.SchedulingRateSourceUpstream {
-		response.BadRequest(c, "source must be manual or upstream")
-		return
-	}
-	if source == service.SchedulingRateSourceManual {
-		if req.RateMultiplier == nil || *req.RateMultiplier < 0 {
-			response.BadRequest(c, "manual scheduling rate requires rate_multiplier >= 0")
+	mode := strings.ToLower(strings.TrimSpace(req.SyncMode))
+	if mode == "" {
+		switch source {
+		case service.SchedulingRateSourceManual:
+			mode = service.SchedulingRateSyncModeManualLock
+		case service.SchedulingRateSourceUpstream:
+			mode = service.SchedulingRateSyncModeAutoOverwrite
+		default:
+			response.BadRequest(c, "sync_mode must be auto_overwrite or manual_lock")
 			return
 		}
-	} else if req.RateMultiplier != nil {
-		response.BadRequest(c, "rate_multiplier is only valid for manual scheduling rate")
+	}
+	if mode != service.SchedulingRateSyncModeManualLock && mode != service.SchedulingRateSyncModeAutoOverwrite {
+		response.BadRequest(c, "sync_mode must be auto_overwrite or manual_lock")
+		return
+	}
+	if req.RateMultiplier != nil && *req.RateMultiplier < 0 {
+		response.BadRequest(c, "rate_multiplier must be >= 0")
 		return
 	}
 
@@ -49,9 +57,19 @@ func (h *AccountHandler) UpdateSchedulingRate(c *gin.Context) {
 		response.NotFound(c, "Account not found")
 		return
 	}
+	rate := req.RateMultiplier
+	if rate == nil {
+		fallback := account.BillingRateMultiplier()
+		rate = &fallback
+	}
+	compatSource := service.SchedulingRateSourceManual
+	if mode == service.SchedulingRateSyncModeAutoOverwrite {
+		compatSource = service.SchedulingRateSourceUpstream
+	}
 	updated, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
-		RateMultiplier:       req.RateMultiplier,
-		SchedulingRateSource: &source,
+		RateMultiplier:         rate,
+		SchedulingRateSource:   &compatSource,
+		SchedulingRateSyncMode: &mode,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

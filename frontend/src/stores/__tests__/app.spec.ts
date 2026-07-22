@@ -453,6 +453,7 @@ describe('useAppStore', () => {
         hide_ccs_import_button: false,
         purchase_subscription_enabled: false,
         purchase_subscription_url: '',
+        redeem_purchase_url: '',
         table_default_page_size: 1000,
         table_page_size_options: [20, 100, 1000],
         custom_menu_items: [],

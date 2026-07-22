@@ -326,10 +326,12 @@ export default {
       upstreamBillingProbe: {
         title: 'Upstream Rate Auto Detection',
         description: 'Periodically retrieve billing rates declared by upstream Sub2API sites connected to OpenAI API keys.',
-        enabled: 'Enable global auto detection',
-        enabledHint: 'When enabled, scheduled detection runs only for accounts that also enable automatic detection. Disabling stops all scheduled detection; manual detection remains available.',
+        enabled: 'Automatically detect all accounts',
+        enabledHint: 'When enabled, scheduled detection covers all active OpenAI API key accounts. Disabling stops all scheduled detection; manual detection remains available.',
         intervalMinutes: 'Detection interval (minutes)',
         intervalHint: 'Range: 5–1440 minutes. A successful result remains valid for two detection intervals.',
+        notifyOnChangeOnly: 'Notify only on changes',
+        notifyOnChangeOnlyHint: 'Off by default. Suppress the Toast when a successful probe returns the same rate. Failures and unsupported upstreams are still reported.',
         saved: 'Upstream rate auto detection settings saved',
         saveFailed: 'Failed to save upstream rate auto detection settings'
       },
@@ -726,6 +728,12 @@ export default {
         rechargeUrl: 'Recharge Page URL',
         rechargeUrlPlaceholder: 'https://example.com/payment',
         rechargeUrlHint: 'A top-up button will appear in the email when set',
+      },
+      redeemPurchase: {
+        title: 'Redeem Code Purchase URL',
+        description: 'Purchase link shown on the user redeem page',
+        url: 'Purchase URL',
+        urlHint: 'Leave empty to hide the purchase prompt card',
       },
       quotaNotify: {
         title: 'Account Quota Notification',

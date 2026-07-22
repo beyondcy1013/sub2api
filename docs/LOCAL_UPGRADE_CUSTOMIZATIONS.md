@@ -37,6 +37,20 @@ Required recovery material per repository:
 Never use `git reset --hard`, `git clean`, rebase local commits away, force
 push, or the WebUI binary updater.
 
+Migration identity is the complete filename, not only the numeric prefix.
+Preserve both `185_add_scheduled_account_actions.sql` and upstream
+`185_group_reasoning_effort_policy.sql`; do not rename an already deployed
+migration to make prefixes unique.
+
+## README Advertisement Policy
+
+Sponsor advertisement sections are intentionally absent from `README.md`,
+`README_CN.md`, and `README_JA.md`. Continue merging upstream functional
+documentation, licensing, notices, and project credits, but run
+`scripts/remove-readme-sponsors.sh` after every upstream merge and require its
+`--check` mode before a unified build. Do not resolve future README conflicts by
+restoring the sponsor blocks wholesale.
+
 ## Shared Account-Management Contract
 
 Both profiles must preserve all of the following:
@@ -72,10 +86,31 @@ Both profiles must preserve all of the following:
   enclosing JSON is rejected instead of importing one of its inner values.
 - Clone mode preserves the source proxy/group assignments, including explicit
   unassigned values, and never applies new-account routing defaults.
-- Account recycle/restore uses `extra.recycled`; it does not use soft delete.
-- Normal account lists exclude recycled rows; recycle-bin lists include only
+- Account **staging** (formerly "recycle") uses `extra.recycled`; it does not use soft delete.
+  The filter is labeled "暂存" (Staging) with an `inbox` icon. It acts as an extra
+  filter, not a deletion mechanism.
+- Normal account lists exclude staged rows; staged lists include only
   recycled rows.
-- Active rows expose `编辑`, `测试连接`, `回收`, and `更多` directly in that order.
+- **Trash bin** (真正的回收站) is a separate feature for soft-deleted accounts:
+  - `DELETE /admin/accounts/:id` already soft-deletes via `SoftDeleteMixin`
+    (`deleted_at = NOW()`). Before soft-delete, group associations are saved to
+    `extra.recycle_bin_groups` for full restore.
+  - `GET /admin/accounts/trash` lists soft-deleted accounts (archive only, no
+    connect/refresh/schedule). It uses `SkipSoftDelete` to bypass the
+    `deleted_at IS NULL` interceptor.
+  - `POST /admin/accounts/:id/restore-from-trash` clears `deleted_at`,
+    re-creates `AccountGroup` rows from `extra.recycle_bin_groups`, and
+    notifies the scheduler.
+  - `DELETE /admin/accounts/:id/permanent-delete` physically removes the row
+    and all associations (uses `SkipSoftDelete` to bypass the soft-delete hook).
+  - Frontend `TrashBinModal.vue` lists trashed accounts with restore and
+    permanent-delete actions. It is opened from the trash icon button in
+    `AccountTableActions.vue`.
+  - Repository methods: `ListTrashedAccounts`, `RestoreTrashedAccount`,
+    `PermanentDelete` in `account_repo.go`.
+  - Service methods: `ListTrashedAccounts`, `RestoreFromTrash`,
+    `PermanentDeleteAccount` in `admin_account.go`.
+- Active rows expose `编辑`, `测试连接`, `暂存`, and `更多` directly in that order.
   The more menu does not duplicate `测试连接`.
 - The account test dialog defaults `自动测试` to enabled, starts only after a
   default model has loaded, and persists the operator preference in browser
@@ -136,8 +171,10 @@ Both profiles must preserve all of the following:
 - Non-final columns retain vertical separators in light and dark modes.
 - The account table enables `compact-rows`; desktop loading and data cells use
   `2px` top/bottom padding without changing the default density of other tables.
-- Direct account actions use single-line `24px` icon buttons with accessible
-  labels/tooltips so the action column does not force a taller row.
+- Direct account actions use single-line `24px` text buttons with visible
+  labels and `px-2` horizontal padding. The operation column has a `220px`
+  minimum so 编辑 -> 测试连接 -> 回收 -> 更多 stays visible without relying
+  on tooltips or icon recognition.
 - Leading columns keep `actions -> name -> schedulable -> usage -> platform/type`. After today
   stats, keep 7d utilization (`7d(%)`) -> 7d reset. After created
   time, keep today cost -> groups (when visible) -> balance -> 5h/7d
@@ -159,6 +196,8 @@ The `main` profile must preserve:
 - bounded normal wait-plan fallback when all eligible accounts are full;
 - recent sticky-session summary and reassignment APIs;
 - the `迁入粘性会话` action for active, schedulable OpenAI targets;
+- the action remains visible while public settings are loading and hides only
+  when the capability is explicitly `false` (as it is for the free profile);
 - 1, 5, 15, and 60 minute activity windows, defaulting to 5 minutes;
 - newest-first compare-and-set reassignment of at most 100 current 16-character
   lowercase-hex `session_hash` bindings with `SET ... KEEPTTL`;
@@ -219,38 +258,69 @@ and both live matrices pass.
 ## Account Scheduling Rules
 
 The account-table `调度规则` command exposes exactly two operating modes:
-`default` and `lowest_cost`. It disables the legacy super-priority overlay
-before saving. The legacy endpoints and `extra.super_priority` values remain
-only for backward-compatible reads and writes; they are not an admin UI mode.
+`default` and `lowest_cost`. The legacy endpoints, YAML mode, and
+`extra.super_priority` values remain only for backward-compatible reads and
+writes; they never affect request routing or account status display.
 
 - `default` keeps the historical scheduling order: eligibility gates, then
   priority/load/LRU and the existing capability rules.
-- `lowest_cost` is strict across every normal selection path. Eligible accounts
-  are ordered by their effective scheduling rate; the scheduler attempts the
-  cheapest account first, then the next-cheapest account if the prior one is
-  full, excluded, or becomes unavailable. Unknown upstream-following rates
-  are last-resort candidates.
+- `lowest_cost` is strict across every normal selection path. Eligible live
+  accounts are ordered by `accounts.rate_multiplier`; the scheduler attempts
+  the cheapest account first, then the next-cheapest account if the prior one
+  is full, excluded, or becomes unavailable. Equal-rate accounts retain the
+  original load/LRU tie-breaking. Expensive accounts are not persistently
+  disabled.
 - `lowest_cost` does not honor movable `session_hash` affinity, so a historical
   expensive binding cannot override a cheaper eligible account. Strict
   non-movable `previous_response_id` affinity remains intact because a response
   chain cannot safely change accounts.
-- The effective rate is manual `rate_multiplier` by default. An account can
-  instead follow a fresh upstream billing probe snapshot; its high-peak rate is
-  evaluated at request time. A stale, failed, or unsupported upstream snapshot
-  is unknown rather than silently treated as a cheap manual rate.
+- `accounts.rate_multiplier` is the single scheduling and upstream-cost
+  multiplier. Every account has `extra.scheduling_rate_sync_mode`:
+  `auto_overwrite` (default) or `manual_lock`. A successful upstream billing
+  probe copies only the stable `resolved_rate_multiplier`, rounded to the
+  database's four-decimal precision, into `rate_multiplier` in the same
+  transaction as the snapshot and scheduler outbox event. Peak/effective
+  point-in-time values never drive scheduling. Failed, unsupported, or stale
+  probes never overwrite the persisted multiplier.
+- Compatibility: absent sync mode defaults to `auto_overwrite`; legacy
+  `scheduling_rate_source=upstream` maps to automatic overwrite and
+  `scheduling_rate_source=manual` maps to manual lock.
 - Global upstream-probe settings persist independently. The background runner
   scans every minute and probes due eligible accounts at the configured
-  5..1440-minute interval. Rate comparison itself happens at request time, so
-  a manual rate edit or a new probe result takes effect on the next request.
+  5..1440-minute interval. When enabled, the runner covers every active OpenAI
+  API Key account; the legacy per-account probe flag is ignored. Automatic
+  overwrite takes effect on the next scheduler snapshot refresh.
+- Global upstream-probe settings also persist `notify_on_change_only`, which is
+  disabled by default. Manual single and batch probes always refresh returned
+  snapshots in the account table; when this option is enabled, a successful
+  probe with the same effective upstream rate suppresses its completion Toast.
+  Failed and unsupported probes remain visible as error or warning Toasts.
+- While `lowest_cost` is active, the compatibility runner tests every active
+  account at the configured liveness interval with at most four concurrent
+  connection tests. Its `extra.scheduling_liveness` snapshot transitions from
+  `alive` to `suspect`, then `dead` after the configured consecutive-failure
+  threshold. Only a fresh `dead` result is excluded; missing/stale/suspect
+  observations remain fallbacks so startup or runner interruption cannot make
+  all accounts disappear. Dead accounts continue to be tested and a later
+  success restores them automatically. The runner never writes `status` or
+  `schedulable`.
+- The account table renders `调度倍率` and `最优` in gold only when an account
+  is currently schedulable, has a fresh `alive` liveness result, and ties for
+  the lowest persisted `rate_multiplier` in at least one of its scheduling
+  groups. Every tied minimum is marked. Ungrouped accounts compare only with
+  ungrouped accounts on the same platform. The backend computes this from the
+  full active, non-recycled account pool rather than the visible page, and the
+  marker is an administrative pool-level hint rather than a promise that every
+  model-specific request can use that account.
 - The implementation continues to use the existing `super_priority` YAML
-  section for the durable base-strategy setting. If old data activates that
-  overlay while `lowest_cost` is selected, it is ignored by the scheduler.
+  section only as compatibility storage for the durable base strategy,
+  liveness interval, failure threshold, and optional test model.
 
 Focused regression verification:
 
 ```bash
-cd /home/third_party/sub2api/backend && go test -tags unit ./internal/service -run 'Test(OpenAI.*LowestCost|FilterByAccountSchedulingPreference|OrderAccountsBySchedulingPreference|BuildOpenAISelectionOrder|GatewayLegacyWithoutLoadBatch)' -count=1
-cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/__tests__/SchedulingRulesModal.spec.ts src/components/admin/account/__tests__/AccountTableActions.schedulingRules.spec.ts src/components/admin/account/__tests__/AccountActionMenu.spark_shadow.spec.ts
+cd /home/third_party/sub2api/backend && go test -tags unit ./internal/service -run 'Test(OpenAI.*LowestCost|FilterByAccountSchedulingPreference|OrderAccountsBySchedulingPreference|BuildOpenAISelectionOrder|SchedulingLiveness|SchedulingRate)' -count=1
+cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/__tests__/SchedulingRulesModal.spec.ts src/components/account/__tests__/SchedulingRateModal.spec.ts src/components/account/__tests__/SchedulingRateCell.spec.ts src/components/admin/account/__tests__/AccountTableActions.schedulingRules.spec.ts
 ```
 
 ## Required Verification

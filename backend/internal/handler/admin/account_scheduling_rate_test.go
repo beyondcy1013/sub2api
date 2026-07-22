@@ -89,6 +89,95 @@ func TestAccountHandlerListIncludesSchedulingRateMetadata(t *testing.T) {
 	require.InDelta(t, 0.35, *payload.Data.Items[0].SchedulingRateMultiplier, 1e-9)
 }
 
+func TestBuildSchedulingRateOptimalAccountIDsUsesLiveSchedulableGroupMinimum(t *testing.T) {
+	now := time.Now().UTC()
+	groupOne := int64(11)
+	groupTwo := int64(22)
+	rate := func(value float64) *float64 { return &value }
+	liveness := func(status string) map[string]any {
+		return map[string]any{
+			service.SchedulingLivenessExtraKey: map[string]any{
+				"status":          status,
+				"last_attempt_at": now.Add(-time.Minute),
+				"fresh_until":     now.Add(time.Hour),
+			},
+		}
+	}
+	account := func(id int64, groupID int64, multiplier float64, status string, schedulable bool, livenessStatus string) service.Account {
+		return service.Account{
+			ID:             id,
+			Platform:       service.PlatformOpenAI,
+			Type:           service.AccountTypeAPIKey,
+			Status:         status,
+			Schedulable:    schedulable,
+			RateMultiplier: rate(multiplier),
+			GroupIDs:       []int64{groupID},
+			Extra:          liveness(livenessStatus),
+		}
+	}
+
+	optimal := buildSchedulingRateOptimalAccountIDs([]service.Account{
+		account(1, groupOne, 0.2, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
+		account(2, groupOne, 0.8, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
+		account(3, groupOne, 0.1, service.StatusActive, true, service.SchedulingLivenessStatusDead),
+		account(4, groupOne, 0.1, service.StatusDisabled, true, service.SchedulingLivenessStatusAlive),
+		account(5, groupOne, 0.1, service.StatusActive, false, service.SchedulingLivenessStatusAlive),
+		account(6, groupTwo, 0.9, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
+		account(7, groupOne, 0.2, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
+	}, now)
+
+	require.Contains(t, optimal, int64(1))
+	require.Contains(t, optimal, int64(6))
+	require.Contains(t, optimal, int64(7))
+	require.NotContains(t, optimal, int64(2))
+	require.NotContains(t, optimal, int64(3))
+	require.NotContains(t, optimal, int64(4))
+	require.NotContains(t, optimal, int64(5))
+}
+
+func TestAccountHandlerListSchedulingOptimalIgnoresPagination(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+	now := time.Now().UTC()
+	groupID := int64(31)
+	aliveExtra := map[string]any{
+		service.SchedulingLivenessExtraKey: map[string]any{
+			"status":          service.SchedulingLivenessStatusAlive,
+			"last_attempt_at": now.Add(-time.Minute),
+			"fresh_until":     now.Add(time.Hour),
+		},
+	}
+	visibleRate := 0.8
+	hiddenRate := 0.2
+	visible := service.Account{
+		ID: 81, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, RateMultiplier: &visibleRate,
+		GroupIDs: []int64{groupID}, Extra: aliveExtra, CreatedAt: now, UpdatedAt: now,
+	}
+	hiddenCheaper := service.Account{
+		ID: 82, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, RateMultiplier: &hiddenRate,
+		GroupIDs: []int64{groupID}, Extra: aliveExtra, CreatedAt: now, UpdatedAt: now,
+	}
+	adminSvc.accounts = []service.Account{visible}
+	adminSvc.accountSchedulerScoreFilterAccounts = []service.Account{visible, hiddenCheaper}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=1&include_scheduling_optimal=1", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, 1, adminSvc.schedulerScoreFilterCalls)
+	var payload struct {
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 1)
+	require.Contains(t, payload.Data.Items[0], "scheduling_rate_optimal")
+	require.Equal(t, false, payload.Data.Items[0]["scheduling_rate_optimal"])
+}
+
 func schedulingRateRequest(t *testing.T, router http.Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	recorder := httptest.NewRecorder()
@@ -132,7 +221,7 @@ func TestAccountHandlerUpdateSchedulingRateStoresManualRate(t *testing.T) {
 	require.InDelta(t, 0.35, *payload.Data.SchedulingRateMultiplier, 1e-9)
 }
 
-func TestAccountHandlerUpdateSchedulingRateFollowsUpstreamWithoutOverwritingManualRate(t *testing.T) {
+func TestAccountHandlerUpdateSchedulingRateEnablesAutomaticOverwriteWhileKeepingCurrentRate(t *testing.T) {
 	now := time.Now()
 	manual := 0.9
 	adminSvc := &schedulingRateAdminService{
@@ -159,7 +248,10 @@ func TestAccountHandlerUpdateSchedulingRateFollowsUpstreamWithoutOverwritingManu
 	require.NotNil(t, adminSvc.input)
 	require.NotNil(t, adminSvc.input.SchedulingRateSource)
 	require.Equal(t, service.SchedulingRateSourceUpstream, *adminSvc.input.SchedulingRateSource)
-	require.Nil(t, adminSvc.input.RateMultiplier)
+	require.NotNil(t, adminSvc.input.SchedulingRateSyncMode)
+	require.Equal(t, service.SchedulingRateSyncModeAutoOverwrite, *adminSvc.input.SchedulingRateSyncMode)
+	require.NotNil(t, adminSvc.input.RateMultiplier)
+	require.InDelta(t, 0.9, *adminSvc.input.RateMultiplier, 1e-9)
 	require.InDelta(t, 0.9, adminSvc.account.BillingRateMultiplier(), 1e-9)
 }
 
@@ -174,7 +266,7 @@ func TestAccountHandlerUpdateSchedulingRateValidatesRequest(t *testing.T) {
 	for _, body := range []string{
 		`{"source":"unknown"}`,
 		`{"source":"manual","rate_multiplier":-0.1}`,
-		`{"source":"upstream","rate_multiplier":0.1}`,
+		`{"sync_mode":"invalid","rate_multiplier":0.1}`,
 	} {
 		recorder := schedulingRateRequest(t, router, body)
 		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())

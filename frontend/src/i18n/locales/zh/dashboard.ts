@@ -611,7 +611,10 @@ export default {
     codeRedeemSuccess: '兑换成功！',
     failedToRedeem: '兑换失败，请检查兑换码后重试。',
     subscriptionRefreshFailed: '兑换成功，但订阅状态刷新失败。',
-    pleaseEnterCode: '请输入兑换码'
+    pleaseEnterCode: '请输入兑换码',
+    purchaseTitle: '购买兑换码',
+    purchaseHint: '如需购买新的兑换码，请前往购买页面完成下单。',
+    purchaseButton: '前往购买兑换码'
   },
 
   // Profile

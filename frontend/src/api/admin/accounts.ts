@@ -45,6 +45,7 @@ export async function list(
     privacy_mode?: string
     lite?: string
     include_scheduler_score?: string
+    include_scheduling_optimal?: string
     recycled?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
@@ -82,6 +83,7 @@ export async function listWithEtag(
     privacy_mode?: string
     lite?: string
     include_scheduler_score?: string
+    include_scheduling_optimal?: string
     recycled?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
@@ -238,11 +240,43 @@ export async function recycleAccount(id: number): Promise<{ message: string }> {
 }
 
 /**
- * Restore account (un-trash)
+ * Restore account (un-trash from staging filter)
  * @param id - Account ID
  */
 export async function restoreAccount(id: number): Promise<{ message: string }> {
   const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/restore`)
+  return data
+}
+
+/**
+ * List soft-deleted accounts in the recycle bin (archive only).
+ */
+export async function listTrashedAccounts(params: {
+  page?: number
+  page_size?: number
+  platform?: string
+  type?: string
+  search?: string
+} = {}): Promise<{ items: any[]; total: number; page: number; page_size: number }> {
+  const { data } = await apiClient.get('/admin/accounts/trash', { params })
+  return data
+}
+
+/**
+ * Restore a soft-deleted account from the recycle bin (re-creates group associations).
+ * @param id - Account ID
+ */
+export async function restoreFromTrash(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/restore-from-trash`)
+  return data
+}
+
+/**
+ * Permanently delete a soft-deleted account (irreversible).
+ * @param id - Account ID
+ */
+export async function permanentDeleteAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/admin/accounts/${id}/permanent-delete`)
   return data
 }
 
@@ -1037,6 +1071,9 @@ export const accountsAPI = {
   delete: deleteAccount,
   recycle: recycleAccount,
   restore: restoreAccount,
+  listTrashed: listTrashedAccounts,
+  restoreFromTrash,
+  permanentDelete: permanentDeleteAccount,
   setSuperPriority: setAccountSuperPriority,
   toggleStatus,
   testAccount,

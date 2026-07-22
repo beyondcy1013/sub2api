@@ -1111,8 +1111,6 @@
                       : 'https://api.anthropic.com'
               "
             />
-            <button type="button" @click="apiKeyBaseUrl = 'http://wxapi.cxlsky.cn/v1'" class="btn btn-secondary text-xs px-2" title="CXL API">CXL</button>
-            <button type="button" @click="apiKeyBaseUrl = 'https://pay.kxaug.xyz/v1'" class="btn btn-secondary text-xs px-2" title="Pay API">Pay</button>
           </div>
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
@@ -1149,23 +1147,6 @@
           </div>
           <p class="input-hint">{{ apiKeyHint }}</p>
 
-        </div>
-
-        <div
-          v-if="form.platform === 'openai'"
-          class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
-        >
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-            </p>
-          </div>
-          <Toggle
-            v-model="upstreamBillingAutoProbeEnabled"
-            data-testid="upstream-billing-auto-probe"
-            :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          />
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -3538,7 +3519,6 @@ import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import {
@@ -3684,7 +3664,6 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
-const upstreamBillingAutoProbeEnabled = ref(true)
 
 const syncPreviewCredentials = computed(() => {
   if (!apiKeyValue.value) return undefined
@@ -4684,8 +4663,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
     if (
       payload.platform === 'openai' &&
-      payload.type === 'apikey' &&
-      payload.upstream_billing_probe_enabled === true
+      payload.type === 'apikey'
     ) {
       try {
         await adminAPI.accounts.probeUpstreamBilling(account.id)
@@ -4880,7 +4858,6 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
-  upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
   editQuotaHourlyLimit.value = 5
   editQuotaDailyLimit.value = null
@@ -5516,8 +5493,6 @@ const handleSubmit = async () => {
     ...form,
     group_ids: form.group_ids,
     extra,
-    upstream_billing_probe_enabled:
-      form.platform === 'openai' ? upstreamBillingAutoProbeEnabled.value : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

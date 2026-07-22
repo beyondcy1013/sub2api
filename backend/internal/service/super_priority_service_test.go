@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 // SetSchedulable 会留下可断言的调用记录。
 type superPriorityFakeRepo struct {
 	AccountRepository
+	mu          sync.Mutex
 	accounts    []Account
 	schedulable map[int64]bool // 记录每次 SetSchedulable 后的状态
 	extraWrites map[int64]map[string]any
@@ -26,10 +28,14 @@ func newSuperPriorityFakeRepo() *superPriorityFakeRepo {
 }
 
 func (f *superPriorityFakeRepo) ListAllWithFilters(_ context.Context, _, _, _, _ string, _ int64, _ string, _ bool) ([]Account, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return append([]Account(nil), f.accounts...), nil
 }
 
 func (f *superPriorityFakeRepo) FindByExtraField(_ context.Context, key string, value any) ([]Account, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var out []Account
 	want, _ := value.(bool)
 	for _, a := range f.accounts {
@@ -41,11 +47,15 @@ func (f *superPriorityFakeRepo) FindByExtraField(_ context.Context, key string, 
 }
 
 func (f *superPriorityFakeRepo) SetSchedulable(_ context.Context, id int64, schedulable bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.schedulable[id] = schedulable
 	return nil
 }
 
 func (f *superPriorityFakeRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	existing := f.extraWrites[id]
 	if existing == nil {
 		existing = map[string]any{}

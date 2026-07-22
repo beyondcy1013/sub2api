@@ -134,6 +134,10 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 	if result.Status == "success" && plan.AutoRecover {
 		s.tryRecoverAccount(ctx, plan.AccountID, plan.ID)
 	}
+	// Auto re-enable scheduling if test succeeded and auto_recover_schedulable is enabled.
+	if result.Status == "success" && plan.AutoRecoverSchedulable {
+		s.tryReEnableScheduling(ctx, plan.AccountID, plan.ID)
+	}
 
 	nextRun, err := computeNextRun(plan.CronExpression, time.Now())
 	if err != nil {
@@ -167,4 +171,32 @@ func (s *ScheduledTestRunnerService) tryRecoverAccount(ctx context.Context, acco
 	if recovery.ClearedRateLimit {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d auto-recover: account=%d cleared rate-limit/runtime state", planID, accountID)
 	}
+}
+
+// tryReEnableScheduling re-enables scheduling for an account that was paused
+// (schedulable=false) after a successful scheduled test proves it is healthy.
+func (s *ScheduledTestRunnerService) tryReEnableScheduling(ctx context.Context, accountID int64, planID int64) {
+	if s.rateLimitSvc == nil {
+		return
+	}
+
+	// Access the account repository through the rate limit service to avoid
+	// adding a new dependency to the runner constructor.
+	account, err := s.rateLimitSvc.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d auto-schedulable: get account=%d failed: %v", planID, accountID, err)
+		return
+	}
+
+	// Only re-enable if currently paused; skip accounts already schedulable.
+	if account.Schedulable {
+		return
+	}
+
+	if err := s.rateLimitSvc.accountRepo.SetSchedulable(ctx, accountID, true); err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d auto-schedulable: account=%d set schedulable failed: %v", planID, accountID, err)
+		return
+	}
+
+	logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d auto-schedulable: account=%d re-enabled scheduling after successful test", planID, accountID)
 }
