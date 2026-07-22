@@ -51,6 +51,21 @@ documentation, licensing, notices, and project credits, but run
 `--check` mode before a unified build. Do not resolve future README conflicts by
 restoring the sponsor blocks wholesale.
 
+## README Enhanced Edition Highlights
+
+The top of `README.md`, `README_CN.md`, and `README_JA.md` contains a local
+enhanced-edition section that explains the fork's verified operational value:
+lowest-cost scheduling and liveness, sticky-session concurrency spillover,
+5h/7d quota and cost visibility, account lifecycle tools, scheduled recovery,
+and isolated main/free profiles. Preserve this section across upstream merges
+and keep the three translations aligned. Do not replace concrete behavior with
+unverifiable marketing claims.
+
+The installation upgrade subsection must continue warning customized-fork
+operators not to use the WebUI binary updater, because it installs an upstream
+binary and discards local enhancements. Link to `docs/UPGRADE_RUNBOOK.md`
+instead.
+
 ## Shared Account-Management Contract
 
 Both profiles must preserve all of the following:

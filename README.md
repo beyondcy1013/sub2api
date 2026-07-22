@@ -18,6 +18,22 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
+## ✨ Enhanced Edition: Built for Real Operations
+
+> **More than a request forwarder, this is an AI API operations hub built to run continuously, absorb concurrency, expose real costs, and recover quickly.**
+> As account pools and traffic grow, dependable scheduling and efficient operations matter far more than forwarding alone.
+
+| Enhancement | Operational Value |
+|-------------|-------------------|
+| **Lowest-cost intelligent scheduling** | Selects better accounts using the actual scheduling multiplier, periodically probes liveness, avoids freshly dead nodes, and restores recovered accounts automatically |
+| **Sticky-session concurrency spillover** | Routes overflow to an available account in the same group when a historical binding is full, preventing one hot account from stalling the pool while preserving strict continuation affinity |
+| **Complete quota and cost visibility** | Shows separate 5h/7d requests, tokens, utilization, reset times, and upstream/user costs, with both per-account queries and bounded-concurrency bulk refresh |
+| **Stronger account operations** | Adds staging, a restorable trash bin, change-tracked bulk editing, mixed-message JSON import, and a compact high-density account table |
+| **Automated recovery and scheduled actions** | Schedules enable-and-recover or pause actions; successful scheduled tests can clear unhealthy state and re-enable scheduling |
+| **One source, isolated dual profiles** | Runs the same verified artifact for main/free profiles while keeping databases, Redis, configuration, ports, and service lifecycles strictly isolated |
+
+**The larger the account pool and the more complex the traffic, the more this edition pays off.** It is built for operators who value stability, transparent costs, and recoverable automation.
+
 ## ⚠️ Important Notice
 
 Please read the following carefully before using this project:
@@ -121,12 +137,8 @@ The Setup Wizard will guide you through:
 
 #### Upgrade
 
-You can upgrade directly from the **Admin Dashboard** by clicking the **Check for Updates** button in the top-left corner.
-
-The web interface will:
-- Check for new versions automatically
-- Download and apply updates with one click
-- Support rollback if needed
+> [!WARNING]
+> **Do not use the WebUI binary updater for this customized edition.** It installs the upstream binary and overwrites local enhancements. Follow the [unified upgrade runbook](docs/UPGRADE_RUNBOOK.md) to merge source, run the complete verification suite, and build the shared artifact.
 
 #### Useful Commands
 

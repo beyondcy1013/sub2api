@@ -47,6 +47,10 @@ Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/third_party/
   run `bash scripts/remove-readme-sponsors.sh` and verify with
   `bash scripts/remove-readme-sponsors.sh --check`; do not restore sponsor
   sections in `README.md`, `README_CN.md`, or `README_JA.md`.
+- Preserve the local enhanced-edition highlights near the top of all three
+  README files and keep their upgrade warning pointed at this source-based
+  runbook. Do not restore instructions that tell customized-fork operators to
+  use the WebUI binary updater.
 
 ## Deploy Checklist
 
