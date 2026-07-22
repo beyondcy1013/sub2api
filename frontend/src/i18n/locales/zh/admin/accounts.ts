@@ -54,6 +54,7 @@ export default {
       permanentDeleteSuccess: '账号已彻底删除',
       restoreFromTrashSuccess: '账号已从回收站恢复',
       deletedAt: '删除时间',
+      trashUsageSummary: '累计用量与费用',
       trashBinLoadFailed: '加载回收站失败',
       restoreFromTrashFailed: '从回收站恢复失败',
       permanentDeleteFailed: '彻底删除失败',

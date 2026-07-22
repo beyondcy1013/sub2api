@@ -10,6 +10,7 @@ import type {
   UpdateAccountRequest,
   PaginatedResponse,
   AccountUsageInfo,
+  TrashedAccount,
   WindowStats,
   ClaudeModel,
   AccountUsageStatsResponse,
@@ -257,7 +258,7 @@ export async function listTrashedAccounts(params: {
   platform?: string
   type?: string
   search?: string
-} = {}): Promise<{ items: any[]; total: number; page: number; page_size: number }> {
+} = {}): Promise<PaginatedResponse<TrashedAccount>> {
   const { data } = await apiClient.get('/admin/accounts/trash', { params })
   return data
 }

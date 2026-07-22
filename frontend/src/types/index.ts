@@ -1089,6 +1089,11 @@ export interface WindowStats {
   user_cost?: number
 }
 
+export interface TrashedAccount extends Account {
+  deleted_at: string | null
+  usage_stats?: WindowStats | null
+}
+
 export interface UsageProgress {
   utilization: number // Percentage (0-100+, 100 = 100%)
   resets_at: string | null

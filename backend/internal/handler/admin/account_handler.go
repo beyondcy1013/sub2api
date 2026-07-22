@@ -208,6 +208,25 @@ type AccountWithConcurrency struct {
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
 }
 
+// TrashAccountResponse is the admin-safe account representation used by the
+// recycle bin, enriched with archive metadata and local historical usage.
+type TrashAccountResponse struct {
+	*dto.Account
+	DeletedAt  *time.Time           `json:"deleted_at"`
+	UsageStats *service.WindowStats `json:"usage_stats"`
+}
+
+func newTrashAccountResponse(account *service.Account, usageStats *service.WindowStats) TrashAccountResponse {
+	if account == nil {
+		return TrashAccountResponse{UsageStats: usageStats}
+	}
+	return TrashAccountResponse{
+		Account:    dto.AccountFromService(account),
+		DeletedAt:  account.DeletedAt,
+		UsageStats: usageStats,
+	}
+}
+
 type AccountSchedulerScore struct {
 	BaseScore             float64 `json:"base_score"`
 	StickyScore           float64 `json:"sticky_score"`
@@ -1208,7 +1227,36 @@ func (h *AccountHandler) ListTrash(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"items": accounts, "total": total, "page": page, "page_size": pageSize})
+
+	accountIDs := make([]int64, 0, len(accounts))
+	usageStart := time.Time{}
+	for i := range accounts {
+		accountIDs = append(accountIDs, accounts[i].ID)
+		if accounts[i].CreatedAt.IsZero() {
+			continue
+		}
+		if usageStart.IsZero() || accounts[i].CreatedAt.Before(usageStart) {
+			usageStart = accounts[i].CreatedAt
+		}
+	}
+	if usageStart.IsZero() {
+		usageStart = time.Unix(0, 0).UTC()
+	}
+
+	var usageStats map[int64]*service.WindowStats
+	if h.accountUsageService != nil && len(accountIDs) > 0 {
+		usageStats, err = h.accountUsageService.GetStatsBatchSince(c.Request.Context(), accountIDs, usageStart)
+		if err != nil {
+			slog.Warn("trash_account_usage_stats_failed", "error", err)
+			usageStats = nil
+		}
+	}
+
+	items := make([]TrashAccountResponse, len(accounts))
+	for i := range accounts {
+		items[i] = newTrashAccountResponse(&accounts[i], usageStats[accounts[i].ID])
+	}
+	response.Paginated(c, items, total, page, pageSize)
 }
 
 // RestoreFromTrash un-deletes a soft-deleted account, re-creating its group associations.

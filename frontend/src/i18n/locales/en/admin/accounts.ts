@@ -54,6 +54,7 @@ export default {
       permanentDeleteSuccess: 'Account permanently deleted',
       restoreFromTrashSuccess: 'Account restored from trash',
       deletedAt: 'Deleted At',
+      trashUsageSummary: 'Lifetime Usage and Cost',
       trashBinLoadFailed: 'Failed to load trash',
       restoreFromTrashFailed: 'Failed to restore account from trash',
       permanentDeleteFailed: 'Failed to permanently delete account',
