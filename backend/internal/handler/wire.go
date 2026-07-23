@@ -12,6 +12,7 @@ import (
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
 	superPriorityService *service.SuperPriorityService,
+	superPriorityRunner *service.SuperPriorityRunner,
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
 	groupHandler *admin.GroupHandler,
@@ -52,6 +53,7 @@ func ProvideAdminHandlers(
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetSuperPriorityService(superPriorityService)
 	settingHandler.SetSuperPriorityService(superPriorityService)
+	settingHandler.SetSchedulingRefreshers(superPriorityRunner, upstreamBillingProbe)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,

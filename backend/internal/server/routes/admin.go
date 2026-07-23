@@ -535,6 +535,7 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, balance
 		adminSettings.PUT("/super-priority", h.Admin.Setting.UpdateSuperPrioritySettings)
 		adminSettings.POST("/super-priority/activate", h.Admin.Setting.ActivateSuperPriority)
 		adminSettings.POST("/super-priority/deactivate", h.Admin.Setting.DeactivateSuperPriority)
+		adminSettings.POST("/scheduling-rules/refresh", h.Admin.Setting.RefreshSchedulingRules)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)

@@ -21,9 +21,9 @@ type schedulingRefreshStub struct {
 	calls  int
 }
 
-func (s *schedulingRefreshStub) RefreshNow(context.Context) service.SchedulingRefreshResult {
+func (s *schedulingRefreshStub) RefreshNow(context.Context) (service.SchedulingRefreshResult, error) {
 	s.calls++
-	return s.result
+	return s.result, nil
 }
 
 type upstreamBillingRefreshStub struct {

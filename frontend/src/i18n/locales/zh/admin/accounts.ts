@@ -289,6 +289,10 @@ export default {
         interval: '检测间隔（分钟）',
         notifyOnChangeOnly: '有变更才通知',
         notifyOnChangeOnlyHint: '开启后，成功检测且倍率与上次一致时不显示 Toast；失败或不支持仍会提示。',
+        immediateRefresh: '立即刷新',
+        refreshing: '正在刷新',
+        refreshed: '刷新完成：存活检测 {liveness} 个，费率检测 {billing} 个',
+        refreshFailed: '立即刷新调度数据失败',
         saved: '调度规则已保存',
         saveFailed: '保存调度规则失败'
       },

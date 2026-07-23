@@ -36,6 +36,7 @@ type SuperPriorityRunner struct {
 	livenessRepo   schedulingLivenessPersistence
 
 	cron      *cron.Cron
+	runMu     sync.Mutex
 	startOnce sync.Once
 	stopOnce  sync.Once
 }
@@ -95,27 +96,35 @@ func (r *SuperPriorityRunner) Stop() {
 
 // RunOnce 暴露单次探测，便于测试与手动触发。
 func (r *SuperPriorityRunner) RunOnce(ctx context.Context) {
-	r.runOnceOnce(ctx)
+	_, _ = r.runOnceOnce(ctx, false)
+}
+
+// RefreshNow forces an immediate liveness probe for every eligible account.
+func (r *SuperPriorityRunner) RefreshNow(ctx context.Context) (SchedulingRefreshResult, error) {
+	return r.runOnceOnce(ctx, true)
 }
 
 func (r *SuperPriorityRunner) runOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	r.runOnceOnce(ctx)
+	_, _ = r.runOnceOnce(ctx, false)
 }
 
-func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
+func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool) (SchedulingRefreshResult, error) {
+	var refreshResult SchedulingRefreshResult
 	if r == nil || r.state == nil || r.accountRepo == nil || r.livenessRepo == nil || r.accountTestSvc == nil || r.state.BaseStrategy() != AccountSchedulingStrategyLowestCost {
-		return
+		return refreshResult, nil
 	}
+	r.runMu.Lock()
+	defer r.runMu.Unlock()
 
 	accounts, err := r.accountRepo.ListAllWithFilters(ctx, "", "", "", "", 0, "", false)
 	if err != nil {
 		logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] list accounts error: %v", err)
-		return
+		return refreshResult, err
 	}
 	if len(accounts) == 0 {
-		return
+		return refreshResult, nil
 	}
 
 	now := time.Now()
@@ -125,18 +134,20 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
 		if !schedulingLivenessProbeEligible(&account) {
 			continue
 		}
-		if schedulingLivenessProbeDue(decodeSchedulingLiveness(account.Extra), now, expr) {
+		if force || schedulingLivenessProbeDue(decodeSchedulingLiveness(account.Extra), now, expr) {
 			due = append(due, account)
 		}
 	}
 	if len(due) == 0 {
-		return
+		return refreshResult, nil
 	}
+	refreshResult.Checked = len(due)
 
 	modelID := r.state.TestModelID()
 	failureThreshold := r.state.FailureThreshold()
 	sem := make(chan struct{}, schedulingLivenessMaxWorkers)
 	var wg sync.WaitGroup
+	var resultMu sync.Mutex
 	for i := range due {
 		account := due[i]
 		sem <- struct{}{}
@@ -164,14 +175,25 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
 			)
 			if err := r.livenessRepo.UpdateSchedulingLiveness(ctx, account.ID, snapshot); err != nil {
 				logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] persist account=%d failed: %v", account.ID, err)
+				resultMu.Lock()
+				refreshResult.Failed++
+				resultMu.Unlock()
 				return
 			}
+			resultMu.Lock()
+			if succeeded {
+				refreshResult.Succeeded++
+			} else {
+				refreshResult.Failed++
+			}
+			resultMu.Unlock()
 			if !succeeded {
 				logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] account=%d status=%s failures=%d error=%s", account.ID, snapshot.Status, snapshot.FailureCount, strings.TrimSpace(errorMessage))
 			}
 		}()
 	}
 	wg.Wait()
+	return refreshResult, nil
 }
 
 func schedulingLivenessProbeDue(snapshot *AccountSchedulingLiveness, now time.Time, expression string) bool {

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type schedulingRefresher interface {
+	RefreshNow(context.Context) (service.SchedulingRefreshResult, error)
+}
 
 // semverPattern 预编译 semver 格式校验正则
 var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -62,6 +67,8 @@ type SettingHandler struct {
 	totpService              *service.TotpService
 	userService              *service.UserService
 	superPriorityService     *service.SuperPriorityService
+	schedulingLiveness       schedulingRefresher
+	upstreamBilling          schedulingRefresher
 }
 
 // NewSettingHandler 创建系统设置处理器
@@ -96,6 +103,13 @@ func (h *SettingHandler) SetStepUpDeps(totpService *service.TotpService, userSer
 // changing the constructor signature used by existing unit tests.
 func (h *SettingHandler) SetSuperPriorityService(superPriorityService *service.SuperPriorityService) {
 	h.superPriorityService = superPriorityService
+}
+
+// SetSchedulingRefreshers attaches the two periodic workers used by the
+// scheduling-rules manual refresh endpoint.
+func (h *SettingHandler) SetSchedulingRefreshers(liveness, upstreamBilling schedulingRefresher) {
+	h.schedulingLiveness = liveness
+	h.upstreamBilling = upstreamBilling
 }
 
 // GetSettings 获取所有系统设置

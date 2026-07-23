@@ -338,6 +338,10 @@ export default {
         interval: 'Probe interval (minutes)',
         notifyOnChangeOnly: 'Notify only on changes',
         notifyOnChangeOnlyHint: 'Suppress the Toast when a successful probe returns the same rate. Failures and unsupported upstreams are still reported.',
+        immediateRefresh: 'Refresh now',
+        refreshing: 'Refreshing',
+        refreshed: 'Refresh completed: {liveness} liveness probes and {billing} rate probes',
+        refreshFailed: 'Failed to refresh scheduling data',
         saved: 'Scheduling rules updated',
         saveFailed: 'Failed to update scheduling rules'
       },

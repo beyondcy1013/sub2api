@@ -569,7 +569,14 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <SchedulingRulesModal :show="showSchedulingRules" @close="closeSchedulingRulesModal" @saved="handleSchedulingRulesSaved" @error="handleSchedulingRulesError" />
+    <SchedulingRulesModal
+      :show="showSchedulingRules"
+      @close="closeSchedulingRulesModal"
+      @saved="handleSchedulingRulesSaved"
+      @refreshed="handleSchedulingRulesRefreshed"
+      @refresh-error="handleSchedulingRulesRefreshError"
+      @error="handleSchedulingRulesError"
+    />
     <SchedulingRateModal
       :show="showSchedulingRate"
       :account="schedulingRateAcc"
@@ -651,6 +658,7 @@ import TrashBinModal from '@/components/admin/account/TrashBinModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import type { ScheduledAccountActionType } from '@/api/admin/accounts'
+import type { SchedulingRulesRefreshResult } from '@/api/admin/superPriority'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayCostCell from '@/components/account/AccountTodayCostCell.vue'
@@ -2534,6 +2542,18 @@ const handleSchedulingRulesSaved = () => {
   enterAutoRefreshSilentWindow()
   void loadUpstreamBillingProbeGlobalState()
   reload()
+}
+const handleSchedulingRulesRefreshed = (result: SchedulingRulesRefreshResult) => {
+  appStore.showSuccess(t('admin.accounts.schedulingRules.refreshed', {
+    liveness: result.liveness.checked,
+    billing: result.upstream_billing.checked
+  }))
+  enterAutoRefreshSilentWindow()
+  void loadUpstreamBillingProbeGlobalState()
+  reload()
+}
+const handleSchedulingRulesRefreshError = (error: unknown) => {
+  appStore.showError(extractApiErrorMessage(error, t('admin.accounts.schedulingRules.refreshFailed')))
 }
 const handleSchedulingRulesError = (error: unknown) => {
   appStore.showError(extractApiErrorMessage(error, t('admin.accounts.schedulingRules.saveFailed')))

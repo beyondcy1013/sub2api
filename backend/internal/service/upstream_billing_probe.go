@@ -495,6 +495,38 @@ func (s *UpstreamBillingProbeService) ProbeAccounts(ctx context.Context, account
 	return results
 }
 
+// RefreshNow manually probes every active OpenAI API key account. It ignores
+// automatic-probe switches while retaining the shared service concurrency cap.
+func (s *UpstreamBillingProbeService) RefreshNow(ctx context.Context) (SchedulingRefreshResult, error) {
+	var refreshResult SchedulingRefreshResult
+	if s == nil || s.accountRepo == nil {
+		return refreshResult, ErrUpstreamBillingProbeUnavailable
+	}
+	accounts, err := s.accountRepo.ListActive(ctx)
+	if err != nil {
+		return refreshResult, fmt.Errorf("list accounts for upstream billing refresh: %w", err)
+	}
+	accountIDs := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		if isUpstreamBillingProbeAccount(&accounts[i]) {
+			accountIDs = append(accountIDs, accounts[i].ID)
+		}
+	}
+	sort.Slice(accountIDs, func(i, j int) bool { return accountIDs[i] < accountIDs[j] })
+	refreshResult.Checked = len(accountIDs)
+	for start := 0; start < len(accountIDs); start += UpstreamBillingProbeMaxBatchSize {
+		end := min(start+UpstreamBillingProbeMaxBatchSize, len(accountIDs))
+		for _, result := range s.ProbeAccounts(ctx, accountIDs[start:end]) {
+			if result.Error != "" {
+				refreshResult.Failed++
+			} else {
+				refreshResult.Succeeded++
+			}
+		}
+	}
+	return refreshResult, nil
+}
+
 func upstreamBillingProbeLeaderLockKeyAt(now time.Time) string {
 	return fmt.Sprintf("%s:%d", upstreamBillingProbeLeaderLockKey, now.Unix()/int64(upstreamBillingProbeCycleInterval/time.Second))
 }

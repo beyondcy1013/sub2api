@@ -62,8 +62,12 @@
     </div>
 
     <template #footer>
-      <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">{{ t('common.cancel') }}</button>
-      <button type="button" data-testid="scheduling-rule-save" class="btn btn-primary" :disabled="saving || !validInterval" @click="save">
+      <button type="button" data-testid="scheduling-rule-refresh" class="btn btn-secondary mr-auto gap-2" :disabled="loading || saving || refreshing" @click="refreshNow">
+        <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />
+        {{ refreshing ? t('admin.accounts.schedulingRules.refreshing') : t('admin.accounts.schedulingRules.immediateRefresh') }}
+      </button>
+      <button type="button" class="btn btn-secondary" :disabled="saving || refreshing" @click="$emit('close')">{{ t('common.cancel') }}</button>
+      <button type="button" data-testid="scheduling-rule-save" class="btn btn-primary" :disabled="saving || refreshing || !validInterval" @click="save">
         {{ saving ? t('common.saving') : t('common.save') }}
       </button>
     </template>
@@ -76,7 +80,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { SuperPrioritySettings } from '@/api/admin/superPriority'
+import type { SchedulingRulesRefreshResult, SuperPrioritySettings } from '@/api/admin/superPriority'
 
 type SchedulingStrategy = 'default' | 'lowest_cost'
 
@@ -84,11 +88,14 @@ const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
   (event: 'close'): void
   (event: 'saved'): void
+  (event: 'refreshed', result: SchedulingRulesRefreshResult): void
+  (event: 'refresh-error', error: unknown): void
   (event: 'error', error: unknown): void
 }>()
 const { t } = useI18n()
 const loading = ref(false)
 const saving = ref(false)
+const refreshing = ref(false)
 const strategy = ref<SchedulingStrategy>('default')
 const probeEnabled = ref(true)
 const intervalMinutes = ref(30)
@@ -156,6 +163,18 @@ const save = async () => {
     emit('error', error)
   } finally {
     saving.value = false
+  }
+}
+
+const refreshNow = async () => {
+  if (loading.value || saving.value || refreshing.value) return
+  refreshing.value = true
+  try {
+    emit('refreshed', await adminAPI.superPriority.refresh())
+  } catch (error) {
+    emit('refresh-error', error)
+  } finally {
+    refreshing.value = false
   }
 }
 </script>

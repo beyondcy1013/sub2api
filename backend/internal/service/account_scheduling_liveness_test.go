@@ -106,8 +106,9 @@ func TestSchedulingLivenessRefreshNowIgnoresTheConfiguredInterval(t *testing.T) 
 		CheckInterval: "@every 5m",
 	}})
 
-	result := NewSuperPriorityRunner(state, tester, repo).RefreshNow(context.Background())
+	result, err := NewSuperPriorityRunner(state, tester, repo).RefreshNow(context.Background())
 
+	require.NoError(t, err)
 	require.Equal(t, []int64{1}, tester.calls)
 	require.Equal(t, SchedulingRefreshResult{Checked: 1, Succeeded: 1}, result)
 }

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"strconv"
 	"time"
 
@@ -102,6 +103,32 @@ func (h *SettingHandler) DeactivateSuperPriority(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "super priority mode deactivated"})
+}
+
+// RefreshSchedulingRules forces both scheduling liveness and upstream billing
+// probes while preserving each worker's configured concurrency bound.
+// POST /api/v1/admin/settings/scheduling-rules/refresh
+func (h *SettingHandler) RefreshSchedulingRules(c *gin.Context) {
+	if h.schedulingLiveness == nil || h.upstreamBilling == nil {
+		response.Error(c, 503, "scheduling refresh service unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	defer cancel()
+	liveness, err := h.schedulingLiveness.RefreshNow(ctx)
+	if err != nil {
+		response.Error(c, 500, "refresh scheduling liveness failed: "+err.Error())
+		return
+	}
+	upstreamBilling, err := h.upstreamBilling.RefreshNow(ctx)
+	if err != nil {
+		response.Error(c, 500, "refresh upstream billing failed: "+err.Error())
+		return
+	}
+	response.Success(c, gin.H{
+		"liveness":         liveness,
+		"upstream_billing": upstreamBilling,
+	})
 }
 
 // SetAccountSuperPriorityRequest per-account 超级优先标记请求体。

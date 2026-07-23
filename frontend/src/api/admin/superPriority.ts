@@ -30,6 +30,17 @@ export interface SuperPriorityActivateResult {
   message: string
 }
 
+export interface SchedulingRefreshCounts {
+  checked: number
+  succeeded: number
+  failed: number
+}
+
+export interface SchedulingRulesRefreshResult {
+  liveness: SchedulingRefreshCounts
+  upstream_billing: SchedulingRefreshCounts
+}
+
 const superPriorityAPI = {
   async get(): Promise<SuperPrioritySettings> {
     const { data } = await apiClient.get<SuperPrioritySettings>('/admin/settings/super-priority')
@@ -54,6 +65,15 @@ const superPriorityAPI = {
 
   async deactivate(): Promise<{ message: string }> {
     const { data } = await apiClient.post<{ message: string }>('/admin/settings/super-priority/deactivate')
+    return data
+  },
+
+  async refresh(): Promise<SchedulingRulesRefreshResult> {
+    const { data } = await apiClient.post<SchedulingRulesRefreshResult>(
+      '/admin/settings/scheduling-rules/refresh',
+      {},
+      { timeout: 130000 },
+    )
     return data
   },
 }
