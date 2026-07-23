@@ -89,7 +89,7 @@ func TestAccountHandlerListIncludesSchedulingRateMetadata(t *testing.T) {
 	require.InDelta(t, 0.35, *payload.Data.Items[0].SchedulingRateMultiplier, 1e-9)
 }
 
-func TestBuildSchedulingRateOptimalAccountIDsUsesLiveSchedulableGroupMinimum(t *testing.T) {
+func TestBuildSchedulingRateOptimalAccountIDsUsesStatusColumnAndGroupMinimum(t *testing.T) {
 	now := time.Now().UTC()
 	groupOne := int64(11)
 	groupTwo := int64(22)
@@ -120,17 +120,17 @@ func TestBuildSchedulingRateOptimalAccountIDsUsesLiveSchedulableGroupMinimum(t *
 		account(1, groupOne, 0.2, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
 		account(2, groupOne, 0.8, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
 		account(3, groupOne, 0.1, service.StatusActive, true, service.SchedulingLivenessStatusDead),
-		account(4, groupOne, 0.1, service.StatusDisabled, true, service.SchedulingLivenessStatusAlive),
-		account(5, groupOne, 0.1, service.StatusActive, false, service.SchedulingLivenessStatusAlive),
+		account(4, groupOne, 0.05, service.StatusDisabled, true, service.SchedulingLivenessStatusAlive),
+		account(5, groupOne, 0.05, service.StatusActive, false, service.SchedulingLivenessStatusAlive),
 		account(6, groupTwo, 0.9, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
 		account(7, groupOne, 0.2, service.StatusActive, true, service.SchedulingLivenessStatusAlive),
 	}, now)
 
-	require.Contains(t, optimal, int64(1))
+	require.Contains(t, optimal, int64(3))
 	require.Contains(t, optimal, int64(6))
-	require.Contains(t, optimal, int64(7))
+	require.NotContains(t, optimal, int64(1))
+	require.NotContains(t, optimal, int64(7))
 	require.NotContains(t, optimal, int64(2))
-	require.NotContains(t, optimal, int64(3))
 	require.NotContains(t, optimal, int64(4))
 	require.NotContains(t, optimal, int64(5))
 }

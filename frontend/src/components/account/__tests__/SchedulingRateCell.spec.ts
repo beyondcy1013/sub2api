@@ -73,4 +73,12 @@ describe('SchedulingRateCell', () => {
     expect(wrapper.get('[data-testid="scheduling-rate-value"]').classes()).toContain('text-gray-800')
     expect(wrapper.find('[data-testid="scheduling-rate-optimal"]').exists()).toBe(false)
   })
+
+  it('does not render liveness from the scheduling-rate payload', () => {
+    const wrapper = mount(SchedulingRateCell, {
+      props: { account: account({ scheduling_liveness_status: 'dead' }) }
+    })
+
+    expect(wrapper.find('[data-testid="scheduling-liveness-status"]').exists()).toBe(false)
+  })
 })

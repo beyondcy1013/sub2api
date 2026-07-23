@@ -14,23 +14,31 @@ import (
 // SetSchedulable 会留下可断言的调用记录。
 type superPriorityFakeRepo struct {
 	AccountRepository
-	mu          sync.Mutex
-	accounts    []Account
-	schedulable map[int64]bool // 记录每次 SetSchedulable 后的状态
-	extraWrites map[int64]map[string]any
+	mu             sync.Mutex
+	accounts       []Account
+	schedulable    map[int64]bool // 记录每次 SetSchedulable 后的状态
+	extraWrites    map[int64]map[string]any
+	livenessWrites map[int64]*AccountSchedulingLiveness
 }
 
 func newSuperPriorityFakeRepo() *superPriorityFakeRepo {
 	return &superPriorityFakeRepo{
-		schedulable: make(map[int64]bool),
-		extraWrites: make(map[int64]map[string]any),
+		schedulable:    make(map[int64]bool),
+		extraWrites:    make(map[int64]map[string]any),
+		livenessWrites: make(map[int64]*AccountSchedulingLiveness),
 	}
 }
 
-func (f *superPriorityFakeRepo) ListAllWithFilters(_ context.Context, _, _, _, _ string, _ int64, _ string, _ bool) ([]Account, error) {
+func (f *superPriorityFakeRepo) ListAllWithFilters(_ context.Context, _, _, status, _ string, _ int64, _ string, _ bool) ([]Account, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]Account(nil), f.accounts...), nil
+	accounts := make([]Account, 0, len(f.accounts))
+	for _, account := range f.accounts {
+		if status == "" || account.Status == status {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts, nil
 }
 
 func (f *superPriorityFakeRepo) FindByExtraField(_ context.Context, key string, value any) ([]Account, error) {
@@ -64,6 +72,14 @@ func (f *superPriorityFakeRepo) UpdateExtra(_ context.Context, id int64, updates
 		existing[k] = v
 	}
 	f.extraWrites[id] = existing
+	return nil
+}
+
+func (f *superPriorityFakeRepo) UpdateSchedulingLiveness(_ context.Context, id int64, snapshot *AccountSchedulingLiveness) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	copy := *snapshot
+	f.livenessWrites[id] = &copy
 	return nil
 }
 

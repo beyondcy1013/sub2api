@@ -102,3 +102,28 @@ func TestSchedulingLivenessRunnerDoesNotProbeInDefaultMode(t *testing.T) {
 
 	require.Empty(t, tester.calls)
 }
+
+func TestSchedulingLivenessRunnerRechecksItsOwnErrorAndPersistsRecovery(t *testing.T) {
+	repo := newSuperPriorityFakeRepo()
+	repo.accounts = []Account{{
+		ID:           1,
+		Status:       StatusError,
+		Schedulable:  true,
+		ErrorMessage: schedulingLivenessErrorMessage("previous connection failure"),
+		Extra: map[string]any{SchedulingLivenessExtraKey: map[string]any{
+			"status":         SchedulingLivenessStatusDead,
+			"status_managed": true,
+		}},
+	}}
+	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{1: {Status: "success"}}}
+	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
+		BaseStrategy:  AccountSchedulingStrategyLowestCost,
+		CheckInterval: "@every 5m",
+	}})
+
+	NewSuperPriorityRunner(state, tester, repo).RunOnce(context.Background())
+
+	require.Equal(t, []int64{1}, tester.calls)
+	require.Contains(t, repo.livenessWrites, int64(1))
+	require.Equal(t, SchedulingLivenessStatusAlive, repo.livenessWrites[1].Status)
+}

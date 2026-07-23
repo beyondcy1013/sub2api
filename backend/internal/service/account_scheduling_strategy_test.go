@@ -340,7 +340,7 @@ func TestDefaultStrategyIgnoresLegacySuperPriorityFlag(t *testing.T) {
 	require.Equal(t, []int64{1, 2}, accountIDs(accounts))
 }
 
-func TestLowestCostPrefersAliveOverDeadEvenWhenDeadIsCheaper(t *testing.T) {
+func TestLowestCostIgnoresLivenessSnapshotAndUsesPersistedRate(t *testing.T) {
 	deadCheap := schedulingTestAccount(1, 0.01, false)
 	deadCheap.Extra[SchedulingLivenessExtraKey] = map[string]any{
 		"status":      SchedulingLivenessStatusDead,
@@ -355,7 +355,7 @@ func TestLowestCostPrefersAliveOverDeadEvenWhenDeadIsCheaper(t *testing.T) {
 
 	preferred := filterByAccountSchedulingPreference(items, cfg)
 
-	require.Equal(t, []int64{2}, accountLoadIDs(preferred))
+	require.Equal(t, []int64{1}, accountLoadIDs(preferred))
 }
 
 func TestSchedulingRateSyncModeDefaultsToAutoAndMigratesLegacySource(t *testing.T) {
