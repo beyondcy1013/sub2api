@@ -295,6 +295,24 @@ func TestOrderAccountLoadsBySchedulingPreference_UsesPersistedRatesWhenProbeIsUn
 	require.Equal(t, []int64{1, 2, 3}, accountLoadIDs(items))
 }
 
+func TestOrderAccountLoadsBySchedulingPreference_SharesConnectionsAcrossEqualCheapestRates(t *testing.T) {
+	cheapRate := 0.1
+	expensiveRate := 0.8
+	busyCheap := &Account{ID: 1, Priority: 1, RateMultiplier: &cheapRate}
+	idleCheap := &Account{ID: 2, Priority: 9, RateMultiplier: &cheapRate}
+	idleExpensive := &Account{ID: 3, Priority: 0, RateMultiplier: &expensiveRate}
+	items := []accountWithLoad{
+		{account: busyCheap, loadInfo: &AccountLoadInfo{AccountID: busyCheap.ID, CurrentConcurrency: 4, LoadRate: 80}},
+		{account: idleExpensive, loadInfo: &AccountLoadInfo{AccountID: idleExpensive.ID, LoadRate: 0}},
+		{account: idleCheap, loadInfo: &AccountLoadInfo{AccountID: idleCheap.ID, CurrentConcurrency: 1, LoadRate: 20}},
+	}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+
+	orderAccountLoadsBySchedulingPreference(items, cfg)
+
+	require.Equal(t, []int64{2, 1, 3}, accountLoadIDs(items))
+}
+
 func TestLowestCostUsesPersistedRateMultiplierInsteadOfUpstreamSnapshot(t *testing.T) {
 	persistedExpensive := 0.8
 	persistedCheap := 0.2
@@ -324,6 +342,25 @@ func TestLowestCostUsesPersistedRateMultiplierInsteadOfUpstreamSnapshot(t *testi
 	orderAccountLoadsBySchedulingPreference(items, cfg)
 
 	require.Equal(t, []int64{2, 1}, accountLoadIDs(items))
+}
+
+func TestBuildOpenAISelectionOrder_LowestCostSharesConnectionsBeforeAdvancedScore(t *testing.T) {
+	cheapRate := 0.1
+	busyCheap := &Account{ID: 1, RateMultiplier: &cheapRate}
+	idleCheap := &Account{ID: 2, RateMultiplier: &cheapRate}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{cfg: cfg}}
+	plan := openAIAccountLoadPlan{
+		candidates: []openAIAccountCandidateScore{
+			{account: busyCheap, loadInfo: &AccountLoadInfo{AccountID: busyCheap.ID, CurrentConcurrency: 4, LoadRate: 80}, score: 100},
+			{account: idleCheap, loadInfo: &AccountLoadInfo{AccountID: idleCheap.ID, CurrentConcurrency: 1, LoadRate: 20}, score: 1},
+		},
+		topK: 1,
+	}
+
+	order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{}, plan)
+
+	require.Equal(t, []int64{2, 1}, openAISelectionIDs(order))
 }
 
 func TestDefaultStrategyIgnoresLegacySuperPriorityFlag(t *testing.T) {
@@ -574,4 +611,47 @@ func TestGatewayLegacyWithoutLoadBatch_WaitsOnCheapestAccountAfterAllAccountsAre
 	require.Equal(t, int64(32), selection.Account.ID)
 	require.Equal(t, int64(32), selection.WaitPlan.AccountID)
 	require.Equal(t, []int64{32, 31}, acquired)
+}
+
+func TestGatewayLoadBatchLowestCostSharesConnectionsAcrossEqualCheapestRates(t *testing.T) {
+	cheapRate := 0.1
+	expensiveRate := 0.8
+	accounts := []Account{
+		{ID: 41, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Priority: 1, Concurrency: 5, RateMultiplier: &cheapRate},
+		{ID: 42, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Priority: 9, Concurrency: 5, RateMultiplier: &cheapRate},
+		{ID: 43, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, Priority: 0, Concurrency: 5, RateMultiplier: &expensiveRate},
+	}
+	var acquired []int64
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	service := &GatewayService{
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:       &schedulerTestGatewayCache{},
+		cfg:         cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
+			loadMap: map[int64]*AccountLoadInfo{
+				41: {AccountID: 41, CurrentConcurrency: 4, LoadRate: 80},
+				42: {AccountID: 42, CurrentConcurrency: 1, LoadRate: 20},
+				43: {AccountID: 43, LoadRate: 0},
+			},
+			acquiredIDs: &acquired,
+		}),
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformAnthropic)
+
+	selection, err := service.SelectAccountWithLoadAwareness(
+		ctx,
+		nil,
+		"",
+		"claude-3-5-sonnet-20241022",
+		nil,
+		"",
+		0,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.True(t, selection.Acquired)
+	require.Equal(t, int64(42), selection.Account.ID)
+	require.Equal(t, []int64{42}, acquired)
 }
