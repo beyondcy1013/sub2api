@@ -7,13 +7,19 @@ const api = vi.hoisted(() => ({
   deactivate: vi.fn(),
   updateSuperPriority: vi.fn(),
   getProbeSettings: vi.fn(),
-  updateProbeSettings: vi.fn()
+  updateProbeSettings: vi.fn(),
+  refreshSchedulingRules: vi.fn()
 }))
 
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    superPriority: { get: api.getSuperPriority, deactivate: api.deactivate, update: api.updateSuperPriority },
+    superPriority: {
+      get: api.getSuperPriority,
+      deactivate: api.deactivate,
+      update: api.updateSuperPriority,
+      refresh: api.refreshSchedulingRules
+    },
     accounts: { getUpstreamBillingProbeSettings: api.getProbeSettings, updateUpstreamBillingProbeSettings: api.updateProbeSettings }
   }
 }))
@@ -51,5 +57,29 @@ describe('SchedulingRulesModal', () => {
     }))
     expect(api.updateProbeSettings).toHaveBeenCalledWith({ enabled: true, interval_minutes: 5, notify_on_change_only: true })
     expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('runs an immediate scheduling refresh without closing the dialog', async () => {
+    api.getSuperPriority.mockResolvedValue({ mode: 'normal', base_strategy: 'lowest_cost', failure_threshold: 2, check_interval: '@every 1m', test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: false })
+    api.getProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: false })
+    const result = {
+      liveness: { checked: 3, succeeded: 2, failed: 1 },
+      upstream_billing: { checked: 2, succeeded: 2, failed: 0 }
+    }
+    api.refreshSchedulingRules.mockResolvedValue(result)
+    const wrapper = mount(SchedulingRulesModal, {
+      props: { show: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
+    })
+
+    await flush()
+    await flush()
+    await wrapper.get('[data-testid="scheduling-rule-refresh"]').trigger('click')
+    await flush()
+    await flush()
+
+    expect(api.refreshSchedulingRules).toHaveBeenCalledOnce()
+    expect(wrapper.emitted('refreshed')).toEqual([[result]])
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 })

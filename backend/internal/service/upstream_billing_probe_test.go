@@ -883,6 +883,33 @@ func TestUpstreamBillingProbeManualBatchesShareConcurrencyLimit(t *testing.T) {
 	require.Equal(t, int64(upstreamBillingProbeConcurrency), upstream.maxActive.Load())
 }
 
+func TestUpstreamBillingProbeRefreshNowChecksAllEligibleAccounts(t *testing.T) {
+	accounts := make(map[int64]*Account, UpstreamBillingProbeMaxBatchSize+1)
+	for id := int64(1); id <= int64(UpstreamBillingProbeMaxBatchSize+1); id++ {
+		accounts[id] = &Account{
+			ID:          id,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Concurrency: 1,
+			Credentials: map[string]any{"api_key": "sk-test", "base_url": "http://127.0.0.1:8080"},
+		}
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: accounts}
+	settingsRepo := &upstreamBillingProbeSettingRepo{values: map[string]string{
+		SettingKeyUpstreamBillingProbeSettings: `{"enabled":false,"interval_minutes":30}`,
+	}}
+	upstream := &upstreamBillingProbeHTTPStub{}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, settingsRepo)
+
+	result, err := svc.RefreshNow(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, SchedulingRefreshResult{Checked: UpstreamBillingProbeMaxBatchSize + 1, Succeeded: UpstreamBillingProbeMaxBatchSize + 1}, result)
+	require.Equal(t, int64(UpstreamBillingProbeMaxBatchSize+1), upstream.calls.Load())
+	require.LessOrEqual(t, upstream.maxActive.Load(), int64(upstreamBillingProbeConcurrency))
+}
+
 func TestUpstreamBillingProbeManualAndScheduledRequestsShareOneNetworkProbe(t *testing.T) {
 	account := &Account{
 		ID:          46,

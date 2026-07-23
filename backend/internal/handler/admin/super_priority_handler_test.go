@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,26 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type schedulingRefreshStub struct {
+	result service.SchedulingRefreshResult
+	calls  int
+}
+
+func (s *schedulingRefreshStub) RefreshNow(context.Context) service.SchedulingRefreshResult {
+	s.calls++
+	return s.result
+}
+
+type upstreamBillingRefreshStub struct {
+	result service.SchedulingRefreshResult
+	calls  int
+}
+
+func (s *upstreamBillingRefreshStub) RefreshNow(context.Context) (service.SchedulingRefreshResult, error) {
+	s.calls++
+	return s.result, nil
+}
 
 func newSuperPrioritySettingsTestRouter(t *testing.T) (*gin.Engine, *config.Config) {
 	t.Helper()
@@ -83,4 +104,23 @@ func TestSuperPrioritySettingsHandler_RejectsUnknownBaseStrategy(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
+}
+
+func TestSchedulingRulesRefreshRunsLivenessAndBillingRefreshers(t *testing.T) {
+	liveness := &schedulingRefreshStub{result: service.SchedulingRefreshResult{Checked: 3, Succeeded: 2, Failed: 1}}
+	billing := &upstreamBillingRefreshStub{result: service.SchedulingRefreshResult{Checked: 2, Succeeded: 2}}
+	handler := NewSettingHandler(nil, nil, nil, nil, nil, nil, nil)
+	handler.SetSchedulingRefreshers(liveness, billing)
+	router := gin.New()
+	router.POST("/scheduling-rules/refresh", handler.RefreshSchedulingRules)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/scheduling-rules/refresh", nil))
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, 1, liveness.calls)
+	require.Equal(t, 1, billing.calls)
+	data := decodeSuperPriorityResponse(t, recorder)
+	require.Equal(t, float64(3), data["liveness"].(map[string]any)["checked"])
+	require.Equal(t, float64(2), data["upstream_billing"].(map[string]any)["checked"])
 }

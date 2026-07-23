@@ -90,6 +90,28 @@ func TestSchedulingLivenessRunnerChecksEveryActiveAccountInLowestCostMode(t *tes
 	require.Equal(t, SchedulingLivenessStatusSuspect, suspect.Status)
 }
 
+func TestSchedulingLivenessRefreshNowIgnoresTheConfiguredInterval(t *testing.T) {
+	now := time.Now()
+	repo := newSuperPriorityFakeRepo()
+	account := makeSuperPriorityTestAccount(1, false, true)
+	account.Extra[SchedulingLivenessExtraKey] = map[string]any{
+		"status":          SchedulingLivenessStatusAlive,
+		"last_attempt_at": now,
+		"fresh_until":     now.Add(10 * time.Minute),
+	}
+	repo.accounts = []Account{account}
+	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{1: {Status: "success"}}}
+	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
+		BaseStrategy:  AccountSchedulingStrategyLowestCost,
+		CheckInterval: "@every 5m",
+	}})
+
+	result := NewSuperPriorityRunner(state, tester, repo).RefreshNow(context.Background())
+
+	require.Equal(t, []int64{1}, tester.calls)
+	require.Equal(t, SchedulingRefreshResult{Checked: 1, Succeeded: 1}, result)
+}
+
 func TestSchedulingLivenessRunnerDoesNotProbeInDefaultMode(t *testing.T) {
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{makeSuperPriorityTestAccount(1, false, true)}
