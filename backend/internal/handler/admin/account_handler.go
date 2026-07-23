@@ -302,7 +302,7 @@ func buildSchedulingRateOptimalAccountIDs(accounts []service.Account, now time.T
 	candidates := make([]schedulingRateCandidate, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
-		if !account.IsSchedulable() || account.SchedulingLivenessStatus(now) != service.SchedulingLivenessStatusAlive {
+		if !account.IsSchedulable() {
 			continue
 		}
 		rate := account.BillingRateMultiplier()

@@ -21,13 +21,19 @@ type accountBackgroundTester interface {
 	RunTestBackground(context.Context, int64, string) (*ScheduledTestResult, error)
 }
 
-// SuperPriorityRunner is retained as a compatibility type name. It now probes
-// every active account while lowest-cost scheduling is enabled and persists an
-// observation-only liveness snapshot; legacy super_priority flags are ignored.
+type schedulingLivenessPersistence interface {
+	UpdateSchedulingLiveness(context.Context, int64, *AccountSchedulingLiveness) error
+}
+
+// SuperPriorityRunner is retained as a compatibility type name. It probes
+// active accounts and accounts whose error state was previously written by the
+// liveness probe while lowest-cost scheduling is enabled. Legacy super_priority
+// flags are ignored.
 type SuperPriorityRunner struct {
 	state          *SuperPriorityService
 	accountTestSvc accountBackgroundTester
 	accountRepo    AccountRepository
+	livenessRepo   schedulingLivenessPersistence
 
 	cron      *cron.Cron
 	startOnce sync.Once
@@ -36,10 +42,12 @@ type SuperPriorityRunner struct {
 
 // NewSuperPriorityRunner 创建探测运行器。
 func NewSuperPriorityRunner(state *SuperPriorityService, accountTestSvc accountBackgroundTester, accountRepo AccountRepository) *SuperPriorityRunner {
+	livenessRepo, _ := accountRepo.(schedulingLivenessPersistence)
 	return &SuperPriorityRunner{
 		state:          state,
 		accountTestSvc: accountTestSvc,
 		accountRepo:    accountRepo,
+		livenessRepo:   livenessRepo,
 	}
 }
 
@@ -97,13 +105,13 @@ func (r *SuperPriorityRunner) runOnce() {
 }
 
 func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
-	if r == nil || r.state == nil || r.accountRepo == nil || r.accountTestSvc == nil || r.state.BaseStrategy() != AccountSchedulingStrategyLowestCost {
+	if r == nil || r.state == nil || r.accountRepo == nil || r.livenessRepo == nil || r.accountTestSvc == nil || r.state.BaseStrategy() != AccountSchedulingStrategyLowestCost {
 		return
 	}
 
-	accounts, err := r.accountRepo.ListAllWithFilters(ctx, "", "", StatusActive, "", 0, "", false)
+	accounts, err := r.accountRepo.ListAllWithFilters(ctx, "", "", "", "", 0, "", false)
 	if err != nil {
-		logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] list active accounts error: %v", err)
+		logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] list accounts error: %v", err)
 		return
 	}
 	if len(accounts) == 0 {
@@ -114,6 +122,9 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
 	expr := r.state.CheckInterval()
 	due := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
+		if !schedulingLivenessProbeEligible(&account) {
+			continue
+		}
 		if schedulingLivenessProbeDue(decodeSchedulingLiveness(account.Extra), now, expr) {
 			due = append(due, account)
 		}
@@ -151,7 +162,7 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context) {
 				errorMessage,
 				failureThreshold,
 			)
-			if err := r.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{SchedulingLivenessExtraKey: snapshot}); err != nil {
+			if err := r.livenessRepo.UpdateSchedulingLiveness(ctx, account.ID, snapshot); err != nil {
 				logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] persist account=%d failed: %v", account.ID, err)
 				return
 			}

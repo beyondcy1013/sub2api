@@ -106,29 +106,12 @@ func movableSessionStickyAllowed(cfg *config.Config) bool {
 	return accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost
 }
 
-func accountAllowedBySchedulingLiveness(account *Account, cfg *config.Config) bool {
-	return accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost || !accountSchedulingLivenessDead(account)
-}
-
 // filterByAccountSchedulingPreference returns the currently preferred strict
 // tier. Callers remove failed/full candidates and invoke it again, which makes
 // the next super-priority or price tier the natural fallback.
 func filterByAccountSchedulingPreference(accounts []accountWithLoad, cfg *config.Config) []accountWithLoad {
 	preferred := accounts
 	if accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost || len(preferred) < 2 {
-		if len(preferred) == 1 && accountSchedulingStrategy(cfg) == AccountSchedulingStrategyLowestCost && accountSchedulingLivenessDead(preferred[0].account) {
-			return nil
-		}
-		return preferred
-	}
-	alive := make([]accountWithLoad, 0, len(preferred))
-	for _, item := range preferred {
-		if !accountSchedulingLivenessDead(item.account) {
-			alive = append(alive, item)
-		}
-	}
-	preferred = alive
-	if len(preferred) < 2 {
 		return preferred
 	}
 	cheapest := make([]accountWithLoad, 0, len(preferred))
@@ -190,13 +173,6 @@ func compareAccountSchedulingPreferenceAt(a, b *Account, cfg *config.Config, now
 		}
 	}
 	if accountSchedulingStrategy(cfg) == AccountSchedulingStrategyLowestCost {
-		aDead, bDead := accountSchedulingLivenessDeadAt(a, now), accountSchedulingLivenessDeadAt(b, now)
-		if aDead != bDead {
-			if aDead {
-				return 1
-			}
-			return -1
-		}
 		aRate, bRate := a.BillingRateMultiplier(), b.BillingRateMultiplier()
 		switch {
 		case aRate < bRate:

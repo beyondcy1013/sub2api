@@ -312,17 +312,18 @@ writes; they never affect request routing or account status display.
   Failed and unsupported probes remain visible as error or warning Toasts.
 - While `lowest_cost` is active, the compatibility runner tests every active
   account at the configured liveness interval with at most four concurrent
-  connection tests. Its `extra.scheduling_liveness` snapshot transitions from
-  `alive` to `suspect`, then `dead` after the configured consecutive-failure
-  threshold. Only a fresh `dead` result is excluded; missing/stale/suspect
-  observations remain fallbacks so startup or runner interruption cannot make
-  all accounts disappear. Dead accounts continue to be tested and a later
-  success restores them automatically. The runner never writes `status` or
-  `schedulable`.
+  connection tests. Its diagnostic `extra.scheduling_liveness` snapshot
+  transitions from `alive` to `suspect`, then `dead` after the configured
+  consecutive-failure threshold. A `dead` result changes the account `status`
+  to `error` without changing `schedulable`; the runner continues testing only
+  errors it created and restores `status=active` after a later success. Other
+  error states and manual scheduling pauses are never auto-recovered. Routing
+  and lowest-cost ranking use the account status column, not the diagnostic
+  liveness snapshot.
 - The account table renders `调度倍率` and `最优` in gold only when an account
-  is currently schedulable, has a fresh `alive` liveness result, and ties for
-  the lowest persisted `rate_multiplier` in at least one of its scheduling
-  groups. Every tied minimum is marked. Ungrouped accounts compare only with
+  is currently schedulable and ties for the lowest persisted
+  `rate_multiplier` in at least one of its scheduling groups. Every tied
+  minimum is marked. Ungrouped accounts compare only with
   ungrouped accounts on the same platform. The backend computes this from the
   full active, non-recycled account pool rather than the visible page, and the
   marker is an administrative pool-level hint rather than a promise that every

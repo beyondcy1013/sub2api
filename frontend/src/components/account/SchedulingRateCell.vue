@@ -12,14 +12,6 @@
       {{ sourceLabel }}
     </span>
     <span
-      v-if="livenessLabel"
-      data-testid="scheduling-liveness-status"
-      class="text-[10px]"
-      :class="livenessClass"
-    >
-      {{ livenessLabel }}
-    </span>
-    <span
       v-if="account.scheduling_rate_optimal"
       data-testid="scheduling-rate-optimal"
       class="text-[10px] font-medium text-amber-500 dark:text-amber-300"
@@ -60,16 +52,5 @@ const sourceLabel = computed(() => {
   return auto
     ? t('admin.accounts.schedulingRate.autoOverwrite')
     : t('admin.accounts.schedulingRate.manualLock')
-})
-const livenessLabel = computed(() => {
-  const status = props.account.scheduling_liveness_status
-  return status && status !== 'unknown'
-    ? t(`admin.accounts.schedulingRate.liveness.${status}`)
-    : ''
-})
-const livenessClass = computed(() => {
-  if (props.account.scheduling_liveness_status === 'dead') return 'text-red-600 dark:text-red-400'
-  if (props.account.scheduling_liveness_status === 'suspect') return 'text-amber-600 dark:text-amber-400'
-  return 'text-emerald-600 dark:text-emerald-400'
 })
 </script>

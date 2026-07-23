@@ -1053,9 +1053,6 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if !isOpenAICompatibleAccountEligibleForRequest(ctx, acc, platform, requestedModel, false, requiredCapability) {
 			continue
 		}
-		if !accountAllowedBySchedulingLiveness(acc, s.cfg) {
-			continue
-		}
 		if !parentHealthyForShadow(acc, parentLookupL2) {
 			continue
 		}
@@ -1311,9 +1308,6 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccount(ctx context.
 	}
 
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, fresh, platform, requestedModel, requireCompact, requiredCapability) {
-		return nil
-	}
-	if !accountAllowedBySchedulingLiveness(fresh, s.cfg) {
 		return nil
 	}
 	if !parentHealthyForShadow(fresh, s.parentAccountLookup(ctx)) {

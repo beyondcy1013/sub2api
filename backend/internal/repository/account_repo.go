@@ -2557,6 +2557,93 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 	return int64(len(accountIDs)), nil
 }
 
+// UpdateSchedulingLiveness stores the probe snapshot and owns only status
+// transitions created by this probe. It deliberately preserves schedulable so
+// manual scheduling pauses remain independent from connection health.
+func (r *accountRepository) UpdateSchedulingLiveness(ctx context.Context, id int64, snapshot *service.AccountSchedulingLiveness) error {
+	if r == nil || r.sql == nil {
+		return errors.New("account repository SQL executor is not configured")
+	}
+	if snapshot == nil {
+		return errors.New("scheduling liveness snapshot is nil")
+	}
+
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	isDead := snapshot.Status == service.SchedulingLivenessStatusDead
+	isAlive := snapshot.Status == service.SchedulingLivenessStatusAlive
+	errorMessage := service.SchedulingLivenessErrorPrefix + strings.TrimSpace(snapshot.LastError)
+	if strings.TrimSpace(snapshot.LastError) == "" {
+		errorMessage = strings.TrimSpace(service.SchedulingLivenessErrorPrefix)
+	}
+	errorPattern := strings.TrimSpace(service.SchedulingLivenessErrorPrefix) + "%"
+
+	_, err = r.sql.ExecContext(ctx, `
+		WITH current AS (
+			SELECT
+				a.id,
+				a.status,
+				a.error_message,
+				a.extra,
+				(
+					a.status = $4
+					AND COALESCE(a.extra -> $10 ->> $11, '') = 'true'
+					AND BTRIM(a.error_message) LIKE $7
+				) AS owns_liveness_error
+			FROM accounts AS a
+			WHERE a.id = $2 AND a.deleted_at IS NULL
+			FOR UPDATE
+		),
+		updated AS (
+			UPDATE accounts AS a
+			SET extra = COALESCE(a.extra, '{}'::jsonb) || jsonb_build_object(
+					$10,
+					$1::jsonb || jsonb_build_object(
+						$11,
+						CASE WHEN $5 AND (c.status = $3 OR c.owns_liveness_error) THEN TRUE ELSE FALSE END
+					)
+				),
+				status = CASE
+					WHEN $5 AND c.status = $3 THEN $4
+					WHEN $6 AND c.owns_liveness_error THEN $3
+					ELSE c.status
+				END,
+				error_message = CASE
+					WHEN $5 AND (c.status = $3 OR c.owns_liveness_error) THEN $8
+					WHEN $6 AND c.owns_liveness_error THEN ''
+					ELSE c.error_message
+				END,
+				updated_at = NOW()
+			FROM current AS c
+			WHERE a.id = c.id
+			RETURNING a.id, a.status IS DISTINCT FROM c.status AS status_changed
+		)
+		INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+		SELECT $9, updated.id, NULL, NULL
+		FROM updated
+		WHERE updated.status_changed
+	`,
+		string(payload),
+		id,
+		service.StatusActive,
+		service.StatusError,
+		isDead,
+		isAlive,
+		errorPattern,
+		errorMessage,
+		service.SchedulerOutboxEventAccountChanged,
+		service.SchedulingLivenessExtraKey,
+		service.SchedulingLivenessStatusManagedExtraKey,
+	)
+	if err != nil {
+		return err
+	}
+	r.syncSchedulerAccountSnapshotDetached(ctx, id)
+	return nil
+}
+
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	if len(updates) == 0 {
 		return nil

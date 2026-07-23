@@ -7,22 +7,49 @@ import (
 )
 
 const (
-	SchedulingLivenessExtraKey      = "scheduling_liveness"
-	SchedulingLivenessStatusUnknown = "unknown"
-	SchedulingLivenessStatusAlive   = "alive"
-	SchedulingLivenessStatusSuspect = "suspect"
-	SchedulingLivenessStatusDead    = "dead"
+	SchedulingLivenessExtraKey              = "scheduling_liveness"
+	SchedulingLivenessStatusManagedExtraKey = "status_managed"
+	SchedulingLivenessStatusUnknown         = "unknown"
+	SchedulingLivenessStatusAlive           = "alive"
+	SchedulingLivenessStatusSuspect         = "suspect"
+	SchedulingLivenessStatusDead            = "dead"
+	SchedulingLivenessErrorPrefix           = "Scheduling liveness probe failed: "
 )
 
-// AccountSchedulingLiveness is an observation only. It never mutates the
-// operator-controlled status or schedulable fields.
+// AccountSchedulingLiveness stores probe history. The status_managed marker is
+// only an ownership marker for automatic recovery; it is not a routing signal.
 type AccountSchedulingLiveness struct {
 	Status        string     `json:"status"`
+	StatusManaged bool       `json:"status_managed,omitempty"`
 	FailureCount  int        `json:"failure_count"`
 	LastAttemptAt time.Time  `json:"last_attempt_at"`
 	LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
 	FreshUntil    time.Time  `json:"fresh_until"`
 	LastError     string     `json:"last_error,omitempty"`
+}
+
+func schedulingLivenessErrorMessage(errorMessage string) string {
+	errorMessage = strings.TrimSpace(errorMessage)
+	if errorMessage == "" {
+		return strings.TrimSpace(SchedulingLivenessErrorPrefix)
+	}
+	return SchedulingLivenessErrorPrefix + errorMessage
+}
+
+func schedulingLivenessOwnsAccountStatus(account *Account) bool {
+	if account == nil || account.Status != StatusError {
+		return false
+	}
+	snapshot := decodeSchedulingLiveness(account.Extra)
+	return snapshot != nil && snapshot.StatusManaged &&
+		strings.HasPrefix(strings.TrimSpace(account.ErrorMessage), strings.TrimSpace(SchedulingLivenessErrorPrefix))
+}
+
+func schedulingLivenessProbeEligible(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	return account.Status == StatusActive || schedulingLivenessOwnsAccountStatus(account)
 }
 
 func decodeSchedulingLiveness(extra map[string]any) *AccountSchedulingLiveness {
