@@ -282,9 +282,11 @@ writes; they never affect request routing or account status display.
 - `lowest_cost` is strict across every normal selection path. Eligible live
   accounts are ordered by `accounts.rate_multiplier`; the scheduler attempts
   the cheapest account first, then the next-cheapest account if the prior one
-  is full, excluded, or becomes unavailable. Equal-rate accounts retain the
-  original load/LRU tie-breaking. Expensive accounts are not persistently
-  disabled.
+  is full, excluded, or becomes unavailable. When multiple eligible accounts
+  tie for the lowest rate, connections are shared by current load, active
+  connection count, and queue depth; exact ties rotate so one account cannot
+  monopolize a shared load snapshot. The same equal-rate rotation applies when
+  load batching is unavailable. Expensive accounts are not persistently disabled.
 - `lowest_cost` does not honor movable `session_hash` affinity, so a historical
   expensive binding cannot override a cheaper eligible account. Strict
   non-movable `previous_response_id` affinity remains intact because a response

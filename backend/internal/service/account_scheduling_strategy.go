@@ -3,10 +3,13 @@ package service
 import (
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
+
+var lowestCostConnectionShareSequence atomic.Uint64
 
 const (
 	AccountSchedulingStrategyDefault    = "default"
@@ -108,7 +111,7 @@ func movableSessionStickyAllowed(cfg *config.Config) bool {
 
 // filterByAccountSchedulingPreference returns the currently preferred strict
 // tier. Callers remove failed/full candidates and invoke it again, which makes
-// the next super-priority or price tier the natural fallback.
+// the next price tier the natural fallback.
 func filterByAccountSchedulingPreference(accounts []accountWithLoad, cfg *config.Config) []accountWithLoad {
 	preferred := accounts
 	if accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost || len(preferred) < 2 {
@@ -145,6 +148,7 @@ func orderAccountsBySchedulingPreference(accounts []*Account, cfg *config.Config
 	sort.SliceStable(accounts, func(i, j int) bool {
 		return compareAccountSchedulingPreferenceAt(accounts[i], accounts[j], cfg, now) < 0
 	})
+	rotateEqualRateAccounts(accounts)
 }
 
 func orderAccountLoadsBySchedulingPreference(accounts []accountWithLoad, cfg *config.Config) {
@@ -153,8 +157,86 @@ func orderAccountLoadsBySchedulingPreference(accounts []accountWithLoad, cfg *co
 	}
 	now := time.Now()
 	sort.SliceStable(accounts, func(i, j int) bool {
-		return compareAccountSchedulingPreferenceAt(accounts[i].account, accounts[j].account, cfg, now) < 0
+		if preference := compareAccountSchedulingPreferenceAt(accounts[i].account, accounts[j].account, cfg, now); preference != 0 {
+			return preference < 0
+		}
+		return compareAccountConnectionLoad(accounts[i].loadInfo, accounts[j].loadInfo) < 0
 	})
+	rotateEqualRateAccountLoads(accounts, cfg, now)
+}
+
+func compareAccountConnectionLoad(a, b *AccountLoadInfo) int {
+	if a == nil || b == nil {
+		switch {
+		case a == nil && b != nil:
+			return 1
+		case a != nil && b == nil:
+			return -1
+		default:
+			return 0
+		}
+	}
+	for _, values := range [][2]int{
+		{a.LoadRate, b.LoadRate},
+		{a.CurrentConcurrency, b.CurrentConcurrency},
+		{a.WaitingCount, b.WaitingCount},
+	} {
+		switch {
+		case values[0] < values[1]:
+			return -1
+		case values[0] > values[1]:
+			return 1
+		}
+	}
+	return 0
+}
+
+func rotateEqualRateAccounts(accounts []*Account) {
+	for start := 0; start < len(accounts); {
+		end := start + 1
+		for end < len(accounts) && accounts[start].BillingRateMultiplier() == accounts[end].BillingRateMultiplier() {
+			end++
+		}
+		if end-start > 1 {
+			rotateAccounts(accounts[start:end], lowestCostConnectionShareSequence.Add(1)-1)
+		}
+		start = end
+	}
+}
+
+func rotateEqualRateAccountLoads(accounts []accountWithLoad, cfg *config.Config, now time.Time) {
+	for start := 0; start < len(accounts); {
+		end := start + 1
+		for end < len(accounts) &&
+			compareAccountSchedulingPreferenceAt(accounts[start].account, accounts[end].account, cfg, now) == 0 &&
+			compareAccountConnectionLoad(accounts[start].loadInfo, accounts[end].loadInfo) == 0 {
+			end++
+		}
+		if end-start > 1 {
+			rotateAccountLoads(accounts[start:end], lowestCostConnectionShareSequence.Add(1)-1)
+		}
+		start = end
+	}
+}
+
+func rotateAccounts(accounts []*Account, sequence uint64) {
+	offset := int(sequence % uint64(len(accounts)))
+	if offset == 0 {
+		return
+	}
+	copyOfGroup := append([]*Account(nil), accounts...)
+	copy(accounts, copyOfGroup[offset:])
+	copy(accounts[len(accounts)-offset:], copyOfGroup[:offset])
+}
+
+func rotateAccountLoads(accounts []accountWithLoad, sequence uint64) {
+	offset := int(sequence % uint64(len(accounts)))
+	if offset == 0 {
+		return
+	}
+	copyOfGroup := append([]accountWithLoad(nil), accounts...)
+	copy(accounts, copyOfGroup[offset:])
+	copy(accounts[len(accounts)-offset:], copyOfGroup[:offset])
 }
 
 func compareAccountSchedulingPreference(a, b *Account, cfg *config.Config) int {

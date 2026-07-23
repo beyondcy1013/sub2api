@@ -995,6 +995,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
+		if customPreference {
+			return buildOpenAILowestCostConnectionShareOrder(pool)
+		}
 		groupTopK := plan.topK
 		if groupTopK > len(pool) {
 			groupTopK = len(pool)
@@ -1091,6 +1094,30 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		selectionOrder = append(selectionOrder, retry...)
 	}
 	return selectionOrder
+}
+
+func buildOpenAILowestCostConnectionShareOrder(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	ordered := append([]openAIAccountCandidateScore(nil), pool...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return compareAccountConnectionLoad(ordered[i].loadInfo, ordered[j].loadInfo) < 0
+	})
+	for start := 0; start < len(ordered); {
+		end := start + 1
+		for end < len(ordered) && compareAccountConnectionLoad(ordered[start].loadInfo, ordered[end].loadInfo) == 0 {
+			end++
+		}
+		if end-start > 1 {
+			sequence := lowestCostConnectionShareSequence.Add(1) - 1
+			offset := int(sequence % uint64(end-start))
+			if offset > 0 {
+				group := append([]openAIAccountCandidateScore(nil), ordered[start:end]...)
+				copy(ordered[start:end], group[offset:])
+				copy(ordered[end-offset:end], group[:offset])
+			}
+		}
+		start = end
+	}
+	return ordered
 }
 
 func partitionOpenAICandidatesBySchedulingPreference(

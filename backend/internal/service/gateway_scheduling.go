@@ -712,19 +712,23 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 
-		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
+		// 默认调度沿用优先级/重置/负载/LRU；低价调度在最低倍率层内分摊连接。
 		for len(available) > 0 {
-			// 1. 先应用超级优先/低费率外层偏好，再进入原有分层选择。
+			// 1. 先应用低费率外层偏好，再进入对应模式的层内选择。
 			candidates := filterByAccountSchedulingPreference(available, s.cfg)
-			candidates = filterByMinPriority(candidates)
-			// 2. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
-			if cfg.PreferSoonestReset {
-				candidates = filterBySoonestReset(candidates)
+			var selected *accountWithLoad
+			if usesCustomAccountSchedulingPreference(s.cfg) {
+				orderAccountLoadsBySchedulingPreference(candidates, s.cfg)
+				selected = &candidates[0]
+			} else {
+				candidates = filterByMinPriority(candidates)
+				// （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
+				if cfg.PreferSoonestReset {
+					candidates = filterBySoonestReset(candidates)
+				}
+				candidates = filterByMinLoadRate(candidates)
+				selected = selectByLRU(candidates, preferOAuth)
 			}
-			// 3. 取负载率最低的集合
-			candidates = filterByMinLoadRate(candidates)
-			// 4. LRU 选择最久未用的账号
-			selected := selectByLRU(candidates, preferOAuth)
 			if selected == nil {
 				break
 			}
