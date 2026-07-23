@@ -94,6 +94,31 @@ func TestOrderAccountsBySchedulingPreference_PreservesDefaultOrderWithinTiers(t 
 	require.Equal(t, before, accountIDs(defaultAccounts))
 }
 
+func TestOrderAccountsBySchedulingPreference_RotatesEqualCheapestRates(t *testing.T) {
+	cheapRate := 0.1
+	expensiveRate := 0.8
+	makeAccounts := func() []*Account {
+		return []*Account{
+			{ID: 1, RateMultiplier: &cheapRate},
+			{ID: 2, RateMultiplier: &cheapRate},
+			{ID: 3, RateMultiplier: &cheapRate},
+			{ID: 4, RateMultiplier: &expensiveRate},
+		}
+	}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	first := makeAccounts()
+	second := makeAccounts()
+
+	orderAccountsBySchedulingPreference(first, cfg)
+	orderAccountsBySchedulingPreference(second, cfg)
+
+	require.NotEqual(t, first[0].ID, second[0].ID)
+	require.ElementsMatch(t, []int64{1, 2, 3}, accountIDs(first[:3]))
+	require.ElementsMatch(t, []int64{1, 2, 3}, accountIDs(second[:3]))
+	require.Equal(t, int64(4), first[3].ID)
+	require.Equal(t, int64(4), second[3].ID)
+}
+
 func TestBuildOpenAISelectionOrder_DefaultIgnoresLegacySuperPriorityFlag(t *testing.T) {
 	superAccount := schedulingTestAccount(1, 1, true)
 	baseAccount := schedulingTestAccount(2, 1, false)
@@ -361,6 +386,29 @@ func TestBuildOpenAISelectionOrder_LowestCostSharesConnectionsBeforeAdvancedScor
 	order := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{}, plan)
 
 	require.Equal(t, []int64{2, 1}, openAISelectionIDs(order))
+}
+
+func TestBuildOpenAISelectionOrder_LowestCostRotatesEqualLoadsForSameSession(t *testing.T) {
+	cheapRate := 0.1
+	firstCheap := &Account{ID: 1, RateMultiplier: &cheapRate}
+	secondCheap := &Account{ID: 2, RateMultiplier: &cheapRate}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{cfg: cfg}}
+	plan := openAIAccountLoadPlan{
+		candidates: []openAIAccountCandidateScore{
+			{account: firstCheap, loadInfo: &AccountLoadInfo{AccountID: firstCheap.ID}, score: 1},
+			{account: secondCheap, loadInfo: &AccountLoadInfo{AccountID: secondCheap.ID}, score: 1},
+		},
+		topK: 2,
+	}
+	req := OpenAIAccountScheduleRequest{SessionHash: "same-session"}
+
+	firstOrder := scheduler.buildOpenAISelectionOrder(req, plan)
+	secondOrder := scheduler.buildOpenAISelectionOrder(req, plan)
+
+	require.NotEqual(t, firstOrder[0].account.ID, secondOrder[0].account.ID)
+	require.ElementsMatch(t, []int64{1, 2}, openAISelectionIDs(firstOrder))
+	require.ElementsMatch(t, []int64{1, 2}, openAISelectionIDs(secondOrder))
 }
 
 func TestDefaultStrategyIgnoresLegacySuperPriorityFlag(t *testing.T) {
