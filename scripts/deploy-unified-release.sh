@@ -11,6 +11,13 @@ FREE_SERVICE="sub2freeApi.service"
 FREE_BINARY="/home/third_party/bin/sub2freeApi/sub2freeApi"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
+report_error() {
+  local status="$?"
+  printf 'ERROR: deploy command failed at line %s with status=%s\n' "${BASH_LINENO[0]}" "$status" >&2
+  exit "$status"
+}
+trap report_error ERR
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --expected-old-sha)
@@ -46,7 +53,7 @@ sha_of() {
 process_env_value() {
   local pid="$1"
   local key="$2"
-  tr '\0' '\n' < "/proc/$pid/environ" | sed -n "s/^${key}=//p" | head -n 1
+  tr '\0' '\n' < "/proc/$pid/environ" | sed -n "s/^${key}=//p"
 }
 
 wait_for_http() {
@@ -74,7 +81,7 @@ verify_service() {
 
   systemctl is-active --quiet "$service"
   wait_for_http "$port"
-  ss -ltnp | grep -Eq ":${port}[[:space:]]"
+  ss -ltnp | grep -E ":${port}[[:space:]]" >/dev/null
 
   pid="$(systemctl show -p MainPID --value "$service")"
   test "$pid" -gt 0
@@ -93,6 +100,37 @@ verify_service() {
 
   printf 'OK service=%s pid=%s port=%s profile=%s database=%s redis_db=%s sha=%s\n' \
     "$service" "$pid" "$port" "$profile" "$database" "$redis_db" "$disk_sha"
+}
+
+verify_final_sha_matrix() {
+  local attempt main_pid free_pid main_disk_sha free_disk_sha main_running_sha free_running_sha
+
+  for attempt in $(seq 1 5); do
+    main_pid="$(systemctl show -p MainPID --value "$MAIN_SERVICE")"
+    free_pid="$(systemctl show -p MainPID --value "$FREE_SERVICE")"
+    if [ "$main_pid" -gt 0 ] 2>/dev/null && [ "$free_pid" -gt 0 ] 2>/dev/null && \
+       [ -r "/proc/$main_pid/exe" ] && [ -r "/proc/$free_pid/exe" ]; then
+      main_disk_sha="$(sha_of "$MAIN_BINARY")"
+      free_disk_sha="$(sha_of "$FREE_BINARY")"
+      main_running_sha="$(sha_of "/proc/$main_pid/exe")"
+      free_running_sha="$(sha_of "/proc/$free_pid/exe")"
+      if [ "$main_disk_sha" = "$ARTIFACT_SHA" ] && \
+         [ "$free_disk_sha" = "$ARTIFACT_SHA" ] && \
+         [ "$main_running_sha" = "$ARTIFACT_SHA" ] && \
+         [ "$free_running_sha" = "$ARTIFACT_SHA" ]; then
+        printf '%s  %s\n' \
+          "$main_disk_sha" "$MAIN_BINARY" \
+          "$free_disk_sha" "$FREE_BINARY" \
+          "$main_running_sha" "/proc/$main_pid/exe" \
+          "$free_running_sha" "/proc/$free_pid/exe"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+
+  echo "ERROR: final disk/running SHA matrix did not converge to $ARTIFACT_SHA" >&2
+  return 1
 }
 
 install_binary() {
@@ -143,12 +181,25 @@ test -s "$ARTIFACT"
 go version -m "$ARTIFACT" | grep -Eq 'build[[:space:]]+-tags=embed'
 go version -m "$ARTIFACT" | grep -Eq 'build[[:space:]]+CGO_ENABLED=0'
 ARTIFACT_SHA="$(sha_of "$ARTIFACT")"
-test "$ARTIFACT_SHA" != "$EXPECTED_OLD_SHA"
+MAIN_PID="$(systemctl show -p MainPID --value "$MAIN_SERVICE")"
+FREE_PID="$(systemctl show -p MainPID --value "$FREE_SERVICE")"
+
+if [ "$ARTIFACT_SHA" = "$EXPECTED_OLD_SHA" ]; then
+  test "$MAIN_PID" = "$EXPECTED_MAIN_PID"
+  test "$FREE_PID" = "$EXPECTED_FREE_PID"
+  verify_service \
+    "$MAIN_SERVICE" "$MAIN_BINARY" 18381 main sub2api 0 \
+    /home/third_party/sub2api/deploy/data ''
+  verify_service \
+    "$FREE_SERVICE" "$FREE_BINARY" 18382 free sub2freeApi 1 \
+    /home/third_party/sub2freeApi/deploy/data sub2freeApi
+  verify_final_sha_matrix
+  echo "Artifact is already installed and verified; no restart required."
+  exit 0
+fi
 
 test "$(sha_of "$MAIN_BINARY")" = "$EXPECTED_OLD_SHA"
 test "$(sha_of "$FREE_BINARY")" = "$EXPECTED_OLD_SHA"
-MAIN_PID="$(systemctl show -p MainPID --value "$MAIN_SERVICE")"
-FREE_PID="$(systemctl show -p MainPID --value "$FREE_SERVICE")"
 test "$(sha_of "/proc/$MAIN_PID/exe")" = "$EXPECTED_OLD_SHA"
 test "$(sha_of "/proc/$FREE_PID/exe")" = "$EXPECTED_OLD_SHA"
 
@@ -159,6 +210,4 @@ deploy_service \
   "$FREE_SERVICE" "$FREE_BINARY" 18382 free sub2freeApi 1 \
   /home/third_party/sub2freeApi/deploy/data sub2freeApi "$EXPECTED_FREE_PID"
 
-MAIN_PID="$(systemctl show -p MainPID --value "$MAIN_SERVICE")"
-FREE_PID="$(systemctl show -p MainPID --value "$FREE_SERVICE")"
-sha256sum "$MAIN_BINARY" "$FREE_BINARY" "/proc/$MAIN_PID/exe" "/proc/$FREE_PID/exe"
+verify_final_sha_matrix
