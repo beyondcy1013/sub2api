@@ -195,12 +195,15 @@ Both profiles must preserve all of the following:
   labels and `px-2` horizontal padding. The operation column has a `220px`
   minimum so 编辑 -> 测试连接 -> 回收 -> 更多 stays visible without relying
   on tooltips or icon recognition.
+- The selection, actions, and name columns stay fixed on the left during
+  horizontal scrolling. Their declared `36px`, `220px`, and `176px` widths
+  provide cumulative offsets so the fixed cells never overlap.
 - Leading columns keep `actions -> name -> schedulable -> usage -> platform/type`. After today
   stats, keep 7d utilization (`7d(%)`) -> 7d reset. After created
   time, keep today cost -> groups (when visible) -> balance -> 5h/7d
   request/token -> window cost. The ending order is account ID -> upstream
   declared rate -> scheduling rate -> 5h utilization (`5h(%)`) -> 5h reset. The account table
-  disables sticky positioning because actions precede the name column.
+  keeps those three leading columns fixed so account identity remains visible.
 - Filters are hidden by default behind the filters toggle.
 - Sidebar width remains `154px` expanded and `67px` collapsed.
 

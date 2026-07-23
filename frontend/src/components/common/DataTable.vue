@@ -442,6 +442,8 @@ interface Props {
   loading?: boolean
   stickyFirstColumn?: boolean
   stickyActionsColumn?: boolean
+  /** Explicit left-sticky columns, ordered from left to right. Each column must declare width. */
+  stickyLeftColumnKeys?: string[]
   expandableActions?: boolean
   actionsCount?: number // 操作按钮总数，用于判断是否需要展开功能
   rowKey?: string | ((row: any) => string | number)
@@ -490,6 +492,7 @@ const props = withDefaults(defineProps<Props>(), {
   loading: false,
   stickyFirstColumn: true,
   stickyActionsColumn: true,
+  stickyLeftColumnKeys: () => [],
   expandableActions: true,
   defaultSortOrder: 'asc',
   serverSideSort: false,
@@ -871,8 +874,14 @@ const hasSelectColumn = computed(() => {
 // 生成固定列的 CSS 类
 const getStickyColumnClass = (column: Column, index: number) => {
   const classes: string[] = []
+  const explicitStickyIndex = props.stickyLeftColumnKeys.indexOf(column.key)
 
-  if (props.stickyFirstColumn) {
+  if (explicitStickyIndex >= 0) {
+    classes.push('sticky-col sticky-col-left-explicit')
+    if (explicitStickyIndex === props.stickyLeftColumnKeys.length - 1) {
+      classes.push('sticky-col-left-edge')
+    }
+  } else if (props.stickyFirstColumn) {
     // 如果第一列是勾选列，固定前两列（勾选+名称）
     if (hasSelectColumn.value) {
       if (index === 0) {
@@ -889,7 +898,7 @@ const getStickyColumnClass = (column: Column, index: number) => {
   }
 
   // 操作列固定（最后一列）
-  if (props.stickyActionsColumn && column.key === 'actions') {
+  if (props.stickyActionsColumn && column.key === 'actions' && explicitStickyIndex < 0) {
     classes.push('sticky-col sticky-col-right')
   }
 
@@ -912,15 +921,28 @@ const getAdaptivePaddingClass = () => {
   }
 }
 
+const getExplicitStickyLeft = (column: Column): string | undefined => {
+  const stickyIndex = props.stickyLeftColumnKeys.indexOf(column.key)
+  if (stickyIndex < 0) return undefined
+  const precedingWidths = props.stickyLeftColumnKeys
+    .slice(0, stickyIndex)
+    .map(key => props.columns.find(candidate => candidate.key === key)?.width ?? '0px')
+  if (precedingWidths.length === 0) return '0px'
+  if (precedingWidths.length === 1) return precedingWidths[0]
+  return `calc(${precedingWidths.join(' + ')})`
+}
+
 const getColumnStyle = (column: Column) => {
-  if (!column.width) return undefined
+  const left = getExplicitStickyLeft(column)
+  if (!column.width) return left ? { left } : undefined
   if (props.dynamicColumnWidths) {
-    return { minWidth: column.width }
+    return { minWidth: column.width, ...(left ? { left } : {}) }
   }
   return {
     width: column.width,
     minWidth: column.width,
-    maxWidth: column.width
+    maxWidth: column.width,
+    ...(left ? { left } : {})
   }
 }
 
@@ -1072,6 +1094,11 @@ defineExpose({
   left: var(--select-col-width);
 }
 
+/* Explicit multi-column pinning uses inline cumulative left offsets. */
+.sticky-col-left-explicit {
+  left: 0;
+}
+
 /* 操作列固定 */
 .sticky-col-right {
   right: 0;
@@ -1127,6 +1154,18 @@ tbody tr:hover .sticky-col {
   pointer-events: none;
 }
 
+.is-scrollable .sticky-col-left-edge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  transform: translateX(100%);
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.08), transparent);
+  pointer-events: none;
+}
+
 /* 操作列左侧阴影 */
 .is-scrollable .sticky-col-right::before {
   content: '';
@@ -1142,7 +1181,8 @@ tbody tr:hover .sticky-col {
 
 /* 暗色模式阴影 */
 .dark .is-scrollable .sticky-col-left::after,
-.dark .is-scrollable .sticky-col-left-second::after {
+.dark .is-scrollable .sticky-col-left-second::after,
+.dark .is-scrollable .sticky-col-left-edge::after {
   background: linear-gradient(to right, rgba(0, 0, 0, 0.2), transparent);
 }
 

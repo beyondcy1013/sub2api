@@ -153,7 +153,7 @@ describe('DataTable', () => {
       'sticky-col-left-explicit',
       'sticky-col-left-edge'
     ]))
-    expect(headers[2].attributes('style')).toContain('left: calc(36px + 220px)')
+    expect(headers[2].attributes('style')).toContain('left: calc(256px)')
     expect(headers[3].classes()).not.toContain('sticky-col')
   })
 

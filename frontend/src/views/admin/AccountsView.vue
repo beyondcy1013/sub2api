@@ -224,6 +224,7 @@
           :loading="loading"
           :sticky-first-column="false"
           :sticky-actions-column="false"
+          :sticky-left-column-keys="ACCOUNT_STICKY_LEFT_COLUMN_KEYS"
           compact-rows
           single-line-cells
           dynamic-column-widths
@@ -1775,6 +1776,8 @@ function getAntigravityTierClass(row: any): string {
     default: return ''
   }
 }
+
+const ACCOUNT_STICKY_LEFT_COLUMN_KEYS = ['select', 'actions', 'name']
 
 // All available columns
 const allColumns = computed(() => {
