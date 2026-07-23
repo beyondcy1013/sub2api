@@ -68,7 +68,8 @@ const DataTableStub = {
     columns: { type: Array, required: true },
     data: { type: Array, required: true },
     singleLineCells: { type: Boolean, default: false },
-    dynamicColumnWidths: { type: Boolean, default: false }
+    dynamicColumnWidths: { type: Boolean, default: false },
+    stickyLeftColumnKeys: { type: Array, default: () => [] }
   },
   template: `
     <div data-test="data-table">
@@ -270,6 +271,7 @@ describe('admin AccountsView usage windows hint', () => {
     const columns = table.props('columns') as Array<{ key: string; label: string; sortable: boolean; width?: string }>
     expect(table.props('singleLineCells')).toBe(true)
     expect(table.props('dynamicColumnWidths')).toBe(true)
+    expect(table.props('stickyLeftColumnKeys')).toEqual(['select', 'actions', 'name'])
     expect(columns.find(column => column.key === 'actions')?.width).toBe('220px')
     expect(columns.find(column => column.key === 'name')?.width).toBe('176px')
     expect(columns.slice(0, 3).map(column => column.key)).toEqual(['select', 'actions', 'name'])

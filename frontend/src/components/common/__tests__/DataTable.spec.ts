@@ -127,6 +127,36 @@ describe('DataTable', () => {
     expect(cell.attributes('style')).not.toContain('max-width')
   })
 
+  it('keeps explicit leading columns fixed with cumulative left offsets', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'select', label: 'Select', width: '36px' },
+          { key: 'actions', label: 'Actions', width: '220px' },
+          { key: 'name', label: 'Name', width: '176px' },
+          { key: 'status', label: 'Status', width: '80px' }
+        ],
+        data: [{ id: 1, name: 'Account', status: 'active' }],
+        stickyFirstColumn: false,
+        stickyActionsColumn: false,
+        stickyLeftColumnKeys: ['select', 'actions', 'name']
+      }
+    })
+
+    const headers = wrapper.findAll('th')
+    expect(headers[0].classes()).toContain('sticky-col-left-explicit')
+    expect(headers[0].attributes('style')).toContain('left: 0px')
+    expect(headers[1].classes()).toContain('sticky-col-left-explicit')
+    expect(headers[1].classes()).not.toContain('sticky-col-right')
+    expect(headers[1].attributes('style')).toContain('left: 36px')
+    expect(headers[2].classes()).toEqual(expect.arrayContaining([
+      'sticky-col-left-explicit',
+      'sticky-col-left-edge'
+    ]))
+    expect(headers[2].attributes('style')).toContain('left: calc(36px + 220px)')
+    expect(headers[3].classes()).not.toContain('sticky-col')
+  })
+
   it('uses 2px vertical padding for desktop data rows in compact mode', () => {
     const wrapper = mount(DataTable, {
       props: {
