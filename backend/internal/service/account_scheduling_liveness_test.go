@@ -82,10 +82,10 @@ func TestSchedulingLivenessRunnerChecksEveryActiveAccountInLowestCostMode(t *tes
 	runner.RunOnce(context.Background())
 
 	require.ElementsMatch(t, []int64{1, 2}, tester.calls)
-	alive, ok := repo.extraWrites[1][SchedulingLivenessExtraKey].(*AccountSchedulingLiveness)
+	alive, ok := repo.livenessWrites[1]
 	require.True(t, ok)
 	require.Equal(t, SchedulingLivenessStatusAlive, alive.Status)
-	suspect, ok := repo.extraWrites[2][SchedulingLivenessExtraKey].(*AccountSchedulingLiveness)
+	suspect, ok := repo.livenessWrites[2]
 	require.True(t, ok)
 	require.Equal(t, SchedulingLivenessStatusSuspect, suspect.Status)
 }

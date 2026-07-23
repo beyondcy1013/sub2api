@@ -50,7 +50,7 @@ func TestUpdateSchedulingLivenessOwnsStatusWithoutChangingSchedulable(t *testing
 
 	require.NoError(t, err)
 	require.Contains(t, statement, "status = CASE")
-	require.Contains(t, statement, "status_managed")
+	require.Contains(t, statement, "jsonb_build_object")
 	require.NotContains(t, statement, "schedulable =")
 	require.Contains(t, statement, "INSERT INTO scheduler_outbox")
 	require.NoError(t, mock.ExpectationsWereMet())
