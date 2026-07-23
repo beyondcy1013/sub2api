@@ -93,6 +93,7 @@ export default {
       dataImportDefaultProxy: '默认代理',
       dataImportApplyGroupSettings: '应用分组设置',
       dataImportDefaultGroups: '默认分组',
+      dataImportAutoSaveRouting: '自动保存最后一次配置',
       dataImportRoutingLoadFailed: '加载代理或分组列表失败',
       dataImportButton: '开始导入',
       dataImporting: '导入中...',

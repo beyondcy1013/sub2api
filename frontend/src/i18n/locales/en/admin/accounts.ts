@@ -93,6 +93,7 @@ export default {
       dataImportDefaultProxy: 'Default proxy',
       dataImportApplyGroupSettings: 'Apply group settings',
       dataImportDefaultGroups: 'Default groups',
+      dataImportAutoSaveRouting: 'Automatically save the last configuration',
       dataImportRoutingLoadFailed: 'Failed to load proxies or groups',
       dataImportButton: 'Start Import',
       dataImporting: 'Importing...',

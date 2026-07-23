@@ -92,6 +92,11 @@ Both profiles must preserve all of the following:
   for candidates before submitting. Disabling proxy application preserves the
   imported proxy relationship; disabling group application preserves the
   existing no-default-group import behavior.
+- Their shared routing controls expose an opt-in automatic-save checkbox. When
+  enabled, the last submitted proxy/group application flags and selections are
+  restored for later standard and enhanced imports. Removed candidate IDs fall
+  back to the current last proxy and first group, and pasted/imported secrets
+  are never persisted.
 - Enhanced Import pasted-text mode extracts multiple complete JSON values from
   mixed chat, forwarded, and Markdown text with a string-aware balanced
   object/array scanner. Nested values, quoted braces, escaped quotes, and

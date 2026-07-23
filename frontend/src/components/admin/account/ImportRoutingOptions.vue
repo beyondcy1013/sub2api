@@ -36,6 +36,16 @@
           <GroupSelector v-model="defaultGroupIds" :groups="groups" />
         </div>
       </div>
+
+      <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-dark-200">
+        <input
+          v-model="autoSaveRouting"
+          data-test="import-auto-save-routing"
+          type="checkbox"
+          class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+        />
+        <span>{{ t('admin.accounts.dataImportAutoSaveRouting') }}</span>
+      </label>
     </div>
   </section>
 </template>
@@ -56,12 +66,47 @@ interface ImportRoutingRequestOptions {
   default_group_ids?: number[]
 }
 
+interface StoredImportRoutingOptions {
+  auto_save: boolean
+  apply_proxy_settings: boolean
+  default_proxy_id: number | null
+  apply_group_settings: boolean
+  default_group_ids: number[]
+}
+
+const ROUTING_STORAGE_KEY = 'sub2api.import.routing-options'
+
+const readStoredRoutingOptions = (): StoredImportRoutingOptions | null => {
+  try {
+    const raw = localStorage.getItem(ROUTING_STORAGE_KEY)
+    if (!raw) return null
+
+    const value = JSON.parse(raw) as Partial<StoredImportRoutingOptions>
+    if (
+      typeof value.auto_save !== 'boolean' ||
+      typeof value.apply_proxy_settings !== 'boolean' ||
+      (value.default_proxy_id !== null && typeof value.default_proxy_id !== 'number') ||
+      typeof value.apply_group_settings !== 'boolean' ||
+      !Array.isArray(value.default_group_ids) ||
+      value.default_group_ids.some(id => typeof id !== 'number')
+    ) {
+      return null
+    }
+
+    return value as StoredImportRoutingOptions
+  } catch {
+    return null
+  }
+}
+
 const { t } = useI18n()
 const appStore = useAppStore()
+let storedRoutingOptions = readStoredRoutingOptions()
 const proxies = ref<Proxy[]>([])
 const groups = ref<AdminGroup[]>([])
-const applyProxySettings = ref(true)
-const applyGroupSettings = ref(true)
+const autoSaveRouting = ref(storedRoutingOptions?.auto_save ?? false)
+const applyProxySettings = ref(storedRoutingOptions?.apply_proxy_settings ?? true)
+const applyGroupSettings = ref(storedRoutingOptions?.apply_group_settings ?? true)
 const defaultProxyId = ref<number | null>(null)
 const defaultGroupIds = ref<number[]>([])
 
@@ -75,14 +120,28 @@ const loadCandidates = async () => {
 
   if (proxyResult.status === 'fulfilled') {
     proxies.value = proxyResult.value
-    defaultProxyId.value = proxyResult.value.at(-1)?.id ?? null
+    const fallbackProxyId = proxyResult.value.at(-1)?.id ?? null
+    const rememberedProxyId = storedRoutingOptions?.default_proxy_id
+    defaultProxyId.value = rememberedProxyId === null || (
+      typeof rememberedProxyId === 'number' &&
+      proxyResult.value.some(proxy => proxy.id === rememberedProxyId)
+    )
+      ? rememberedProxyId
+      : fallbackProxyId
   } else {
     applyProxySettings.value = false
   }
   if (groupResult.status === 'fulfilled') {
     groups.value = groupResult.value
     const defaultGroup = groupResult.value[0]
-    defaultGroupIds.value = defaultGroup ? [defaultGroup.id] : []
+    const rememberedGroupIds = storedRoutingOptions?.default_group_ids
+    const availableGroupIds = new Set(groupResult.value.map(group => group.id))
+    const validRememberedGroupIds = rememberedGroupIds?.filter(id => availableGroupIds.has(id))
+    defaultGroupIds.value = rememberedGroupIds?.length === 0
+      ? []
+      : validRememberedGroupIds?.length
+        ? validRememberedGroupIds
+        : defaultGroup ? [defaultGroup.id] : []
   } else {
     applyGroupSettings.value = false
   }
@@ -97,12 +156,32 @@ onMounted(() => {
 
 const getRequestOptions = async (): Promise<ImportRoutingRequestOptions> => {
   await loadPromise
-  return {
+  const requestOptions: ImportRoutingRequestOptions = {
     apply_proxy_settings: applyProxySettings.value,
     ...(applyProxySettings.value ? { default_proxy_id: defaultProxyId.value } : {}),
     apply_group_settings: applyGroupSettings.value,
     ...(applyGroupSettings.value ? { default_group_ids: [...defaultGroupIds.value] } : {})
   }
+
+  try {
+    if (autoSaveRouting.value) {
+      storedRoutingOptions = {
+        auto_save: true,
+        apply_proxy_settings: applyProxySettings.value,
+        default_proxy_id: defaultProxyId.value,
+        apply_group_settings: applyGroupSettings.value,
+        default_group_ids: [...defaultGroupIds.value]
+      }
+      localStorage.setItem(ROUTING_STORAGE_KEY, JSON.stringify(storedRoutingOptions))
+    } else if (storedRoutingOptions) {
+      storedRoutingOptions = { ...storedRoutingOptions, auto_save: false }
+      localStorage.setItem(ROUTING_STORAGE_KEY, JSON.stringify(storedRoutingOptions))
+    }
+  } catch {
+    // Browser privacy settings may disable local storage; importing should still work.
+  }
+
+  return requestOptions
 }
 
 defineExpose({ getRequestOptions })
