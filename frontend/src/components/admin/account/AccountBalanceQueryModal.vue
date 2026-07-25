@@ -248,7 +248,7 @@ const runQuery = async (saveChanges: boolean) => {
 }
 
 watch(
-  () => [props.show, props.account?.id] as const,
+  [() => props.show, () => props.account?.id],
   ([show]) => {
     if (!show) return
     reset()
