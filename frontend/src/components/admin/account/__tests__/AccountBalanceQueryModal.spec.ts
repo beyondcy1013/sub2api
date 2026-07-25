@@ -69,6 +69,34 @@ describe('AccountBalanceQueryModal', () => {
     wrapper.unmount()
   })
 
+  it('同一账号的探测结果回写后不会重复自动查询', async () => {
+    const wrapper = mount(AccountBalanceQueryModal, {
+      props: { show: true, account },
+      attachTo: document.body,
+      global: { stubs: { Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(api.queryAccountBalance).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({
+      account: {
+        ...account,
+        extra: {
+          ...account.extra,
+          balance_query: {
+            scheme: 'newapi',
+            detected_api_url: 'https://relay.example/api/usage/token/',
+          },
+        },
+      } as unknown as Account,
+    })
+    await flushPromises()
+
+    expect(api.queryAccountBalance).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('查询前保存自定义 API 配置', async () => {
     const wrapper = mount(AccountBalanceQueryModal, {
       props: { show: true, account },
