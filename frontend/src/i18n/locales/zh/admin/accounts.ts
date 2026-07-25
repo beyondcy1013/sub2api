@@ -631,6 +631,27 @@ export default {
       recoverStateHint: '用于恢复错误、限流和临时不可调度等可恢复状态。',
       recoverStateSuccess: '账号状态已恢复',
       recoverStateFailed: '恢复账号状态失败',
+      balanceQuery: {
+        action: '查询余额',
+        title: '查询上游余额',
+        scheme: '查询方案',
+        apiURL: '专用 API URL',
+        apiURLPlaceholder: '留空使用方案默认端点',
+        querying: '正在尝试查询上游余额...',
+        query: '查询余额',
+        unlimited: '不限额',
+        notDetected: '未能识别可用的余额查询接口',
+        success: '余额查询成功',
+        failed: '余额查询失败',
+        schemes: {
+          auto: '自动探测',
+          sub2api: 'Sub2API',
+          newapi: 'NewAPI',
+          openaiCompatible: 'OpenAI 兼容',
+          cpa: 'CPA',
+          custom: '自定义'
+        }
+      },
       scheduledAction: {
         title: '定时账号操作',
         account: '目标账号',

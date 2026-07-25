@@ -924,6 +924,47 @@ export interface UpstreamBillingProbeResult {
   error?: string
 }
 
+export type AccountBalanceQueryScheme =
+  | 'auto'
+  | 'sub2api'
+  | 'newapi'
+  | 'openai_compatible'
+  | 'cpa'
+  | 'custom'
+
+export interface AccountBalanceQueryLastResult {
+  balance: number
+  unit: string
+  unlimited?: boolean
+  queried_at: string
+}
+
+export interface AccountBalanceQueryConfig {
+  scheme: AccountBalanceQueryScheme
+  api_url?: string
+  detected_api_url?: string
+  last_result?: AccountBalanceQueryLastResult
+}
+
+export interface AccountBalanceQueryAttempt {
+  scheme: AccountBalanceQueryScheme
+  api_url: string
+  http_status?: number
+  error?: string
+}
+
+export interface AccountBalanceQueryResult {
+  account_id: number
+  success: boolean
+  scheme?: AccountBalanceQueryScheme
+  api_url?: string
+  balance: number
+  unit?: string
+  unlimited?: boolean
+  queried_at: string
+  attempts: AccountBalanceQueryAttempt[]
+}
+
 export interface Account {
   id: number
   name: string
@@ -945,6 +986,7 @@ export interface Account {
     upstream_billing_probe?: UpstreamBillingProbeSnapshot
     scheduling_rate_source?: SchedulingRateSource
     scheduling_rate_sync_mode?: SchedulingRateSyncMode
+    balance_query?: AccountBalanceQueryConfig
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_fallback_origin_id?: number | null

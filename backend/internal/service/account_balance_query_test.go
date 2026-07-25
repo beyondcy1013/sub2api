@@ -148,6 +148,85 @@ func TestAccountBalanceQueryRejectsCrossOriginCustomAPI(t *testing.T) {
 	require.ErrorContains(t, err, "same origin")
 }
 
+func TestAccountBalanceQueryRejectsAPIURLWithAutoScheme(t *testing.T) {
+	account := balanceQueryAccount(nil)
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &accountBalanceQueryHTTPStub{}, &upstreamBillingProbeSettingRepo{})
+
+	_, err := svc.UpdateAccountBalanceQueryConfig(context.Background(), account.ID, AccountBalanceQueryConfig{
+		Scheme: AccountBalanceQuerySchemeAuto,
+		APIURL: "/custom/account-balance",
+	})
+
+	require.ErrorContains(t, err, "select a scheme")
+}
+
+func TestAccountBalanceQueryRejectsUnknownScheme(t *testing.T) {
+	account := balanceQueryAccount(nil)
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &accountBalanceQueryHTTPStub{}, &upstreamBillingProbeSettingRepo{})
+
+	_, err := svc.UpdateAccountBalanceQueryConfig(context.Background(), account.ID, AccountBalanceQueryConfig{
+		Scheme: AccountBalanceQueryScheme("unknown"),
+	})
+
+	require.ErrorContains(t, err, "unsupported balance query scheme")
+}
+
+func TestAccountBalanceQueryFallbackClearsSchemeSpecificAPIURL(t *testing.T) {
+	account := balanceQueryAccount(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{
+			"scheme":  AccountBalanceQuerySchemeSub2API,
+			"api_url": "/custom/sub2api-balance",
+		},
+	})
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &accountBalanceQueryHTTPStub{handler: func(req *http.Request) *http.Response {
+		if req.URL.Path == "/api/usage/token/" {
+			return balanceQueryResponse(http.StatusOK, `{"code":true,"data":{"object":"token_usage","total_available":42}}`)
+		}
+		return balanceQueryResponse(http.StatusNotFound, `{"error":"not found"}`)
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	result, err := svc.QueryAccountBalance(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, AccountBalanceQuerySchemeNewAPI, result.Scheme)
+	config := decodeAccountBalanceQueryConfig(account.Extra)
+	require.Equal(t, AccountBalanceQuerySchemeNewAPI, config.Scheme)
+	require.Empty(t, config.APIURL)
+}
+
+func TestAccountBalanceQueryOpenAICompatibleUsesNormalizedBaseURLForUsage(t *testing.T) {
+	account := balanceQueryAccount(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeOpenAICompatible},
+	})
+	account.Credentials["base_url"] = " https://relay.example/v1 "
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &accountBalanceQueryHTTPStub{handler: func(req *http.Request) *http.Response {
+		switch req.URL.Path {
+		case "/v1/dashboard/billing/subscription":
+			return balanceQueryResponse(http.StatusOK, `{"object":"billing_subscription","hard_limit_usd":20}`)
+		case "/v1/dashboard/billing/usage":
+			return balanceQueryResponse(http.StatusOK, `{"object":"list","total_usage":500}`)
+		default:
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"unexpected endpoint"}`)
+		}
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	result, err := svc.QueryAccountBalance(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, 15.0, result.Balance)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "relay.example", upstream.requests[1].URL.Host)
+	require.Equal(t, "/v1/dashboard/billing/usage", upstream.requests[1].URL.Path)
+}
+
 func TestParseSub2APIAccountBalanceRequiresKnownResponseShape(t *testing.T) {
 	result, err := parseAccountBalanceResponse(AccountBalanceQuerySchemeSub2API, []byte(`{
 		"mode":"unrestricted",

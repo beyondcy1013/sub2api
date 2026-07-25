@@ -132,6 +132,12 @@ Both profiles must preserve all of the following:
     `PermanentDeleteAccount` in `admin_account.go`.
 - Active rows expose `编辑`, `测试连接`, `暂存`, and `更多` directly in that order.
   The more menu does not duplicate `测试连接`.
+- API-key accounts expose `查询余额` in `更多`. Each account stores its balance
+  query scheme and optional same-origin API URL in `extra.balance_query`.
+  Automatic probing supports Sub2API, NewAPI, OpenAI-compatible billing, and
+  CPA endpoints; a successful fallback persists the detected scheme for later
+  fast queries. Requests keep the account proxy, TLS fingerprint, and header
+  overrides, and custom endpoints must remain on the account base URL origin.
 - The account test dialog defaults `自动测试` to enabled, starts only after a
   default model has loaded, and persists the operator preference in browser
   storage under `sub2api.account-test.auto-start`.

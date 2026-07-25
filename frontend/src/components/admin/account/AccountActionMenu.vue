@@ -22,6 +22,10 @@
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
+            <button v-if="account.type === 'apikey'" @click="$emit('query-balance', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="dollar" size="sm" class="text-emerald-600" />
+              {{ t('admin.accounts.balanceQuery.action') }}
+            </button>
             <button v-if="canReceiveStickySessions" @click="$emit('sticky-sessions', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="sync" size="sm" class="text-cyan-600" />
               {{ t('admin.accounts.stickySessions.action') }}
@@ -81,7 +85,7 @@ import type { Account } from '@/types'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
-const emit = defineEmits(['close', 'stats', 'schedule', 'duplicate', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete'])
+const emit = defineEmits(['close', 'stats', 'schedule', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete'])
 const { t } = useI18n()
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false

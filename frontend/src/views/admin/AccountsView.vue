@@ -591,8 +591,9 @@
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
+    <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -655,6 +656,7 @@ import SchedulingRulesModal from '@/components/account/SchedulingRulesModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
+import AccountBalanceQueryModal from '@/components/admin/account/AccountBalanceQueryModal.vue'
 import TrashBinModal from '@/components/admin/account/TrashBinModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
@@ -761,6 +763,7 @@ const showSchedulingRules = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
 const showScheduledAction = ref(false)
+const showBalanceQuery = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -772,6 +775,7 @@ const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const stickySessionsAcc = ref<Account | null>(null)
 const scheduledActionAcc = ref<Account | null>(null)
+const balanceQueryAcc = ref<Account | null>(null)
 const scheduledActionType = ref<ScheduledAccountActionType>('pause')
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
@@ -1433,6 +1437,7 @@ const isAnyModalOpen = computed(() => {
     showStats.value ||
     showStickySessions.value ||
     showScheduledAction.value ||
+    showBalanceQuery.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
@@ -1468,6 +1473,7 @@ const syncAccountRefs = (nextAccount: Account) => {
   if (reAuthAcc.value?.id === nextAccount.id) reAuthAcc.value = nextAccount
   if (tempUnschedAcc.value?.id === nextAccount.id) tempUnschedAcc.value = nextAccount
   if (deletingAcc.value?.id === nextAccount.id) deletingAcc.value = nextAccount
+  if (balanceQueryAcc.value?.id === nextAccount.id) balanceQueryAcc.value = nextAccount
   if (menu.acc?.id === nextAccount.id) menu.acc = nextAccount
 }
 
@@ -2575,6 +2581,18 @@ const handleScheduledAction = (a: Account, action: ScheduledAccountActionType) =
 const closeScheduledActionModal = () => {
   showScheduledAction.value = false
   scheduledActionAcc.value = null
+}
+const handleBalanceQuery = (a: Account) => {
+  balanceQueryAcc.value = a
+  showBalanceQuery.value = true
+}
+const closeBalanceQueryModal = () => {
+  showBalanceQuery.value = false
+  balanceQueryAcc.value = null
+}
+const handleBalanceQueryUpdated = (updated: Account) => {
+  patchAccountInList(updated)
+  enterAutoRefreshSilentWindow()
 }
 const handleStickySessionsReassigned = () => {
   enterAutoRefreshSilentWindow()

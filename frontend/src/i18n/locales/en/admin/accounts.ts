@@ -555,6 +555,27 @@ export default {
       recoverStateHint: 'Used to recover error, rate-limit, and temporary unschedulable runtime state.',
       recoverStateSuccess: 'Account state recovered successfully',
       recoverStateFailed: 'Failed to recover account state',
+      balanceQuery: {
+        action: 'Query Balance',
+        title: 'Query Upstream Balance',
+        scheme: 'Query scheme',
+        apiURL: 'Dedicated API URL',
+        apiURLPlaceholder: 'Leave blank to use the scheme default',
+        querying: 'Querying the upstream balance...',
+        query: 'Query Balance',
+        unlimited: 'Unlimited',
+        notDetected: 'No supported balance query endpoint was detected',
+        success: 'Balance queried successfully',
+        failed: 'Balance query failed',
+        schemes: {
+          auto: 'Auto detect',
+          sub2api: 'Sub2API',
+          newapi: 'NewAPI',
+          openaiCompatible: 'OpenAI compatible',
+          cpa: 'CPA',
+          custom: 'Custom'
+        }
+      },
       scheduledAction: {
         title: 'Schedule Account Action',
         account: 'Target account',

@@ -55,12 +55,17 @@ describe('AccountBalanceQueryModal', () => {
     const wrapper = mount(AccountBalanceQueryModal, {
       props: { show: true, account },
       attachTo: document.body,
+      global: { stubs: { Teleport: true } },
     })
     await flushPromises()
 
     expect(api.queryAccountBalance).toHaveBeenCalledWith(account.id)
     expect(wrapper.text()).toContain('6250000')
     expect(wrapper.text()).toContain('quota')
+    expect((wrapper.emitted('updated')?.[0]?.[0] as Account).extra?.balance_query).toMatchObject({
+      scheme: 'newapi',
+      detected_api_url: 'https://relay.example/api/usage/token/',
+    })
     wrapper.unmount()
   })
 
@@ -68,6 +73,7 @@ describe('AccountBalanceQueryModal', () => {
     const wrapper = mount(AccountBalanceQueryModal, {
       props: { show: true, account },
       attachTo: document.body,
+      global: { stubs: { Teleport: true } },
     })
     await flushPromises()
     api.queryAccountBalance.mockClear()

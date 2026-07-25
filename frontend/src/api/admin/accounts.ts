@@ -24,6 +24,8 @@ import type {
   CheckMixedChannelResponse,
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
+  AccountBalanceQueryConfig,
+  AccountBalanceQueryResult,
   UpdateSchedulingRateRequest
 } from '@/types'
 
@@ -677,6 +679,19 @@ export async function cancelScheduledAction(id: number): Promise<void> {
   await apiClient.delete(`/admin/accounts/${id}/scheduled-action`)
 }
 
+export async function updateAccountBalanceQueryConfig(
+  id: number,
+  config: Pick<AccountBalanceQueryConfig, 'scheme' | 'api_url'>
+): Promise<AccountBalanceQueryConfig> {
+  const { data } = await apiClient.put<AccountBalanceQueryConfig>(`/admin/accounts/${id}/balance-query`, config)
+  return data
+}
+
+export async function queryAccountBalance(id: number): Promise<AccountBalanceQueryResult> {
+  const { data } = await apiClient.post<AccountBalanceQueryResult>(`/admin/accounts/${id}/balance-query`)
+  return data
+}
+
 /**
  * Get available models for an account
  * @param id - Account ID
@@ -1094,6 +1109,8 @@ export const accountsAPI = {
   getScheduledAction,
   scheduleAction,
   cancelScheduledAction,
+  updateAccountBalanceQueryConfig,
+  queryAccountBalance,
   getAvailableModels,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
