@@ -15,6 +15,7 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/google/uuid"
 )
 
 const (
@@ -34,6 +35,7 @@ const (
 	AccountBalanceQuerySchemeOpenAICompatible AccountBalanceQueryScheme = "openai_compatible"
 	AccountBalanceQuerySchemeCPA              AccountBalanceQueryScheme = "cpa"
 	AccountBalanceQuerySchemeCustom           AccountBalanceQueryScheme = "custom"
+	AccountBalanceQuerySchemeSignIn           AccountBalanceQueryScheme = "signin"
 )
 
 var ErrAccountBalanceQueryInvalid = infraerrors.BadRequest(
@@ -53,6 +55,7 @@ type AccountBalanceQueryLastResult struct {
 type AccountBalanceQueryConfig struct {
 	Scheme         AccountBalanceQueryScheme      `json:"scheme"`
 	APIURL         string                         `json:"api_url,omitempty"`
+	SignInSiteID   string                         `json:"sign_in_site_id,omitempty"`
 	DetectedAPIURL string                         `json:"detected_api_url,omitempty"`
 	LastResult     *AccountBalanceQueryLastResult `json:"last_result,omitempty"`
 }
@@ -65,15 +68,16 @@ type AccountBalanceQueryAttempt struct {
 }
 
 type AccountBalanceQueryResult struct {
-	AccountID int64                        `json:"account_id"`
-	Success   bool                         `json:"success"`
-	Scheme    AccountBalanceQueryScheme    `json:"scheme,omitempty"`
-	APIURL    string                       `json:"api_url,omitempty"`
-	Balance   float64                      `json:"balance"`
-	Unit      string                       `json:"unit,omitempty"`
-	Unlimited bool                         `json:"unlimited,omitempty"`
-	QueriedAt time.Time                    `json:"queried_at"`
-	Attempts  []AccountBalanceQueryAttempt `json:"attempts"`
+	AccountID    int64                        `json:"account_id"`
+	Success      bool                         `json:"success"`
+	Scheme       AccountBalanceQueryScheme    `json:"scheme,omitempty"`
+	APIURL       string                       `json:"api_url,omitempty"`
+	SignInSiteID string                       `json:"sign_in_site_id,omitempty"`
+	Balance      float64                      `json:"balance"`
+	Unit         string                       `json:"unit,omitempty"`
+	Unlimited    bool                         `json:"unlimited,omitempty"`
+	QueriedAt    time.Time                    `json:"queried_at"`
+	Attempts     []AccountBalanceQueryAttempt `json:"attempts"`
 }
 
 type accountBalanceQueryCandidate struct {
@@ -82,9 +86,11 @@ type accountBalanceQueryCandidate struct {
 }
 
 type parsedAccountBalance struct {
-	Balance   float64
-	Unit      string
-	Unlimited bool
+	Balance      float64
+	Unit         string
+	Unlimited    bool
+	APIURL       string
+	SignInSiteID string
 }
 
 func (s *UpstreamBillingProbeService) UpdateAccountBalanceQueryConfig(
@@ -105,6 +111,7 @@ func (s *UpstreamBillingProbeService) UpdateAccountBalanceQueryConfig(
 	}
 	input.Scheme = normalizeAccountBalanceQueryScheme(input.Scheme)
 	input.APIURL = strings.TrimSpace(input.APIURL)
+	input.SignInSiteID = strings.TrimSpace(input.SignInSiteID)
 	if input.APIURL != "" {
 		if _, err := resolveAccountBalanceQueryURL(normalizedBaseURL, input.APIURL); err != nil {
 			return nil, infraerrors.BadRequest("INVALID_ACCOUNT_BALANCE_QUERY_URL", err.Error())
@@ -115,6 +122,14 @@ func (s *UpstreamBillingProbeService) UpdateAccountBalanceQueryConfig(
 	}
 	if input.Scheme == AccountBalanceQuerySchemeAuto && input.APIURL != "" {
 		return nil, infraerrors.BadRequest("INVALID_ACCOUNT_BALANCE_QUERY_URL", "select a scheme before setting api_url")
+	}
+	if input.Scheme == AccountBalanceQuerySchemeSignIn && input.APIURL != "" {
+		return nil, infraerrors.BadRequest("INVALID_ACCOUNT_BALANCE_QUERY_URL", "signIn balance query does not use api_url")
+	}
+	if input.SignInSiteID != "" {
+		if _, err := uuid.Parse(input.SignInSiteID); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_ACCOUNT_BALANCE_QUERY_SIGNIN_SITE", "sign_in_site_id must be a UUID")
+		}
 	}
 
 	previous := decodeAccountBalanceQueryConfig(account.Extra)
@@ -160,6 +175,9 @@ func (s *UpstreamBillingProbeService) QueryAccountBalance(ctx context.Context, a
 		result.Success = true
 		result.Scheme = candidate.scheme
 		result.APIURL = candidate.apiURL
+		if parsed.APIURL != "" {
+			result.APIURL = parsed.APIURL
+		}
 		result.Balance = parsed.Balance
 		result.Unit = parsed.Unit
 		result.Unlimited = parsed.Unlimited
@@ -167,7 +185,11 @@ func (s *UpstreamBillingProbeService) QueryAccountBalance(ctx context.Context, a
 			config.APIURL = ""
 		}
 		config.Scheme = candidate.scheme
-		config.DetectedAPIURL = candidate.apiURL
+		config.DetectedAPIURL = result.APIURL
+		if parsed.SignInSiteID != "" {
+			result.SignInSiteID = parsed.SignInSiteID
+			config.SignInSiteID = parsed.SignInSiteID
+		}
 		config.LastResult = &AccountBalanceQueryLastResult{
 			Balance:   parsed.Balance,
 			Unit:      parsed.Unit,
@@ -221,6 +243,16 @@ func accountBalanceQueryCandidates(baseURL string, config AccountBalanceQueryCon
 		if _, exists := seen[scheme]; exists {
 			return nil
 		}
+		if scheme == AccountBalanceQuerySchemeSignIn {
+			siteID := strings.TrimSpace(config.SignInSiteID)
+			endpoint := "signin://auto"
+			if siteID != "" {
+				endpoint = "signin://" + siteID
+			}
+			seen[scheme] = struct{}{}
+			candidates = append(candidates, accountBalanceQueryCandidate{scheme: scheme, apiURL: endpoint})
+			return nil
+		}
 		endpoint := configuredURL
 		if endpoint == "" {
 			endpoint = defaultAccountBalanceQueryEndpoint(scheme)
@@ -238,7 +270,11 @@ func accountBalanceQueryCandidates(baseURL string, config AccountBalanceQueryCon
 	}
 
 	remembered := normalizeAccountBalanceQueryScheme(config.Scheme)
-	if remembered == AccountBalanceQuerySchemeCustom || config.APIURL != "" {
+	if remembered == AccountBalanceQuerySchemeSignIn {
+		if err := add(remembered, ""); err != nil {
+			return nil, err
+		}
+	} else if remembered == AccountBalanceQuerySchemeCustom || config.APIURL != "" {
 		if err := add(remembered, config.APIURL); err != nil {
 			return nil, err
 		}
@@ -250,6 +286,7 @@ func accountBalanceQueryCandidates(baseURL string, config AccountBalanceQueryCon
 		AccountBalanceQuerySchemeNewAPI,
 		AccountBalanceQuerySchemeOpenAICompatible,
 		AccountBalanceQuerySchemeCPA,
+		AccountBalanceQuerySchemeSignIn,
 	} {
 		if err := add(scheme, ""); err != nil {
 			return nil, err
@@ -281,6 +318,26 @@ func (s *UpstreamBillingProbeService) queryAccountBalanceCandidate(
 	candidate accountBalanceQueryCandidate,
 ) (*parsedAccountBalance, AccountBalanceQueryAttempt) {
 	attempt := AccountBalanceQueryAttempt{Scheme: candidate.scheme, APIURL: candidate.apiURL}
+	if candidate.scheme == AccountBalanceQuerySchemeSignIn {
+		if s.balanceSignIn == nil {
+			attempt.Error = "service_unavailable"
+			return nil, attempt
+		}
+		parsed, siteID, errCode := s.balanceSignIn.Query(
+			ctx,
+			normalizedBaseURL,
+			account.GetCredential("api_key"),
+			decodeAccountBalanceQueryConfig(account.Extra).SignInSiteID,
+		)
+		if errCode != "" {
+			attempt.Error = errCode
+			return nil, attempt
+		}
+		attempt.APIURL = "signin://" + siteID
+		parsed.APIURL = attempt.APIURL
+		parsed.SignInSiteID = siteID
+		return parsed, attempt
+	}
 	body, status, errCode := s.doAccountBalanceQueryRequest(ctx, account, proxyURL, candidate.apiURL)
 	attempt.HTTPStatus = status
 	if errCode != "" {
@@ -532,6 +589,8 @@ func normalizeAccountBalanceQueryScheme(scheme AccountBalanceQueryScheme) Accoun
 		return AccountBalanceQuerySchemeCPA
 	case AccountBalanceQuerySchemeCustom:
 		return AccountBalanceQuerySchemeCustom
+	case AccountBalanceQuerySchemeSignIn:
+		return AccountBalanceQuerySchemeSignIn
 	default:
 		return AccountBalanceQuerySchemeAuto
 	}
@@ -544,7 +603,8 @@ func isSupportedAccountBalanceQueryScheme(scheme AccountBalanceQueryScheme) bool
 		normalized == AccountBalanceQuerySchemeNewAPI ||
 		normalized == AccountBalanceQuerySchemeOpenAICompatible ||
 		normalized == AccountBalanceQuerySchemeCPA ||
-		normalized == AccountBalanceQuerySchemeCustom
+		normalized == AccountBalanceQuerySchemeCustom ||
+		normalized == AccountBalanceQuerySchemeSignIn
 }
 
 func decodeAccountBalanceQueryConfig(extra map[string]any) AccountBalanceQueryConfig {
@@ -562,6 +622,7 @@ func decodeAccountBalanceQueryConfig(extra map[string]any) AccountBalanceQueryCo
 	}
 	config.Scheme = normalizeAccountBalanceQueryScheme(config.Scheme)
 	config.APIURL = strings.TrimSpace(config.APIURL)
+	config.SignInSiteID = strings.TrimSpace(config.SignInSiteID)
 	return config
 }
 

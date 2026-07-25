@@ -109,3 +109,23 @@ func TestAccountBalanceQueryRoutesSaveConfigAndReturnZeroBalance(t *testing.T) {
 	require.Equal(t, float64(0), response.Data["balance"])
 	require.Equal(t, "sub2api", response.Data["scheme"])
 }
+
+func TestAccountBalanceQueryRoutePersistsSignInSiteID(t *testing.T) {
+	router, repo := setupAccountBalanceQueryRouter()
+	const siteID = "32b00162-427c-41d9-8325-faa4dcc0f3a3"
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/admin/accounts/77/balance-query",
+		bytes.NewBufferString(`{"scheme":"signin","sign_in_site_id":"`+siteID+`"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	stored, ok := repo.account.Extra[service.AccountBalanceQueryExtraKey].(service.AccountBalanceQueryConfig)
+	require.True(t, ok)
+	require.Equal(t, service.AccountBalanceQuerySchemeSignIn, stored.Scheme)
+	require.Equal(t, siteID, stored.SignInSiteID)
+}

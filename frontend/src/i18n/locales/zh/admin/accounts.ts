@@ -637,6 +637,8 @@ export default {
         scheme: '查询方案',
         apiURL: '专用 API URL',
         apiURLPlaceholder: '留空使用方案默认端点',
+        signInSiteID: 'signIn 站点 ID',
+        signInSiteIDPlaceholder: '可留空，按 API Key 自动匹配单账号站点',
         querying: '正在尝试查询上游余额...',
         query: '查询余额',
         unlimited: '不限额',
@@ -649,7 +651,8 @@ export default {
           newapi: 'NewAPI',
           openaiCompatible: 'OpenAI 兼容',
           cpa: 'CPA',
-          custom: '自定义'
+          custom: '自定义',
+          signIn: 'signIn 浏览器'
         }
       },
       scheduledAction: {

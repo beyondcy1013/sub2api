@@ -222,6 +222,51 @@ func TestAccountBalanceQueryRejectsUnknownScheme(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported balance query scheme")
 }
 
+func TestAccountBalanceQueryRejectsInvalidSignInSiteID(t *testing.T) {
+	account := balanceQueryAccount(nil)
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &accountBalanceQueryHTTPStub{}, &upstreamBillingProbeSettingRepo{})
+
+	_, err := svc.UpdateAccountBalanceQueryConfig(context.Background(), account.ID, AccountBalanceQueryConfig{
+		Scheme:       AccountBalanceQuerySchemeSignIn,
+		SignInSiteID: "not-a-uuid",
+	})
+
+	require.ErrorContains(t, err, "must be a UUID")
+}
+
+func TestAccountBalanceQueryRememberedSignInSchemeRunsFirst(t *testing.T) {
+	candidates, err := accountBalanceQueryCandidates("https://relay.example/v1", AccountBalanceQueryConfig{
+		Scheme:       AccountBalanceQuerySchemeSignIn,
+		SignInSiteID: "32b00162-427c-41d9-8325-faa4dcc0f3a3",
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, candidates)
+	require.Equal(t, AccountBalanceQuerySchemeSignIn, candidates[0].scheme)
+	require.Equal(t, "signin://32b00162-427c-41d9-8325-faa4dcc0f3a3", candidates[0].apiURL)
+}
+
+func TestAccountBalanceQuerySignInServiceRequiresLoopback(t *testing.T) {
+	_, err := parseAccountBalanceSignInServiceURL("https://signin.example/api")
+	require.ErrorContains(t, err, "loopback")
+
+	parsed, err := parseAccountBalanceSignInServiceURL("http://127.0.0.1:18712")
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1:18712", parsed.Host)
+}
+
+func TestAccountBalanceQuerySignInAutoMatchRejectsAmbiguousSites(t *testing.T) {
+	sites := []accountBalanceSignInSite{
+		{ID: "one", LoginURL: "https://relay.example/login", Usernames: []string{"a"}},
+		{ID: "two", SignInURL: "https://relay.example/dashboard", Usernames: []string{"b"}},
+	}
+
+	_, errCode := selectAccountBalanceSignInSite(sites, "https://relay.example/v1", "unknown-key", "")
+
+	require.Equal(t, "site_ambiguous", errCode)
+}
+
 func TestAccountBalanceQueryFallbackClearsSchemeSpecificAPIURL(t *testing.T) {
 	account := balanceQueryAccount(map[string]any{
 		AccountBalanceQueryExtraKey: map[string]any{

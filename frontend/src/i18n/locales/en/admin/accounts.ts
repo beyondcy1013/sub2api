@@ -561,6 +561,8 @@ export default {
         scheme: 'Query scheme',
         apiURL: 'Dedicated API URL',
         apiURLPlaceholder: 'Leave blank to use the scheme default',
+        signInSiteID: 'signIn site ID',
+        signInSiteIDPlaceholder: 'Optional; auto-match a single-account site by API key',
         querying: 'Querying the upstream balance...',
         query: 'Query Balance',
         unlimited: 'Unlimited',
@@ -573,7 +575,8 @@ export default {
           newapi: 'NewAPI',
           openaiCompatible: 'OpenAI compatible',
           cpa: 'CPA',
-          custom: 'Custom'
+          custom: 'Custom',
+          signIn: 'signIn browser'
         }
       },
       scheduledAction: {

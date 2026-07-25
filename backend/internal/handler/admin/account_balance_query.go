@@ -9,8 +9,9 @@ import (
 )
 
 type accountBalanceQueryConfigRequest struct {
-	Scheme service.AccountBalanceQueryScheme `json:"scheme" binding:"required"`
-	APIURL string                            `json:"api_url"`
+	Scheme       service.AccountBalanceQueryScheme `json:"scheme" binding:"required"`
+	APIURL       string                            `json:"api_url"`
+	SignInSiteID string                            `json:"sign_in_site_id"`
 }
 
 func (h *AccountHandler) UpdateAccountBalanceQueryConfig(c *gin.Context) {
@@ -29,8 +30,9 @@ func (h *AccountHandler) UpdateAccountBalanceQueryConfig(c *gin.Context) {
 		return
 	}
 	config, err := h.upstreamBillingProbe.UpdateAccountBalanceQueryConfig(c.Request.Context(), accountID, service.AccountBalanceQueryConfig{
-		Scheme: req.Scheme,
-		APIURL: req.APIURL,
+		Scheme:       req.Scheme,
+		APIURL:       req.APIURL,
+		SignInSiteID: req.SignInSiteID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

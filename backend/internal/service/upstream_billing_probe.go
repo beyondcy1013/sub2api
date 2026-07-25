@@ -176,6 +176,7 @@ type UpstreamBillingProbeService struct {
 	accountRepo        AccountRepository
 	accountTestService *AccountTestService
 	settingService     *SettingService
+	balanceSignIn      *accountBalanceSignInClient
 
 	parentCtx    context.Context
 	parentCancel context.CancelFunc
@@ -210,6 +211,7 @@ func NewUpstreamBillingProbeService(
 		accountRepo:        accountRepo,
 		accountTestService: accountTestService,
 		settingService:     settingService,
+		balanceSignIn:      newAccountBalanceSignInClientFromEnv(),
 		parentCtx:          ctx,
 		parentCancel:       cancel,
 		probeSlots:         make(chan struct{}, upstreamBillingProbeConcurrency),

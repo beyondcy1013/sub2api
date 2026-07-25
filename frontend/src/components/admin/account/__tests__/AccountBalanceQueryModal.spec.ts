@@ -114,6 +114,7 @@ describe('AccountBalanceQueryModal', () => {
     expect(api.updateAccountBalanceQueryConfig).toHaveBeenCalledWith(account.id, {
       scheme: 'custom',
       api_url: '/balance',
+      sign_in_site_id: '',
     })
     expect(api.queryAccountBalance).toHaveBeenCalledWith(account.id)
     wrapper.unmount()

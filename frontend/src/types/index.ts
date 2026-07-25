@@ -931,6 +931,7 @@ export type AccountBalanceQueryScheme =
   | 'openai_compatible'
   | 'cpa'
   | 'custom'
+  | 'signin'
 
 export interface AccountBalanceQueryLastResult {
   balance: number
@@ -942,6 +943,7 @@ export interface AccountBalanceQueryLastResult {
 export interface AccountBalanceQueryConfig {
   scheme: AccountBalanceQueryScheme
   api_url?: string
+  sign_in_site_id?: string
   detected_api_url?: string
   last_result?: AccountBalanceQueryLastResult
 }
@@ -958,6 +960,7 @@ export interface AccountBalanceQueryResult {
   success: boolean
   scheme?: AccountBalanceQueryScheme
   api_url?: string
+  sign_in_site_id?: string
   balance: number
   unit?: string
   unlimited?: boolean

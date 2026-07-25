@@ -138,6 +138,20 @@ Both profiles must preserve all of the following:
   CPA endpoints; a successful fallback persists the detected scheme for later
   fast queries. Requests keep the account proxy, TLS fingerprint, and header
   overrides, and custom endpoints must remain on the account base URL origin.
+- When direct HTTP schemes are unsupported, automatic probing falls back to the
+  local signIn browser service via `GET /api/sites`,
+  `POST /api/sites/:id/refresh-balance`, and `GET /api/jobs`. A successful
+  browser refresh persists scheme `signin` plus `sign_in_site_id`, and reports
+  the detected endpoint as `signin://<site-id>` for later fast queries.
+- signIn matching prefers a remembered site ID, then an exact API-key match,
+  then a unique base-URL origin match. Only single-account signIn sites are
+  eligible; ambiguous matches fail without starting a browser job. Future
+  site-specific browser implementations remain owned by signIn, so adding a
+  supported site there does not require another Sub2API probing scheme.
+- The signIn service defaults to `http://127.0.0.1:18712`; deployments may
+  override it with `SIGNIN_BALANCE_SERVICE_URL`. The override must remain a
+  loopback HTTP URL, redirects stay disabled, and request duration and response
+  size remain bounded.
 - The account test dialog defaults `自动测试` to enabled, starts only after a
   default model has loaded, and persists the operator preference in browser
   storage under `sub2api.account-test.auto-start`.

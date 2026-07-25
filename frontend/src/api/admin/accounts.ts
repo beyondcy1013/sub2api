@@ -681,14 +681,18 @@ export async function cancelScheduledAction(id: number): Promise<void> {
 
 export async function updateAccountBalanceQueryConfig(
   id: number,
-  config: Pick<AccountBalanceQueryConfig, 'scheme' | 'api_url'>
+  config: Pick<AccountBalanceQueryConfig, 'scheme' | 'api_url' | 'sign_in_site_id'>
 ): Promise<AccountBalanceQueryConfig> {
   const { data } = await apiClient.put<AccountBalanceQueryConfig>(`/admin/accounts/${id}/balance-query`, config)
   return data
 }
 
 export async function queryAccountBalance(id: number): Promise<AccountBalanceQueryResult> {
-  const { data } = await apiClient.post<AccountBalanceQueryResult>(`/admin/accounts/${id}/balance-query`)
+  const { data } = await apiClient.post<AccountBalanceQueryResult>(
+    `/admin/accounts/${id}/balance-query`,
+    undefined,
+    { timeout: 70_000 },
+  )
   return data
 }
 

@@ -38,6 +38,18 @@
             type="text"
             class="input mt-1 font-mono text-sm"
             :placeholder="t('admin.accounts.balanceQuery.apiURLPlaceholder')"
+            :disabled="querying || scheme === 'signin'"
+          />
+        </label>
+
+        <label v-if="scheme === 'signin'" class="block sm:col-span-2">
+          <span class="input-label">{{ t('admin.accounts.balanceQuery.signInSiteID') }}</span>
+          <input
+            v-model.trim="signInSiteID"
+            data-testid="balance-query-signin-site-id"
+            type="text"
+            class="input mt-1 font-mono text-sm"
+            :placeholder="t('admin.accounts.balanceQuery.signInSiteIDPlaceholder')"
             :disabled="querying"
           />
         </label>
@@ -127,8 +139,10 @@ const appStore = useAppStore()
 
 const scheme = ref<AccountBalanceQueryScheme>('auto')
 const apiURL = ref('')
+const signInSiteID = ref('')
 const persistedScheme = ref<AccountBalanceQueryScheme>('auto')
 const persistedAPIURL = ref('')
+const persistedSignInSiteID = ref('')
 const querying = ref(false)
 const result = ref<AccountBalanceQueryResult | null>(null)
 
@@ -139,6 +153,7 @@ const schemeOptions = computed(() => [
   { value: 'openai_compatible' as const, label: t('admin.accounts.balanceQuery.schemes.openaiCompatible') },
   { value: 'cpa' as const, label: t('admin.accounts.balanceQuery.schemes.cpa') },
   { value: 'custom' as const, label: t('admin.accounts.balanceQuery.schemes.custom') },
+  { value: 'signin' as const, label: t('admin.accounts.balanceQuery.schemes.signIn') },
 ])
 
 const baseURL = computed(() => {
@@ -172,8 +187,10 @@ const reset = () => {
   const config = currentAccountConfig()
   scheme.value = config.scheme || 'auto'
   apiURL.value = config.api_url || ''
+  signInSiteID.value = config.sign_in_site_id || ''
   persistedScheme.value = scheme.value
   persistedAPIURL.value = apiURL.value
+  persistedSignInSiteID.value = signInSiteID.value
   result.value = null
 }
 
@@ -191,17 +208,26 @@ const emitConfigUpdate = (config: AccountBalanceQueryConfig) => {
 const saveConfigIfChanged = async () => {
   if (!props.account) return currentAccountConfig()
   const normalizedAPIURL = apiURL.value.trim()
-  if (scheme.value === persistedScheme.value && normalizedAPIURL === persistedAPIURL.value) {
+  const effectiveAPIURL = scheme.value === 'signin' ? '' : normalizedAPIURL
+  const normalizedSignInSiteID = signInSiteID.value.trim()
+  if (
+    scheme.value === persistedScheme.value &&
+    effectiveAPIURL === persistedAPIURL.value &&
+    normalizedSignInSiteID === persistedSignInSiteID.value
+  ) {
     return currentAccountConfig()
   }
   const config = await adminAPI.accounts.updateAccountBalanceQueryConfig(props.account.id, {
     scheme: scheme.value,
-    api_url: normalizedAPIURL,
+    api_url: effectiveAPIURL,
+    sign_in_site_id: normalizedSignInSiteID,
   })
   scheme.value = config.scheme
   apiURL.value = config.api_url || ''
+  signInSiteID.value = config.sign_in_site_id || ''
   persistedScheme.value = scheme.value
   persistedAPIURL.value = apiURL.value
+  persistedSignInSiteID.value = signInSiteID.value
   emitConfigUpdate(config)
   return config
 }
@@ -226,6 +252,7 @@ const runQuery = async (saveChanges: boolean) => {
       ...savedConfig,
       scheme: response.scheme,
       api_url: detectedFallback ? '' : (savedConfig.api_url || ''),
+      sign_in_site_id: response.sign_in_site_id || savedConfig.sign_in_site_id || '',
       detected_api_url: response.api_url,
       last_result: {
         balance: response.balance,
@@ -236,8 +263,10 @@ const runQuery = async (saveChanges: boolean) => {
     }
     scheme.value = nextConfig.scheme
     apiURL.value = nextConfig.api_url || ''
+    signInSiteID.value = nextConfig.sign_in_site_id || ''
     persistedScheme.value = scheme.value
     persistedAPIURL.value = apiURL.value
+    persistedSignInSiteID.value = signInSiteID.value
     emitConfigUpdate(nextConfig)
     appStore.showSuccess(t('admin.accounts.balanceQuery.success'))
   } catch (error) {
