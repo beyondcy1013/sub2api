@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -85,6 +87,53 @@ func TestAccountBalanceQueryFallsBackAndPersistsDetectedNewAPIScheme(t *testing.
 	require.Equal(t, result.APIURL, config.DetectedAPIURL)
 	require.NotNil(t, config.LastResult)
 	require.Equal(t, result.Balance, config.LastResult.Balance)
+}
+
+func TestAccountBalanceQueryFallsBackToSignInAndPersistsMatchedSite(t *testing.T) {
+	const siteID = "32b00162-427c-41d9-8325-faa4dcc0f3a3"
+	signIn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/sites":
+			require.NoError(t, json.NewEncoder(w).Encode([]map[string]any{{
+				"id":                 siteID,
+				"name":               "relay browser",
+				"login_url":          "https://relay.example/login",
+				"usernames":          []string{"browser-user"},
+				"target_api_keys":    []string{"sk-balance-query"},
+				"last_balance_after": "$19.75",
+			}}))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sites/"+siteID+"/refresh-balance":
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+				"id": siteID + "-job", "status": "running", "kind": "balance_refresh",
+			}))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/jobs":
+			require.NoError(t, json.NewEncoder(w).Encode([]map[string]any{{
+				"id": siteID + "-job", "status": "succeeded", "kind": "balance_refresh",
+			}}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer signIn.Close()
+	t.Setenv("SIGNIN_BALANCE_SERVICE_URL", signIn.URL)
+
+	account := balanceQueryAccount(nil)
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &accountBalanceQueryHTTPStub{handler: func(*http.Request) *http.Response {
+		return balanceQueryResponse(http.StatusNotFound, `{"error":"not found"}`)
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	result, err := svc.QueryAccountBalance(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, AccountBalanceQueryScheme("signin"), result.Scheme)
+	require.Equal(t, 19.75, result.Balance)
+	require.Equal(t, "USD", result.Unit)
+	require.Equal(t, "signin://"+siteID, result.APIURL)
+	require.Equal(t, siteID, decodeAccountBalanceQueryConfig(account.Extra).SignInSiteID)
 }
 
 func TestAccountBalanceQueryUsesRememberedSchemeFirst(t *testing.T) {

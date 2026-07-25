@@ -118,4 +118,32 @@ describe('AccountBalanceQueryModal', () => {
     expect(api.queryAccountBalance).toHaveBeenCalledWith(account.id)
     wrapper.unmount()
   })
+
+  it('可配置 signIn 浏览器站点作为通用回退', async () => {
+    api.updateAccountBalanceQueryConfig.mockResolvedValue({
+      scheme: 'signin',
+      api_url: '',
+      sign_in_site_id: '32b00162-427c-41d9-8325-faa4dcc0f3a3',
+    })
+    const wrapper = mount(AccountBalanceQueryModal, {
+      props: { show: true, account },
+      attachTo: document.body,
+      global: { stubs: { Teleport: true } },
+    })
+    await flushPromises()
+    api.queryAccountBalance.mockClear()
+
+    await wrapper.get('[data-testid="balance-query-scheme"]').setValue('signin')
+    await wrapper.get('[data-testid="balance-query-signin-site-id"]').setValue('32b00162-427c-41d9-8325-faa4dcc0f3a3')
+    await wrapper.get('[data-testid="balance-query-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(api.updateAccountBalanceQueryConfig).toHaveBeenCalledWith(account.id, {
+      scheme: 'signin',
+      api_url: '',
+      sign_in_site_id: '32b00162-427c-41d9-8325-faa4dcc0f3a3',
+    })
+    expect(api.queryAccountBalance).toHaveBeenCalledWith(account.id)
+    wrapper.unmount()
+  })
 })
