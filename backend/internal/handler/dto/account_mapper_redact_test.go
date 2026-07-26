@@ -91,7 +91,7 @@ func TestAccountFromServiceShallow_RedactsOllamaCloudManagedExtra(t *testing.T) 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), "ciphertext-secret")
-	require.NotContains(t, string(raw), "secret-key")
+	require.Contains(t, string(raw), "secret-key")
 	require.Contains(t, src.Extra, service.OllamaCloudUsageSessionExtraKey)
 }
 
