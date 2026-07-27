@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const { updateAccountMock, checkMixedChannelRiskMock, showErrorMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
+  showErrorMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError: showErrorMock,
     showSuccess: vi.fn(),
     showInfo: vi.fn()
   })
@@ -314,6 +315,7 @@ function mountModal(account = buildAccount()) {
 describe('EditAccountModal', () => {
   beforeEach(() => {
     authIsSimpleMode.value = true
+    showErrorMock.mockReset()
   })
 
   it('preloads the plaintext API key into a text input', () => {
@@ -322,6 +324,105 @@ describe('EditAccountModal', () => {
 
     expect(input.attributes('type')).toBe('text')
     expect((input.element as HTMLInputElement).value).toBe('sk-test')
+  })
+
+  it('preloads relay failure budget settings for a custom OpenAI relay', () => {
+    const account = buildAccount()
+    account.credentials = {
+      ...account.credentials,
+      base_url: 'https://relay.example.com/v1',
+      relay_failure_budget_enabled: true,
+      relay_failure_budget_window_minutes: 20,
+      relay_failure_budget_failure_threshold_percent: 15,
+      relay_failure_budget_min_requests: 25,
+      relay_failure_budget_consecutive_failures: 7,
+      relay_failure_budget_cooldown_minutes: 4
+    }
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get('[data-testid="relay-failure-budget-toggle"]').attributes('aria-checked')).toBe('true')
+    expect((wrapper.get('[data-testid="relay-failure-budget-window-minutes"]').element as HTMLInputElement).value).toBe('20')
+    expect((wrapper.get('[data-testid="relay-failure-budget-threshold-percent"]').element as HTMLInputElement).value).toBe('15')
+    expect((wrapper.get('[data-testid="relay-failure-budget-min-requests"]').element as HTMLInputElement).value).toBe('25')
+    expect((wrapper.get('[data-testid="relay-failure-budget-consecutive-failures"]').element as HTMLInputElement).value).toBe('7')
+    expect((wrapper.get('[data-testid="relay-failure-budget-cooldown-minutes"]').element as HTMLInputElement).value).toBe('4')
+  })
+
+  it('submits relay failure budget settings for a custom OpenAI relay', async () => {
+    const account = buildAccount()
+    account.credentials.base_url = 'https://relay.example.com/v1'
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get('[data-testid="relay-failure-budget-toggle"]').attributes('aria-checked')).toBe('true')
+    await wrapper.get('[data-testid="relay-failure-budget-window-minutes"]').setValue(30)
+    await wrapper.get('[data-testid="relay-failure-budget-threshold-percent"]').setValue(20)
+    await wrapper.get('[data-testid="relay-failure-budget-min-requests"]').setValue(40)
+    await wrapper.get('[data-testid="relay-failure-budget-consecutive-failures"]').setValue(8)
+    await wrapper.get('[data-testid="relay-failure-budget-cooldown-minutes"]').setValue(6)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      relay_failure_budget_enabled: true,
+      relay_failure_budget_window_minutes: 30,
+      relay_failure_budget_failure_threshold_percent: 20,
+      relay_failure_budget_min_requests: 40,
+      relay_failure_budget_consecutive_failures: 8,
+      relay_failure_budget_cooldown_minutes: 6
+    })
+  })
+
+  it('rejects an enabled relay failure budget on the official OpenAI endpoint', async () => {
+    const account = buildAccount()
+    account.credentials = {
+      ...account.credentials,
+      base_url: 'https://relay.example.com/v1',
+      relay_failure_budget_enabled: true
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    const wrapper = mountModal(account)
+
+    await wrapper.get('input[placeholder="https://api.openai.com"]').setValue('https://api.openai.com/v1')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.relayFailureBudget.customRelayRequired')
+  })
+
+  it('keeps an explicit relay budget opt-out and removes stale numeric settings', async () => {
+    const account = buildAccount()
+    account.credentials = {
+      ...account.credentials,
+      base_url: 'https://relay.example.com/v1',
+      relay_failure_budget_enabled: true,
+      relay_failure_budget_window_minutes: 20,
+      relay_failure_budget_failure_threshold_percent: 15,
+      relay_failure_budget_min_requests: 25,
+      relay_failure_budget_consecutive_failures: 7,
+      relay_failure_budget_cooldown_minutes: 4
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="relay-failure-budget-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials?.relay_failure_budget_enabled).toBe(false)
+    expect(credentials).not.toHaveProperty('relay_failure_budget_window_minutes')
+    expect(credentials).not.toHaveProperty('relay_failure_budget_failure_threshold_percent')
+    expect(credentials).not.toHaveProperty('relay_failure_budget_min_requests')
+    expect(credentials).not.toHaveProperty('relay_failure_budget_consecutive_failures')
+    expect(credentials).not.toHaveProperty('relay_failure_budget_cooldown_minutes')
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
