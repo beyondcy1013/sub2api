@@ -265,8 +265,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		if resolved, rerr := resolveCredentialAccount(ctx, s.accountRepo, account); rerr == nil && resolved != nil {
 			authAccount = resolved
 		}
-		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
 		openai401Code := extractUpstreamErrorCode(responseBody)
+		// A relay API key authenticates this service to the configured base_url. A
+		// token_invalidated response describes one of the relay's internal OAuth
+		// accounts, not the local API key, so keep local account state unchanged.
+		if !customErrorCodesEnabled && authAccount.Platform == PlatformOpenAI &&
+			authAccount.Type == AccountTypeAPIKey &&
+			strings.TrimSpace(authAccount.GetCredential("base_url")) != "" &&
+			openai401Code == "token_invalidated" {
+			slog.Warn("openai_apikey_relay_internal_auth_error",
+				"account_id", authAccount.ID,
+				"upstream_code", openai401Code,
+				"account_state_unchanged", true,
+			)
+			break
+		}
+		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
 		if authAccount.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
 			msg := "Token revoked (401): account authentication permanently revoked"
 			if upstreamMsg != "" {
