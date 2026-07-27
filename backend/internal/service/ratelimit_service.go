@@ -267,15 +267,18 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 		openai401Code := extractUpstreamErrorCode(responseBody)
 		// A relay API key authenticates this service to the configured base_url. A
-		// token_invalidated response describes one of the relay's internal OAuth
-		// accounts, not the local API key, so keep local account state unchanged.
+		// token_invalidated response, including relays that omit error.code, describes
+		// one of the relay's internal OAuth accounts, not the local API key.
+		relayInternalTokenInvalidated := openai401Code == "token_invalidated" ||
+			(openai401Code == "" && strings.Contains(strings.ToLower(upstreamMsg), "authentication token has been invalidated"))
 		if !customErrorCodesEnabled && authAccount.Platform == PlatformOpenAI &&
 			authAccount.Type == AccountTypeAPIKey &&
 			strings.TrimSpace(authAccount.GetCredential("base_url")) != "" &&
-			openai401Code == "token_invalidated" {
+			relayInternalTokenInvalidated {
 			slog.Warn("openai_apikey_relay_internal_auth_error",
 				"account_id", authAccount.ID,
 				"upstream_code", openai401Code,
+				"matched_by_message", openai401Code != "token_invalidated",
 				"account_state_unchanged", true,
 			)
 			break

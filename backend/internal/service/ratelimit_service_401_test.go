@@ -257,6 +257,27 @@ func TestRateLimitService_HandleUpstreamError_OpenAIAPIKeyRelay401(t *testing.T)
 		require.Zero(t, repo.tempCalls)
 	})
 
+	t.Run("relay_internal_token_invalidation_message_without_code_does_not_set_account_error", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       187,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "relay-key",
+				"base_url": "https://relay.example.com",
+			},
+		}
+		body := []byte(`{"error":{"message":"Your authentication token has been invalidated. Please try signing in again.","type":"invalid_request_error"},"status":401}`)
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+		require.False(t, shouldDisable, "the relay's internal OAuth failure must not disable the local API-key account")
+		require.Zero(t, repo.setErrorCalls)
+		require.Zero(t, repo.tempCalls)
+	})
+
 	t.Run("relay_invalid_api_key_still_sets_account_error", func(t *testing.T) {
 		repo := &rateLimitAccountRepoStub{}
 		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -270,6 +291,27 @@ func TestRateLimitService_HandleUpstreamError_OpenAIAPIKeyRelay401(t *testing.T)
 			},
 		}
 		body := []byte(`{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}`)
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+		require.True(t, shouldDisable)
+		require.Equal(t, 1, repo.setErrorCalls)
+		require.Zero(t, repo.tempCalls)
+	})
+
+	t.Run("relay_invalid_api_key_code_takes_precedence_over_invalidation_message", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       188,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "relay-key",
+				"base_url": "https://relay.example.com",
+			},
+		}
+		body := []byte(`{"error":{"message":"Your authentication token has been invalidated. Please try signing in again.","code":"invalid_api_key"}}`)
 
 		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
 
