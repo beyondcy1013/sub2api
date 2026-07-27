@@ -865,6 +865,17 @@ export default {
       poolModeRetryStatusCodes: 'Retry Status Codes',
       poolModeRetryStatusCodesHint:
         'Comma-separated HTTP status codes (100-599) that trigger same-account retry in pool mode. Leave blank to use defaults ({default}).',
+      relayFailureBudget: {
+        title: 'Relay Failure Budget',
+        hint: 'Keep an unstable custom OpenAI relay available while failures stay below the configured window ratio.',
+        windowMinutes: 'Window (minutes)',
+        thresholdPercent: 'Failure threshold (%)',
+        minRequests: 'Minimum requests',
+        consecutiveFailures: 'Consecutive failure limit',
+        cooldownMinutes: 'Cooldown (minutes)',
+        customRelayRequired: 'Relay failure budget requires a custom OpenAI Base URL.',
+        invalidValues: 'Relay failure budget values are outside the allowed range.'
+      },
       customErrorCodes: 'Custom Error Codes',
       customErrorCodesHint: 'Only stop scheduling for selected error codes',
       customErrorCodesWarning:

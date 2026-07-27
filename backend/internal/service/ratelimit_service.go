@@ -20,18 +20,19 @@ import (
 
 // RateLimitService 处理限流和过载状态管理
 type RateLimitService struct {
-	accountRepo           AccountRepository
-	usageRepo             UsageLogRepository
-	cfg                   *config.Config
-	geminiQuotaService    *GeminiQuotaService
-	tempUnschedCache      TempUnschedCache
-	timeoutCounterCache   TimeoutCounterCache
-	openAI403CounterCache OpenAI403CounterCache
-	settingService        *SettingService
-	tokenCacheInvalidator TokenCacheInvalidator
-	runtimeBlocker        AccountRuntimeBlocker
-	usageCacheMu          sync.RWMutex
-	usageCache            map[int64]*geminiUsageCacheEntry
+	accountRepo             AccountRepository
+	usageRepo               UsageLogRepository
+	cfg                     *config.Config
+	geminiQuotaService      *GeminiQuotaService
+	tempUnschedCache        TempUnschedCache
+	timeoutCounterCache     TimeoutCounterCache
+	openAI403CounterCache   OpenAI403CounterCache
+	relayFailureBudgetCache RelayFailureBudgetCache
+	settingService          *SettingService
+	tokenCacheInvalidator   TokenCacheInvalidator
+	runtimeBlocker          AccountRuntimeBlocker
+	usageCacheMu            sync.RWMutex
+	usageCache              map[int64]*geminiUsageCacheEntry
 }
 
 type AccountRuntimeBlocker interface {
@@ -107,6 +108,10 @@ func (s *RateLimitService) SetTimeoutCounterCache(cache TimeoutCounterCache) {
 // SetOpenAI403CounterCache 设置 OpenAI 403 连续失败计数器（可选依赖）
 func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache) {
 	s.openAI403CounterCache = cache
+}
+
+func (s *RateLimitService) SetRelayFailureBudgetCache(cache RelayFailureBudgetCache) {
+	s.relayFailureBudgetCache = cache
 }
 
 // SetSettingService 设置系统设置服务（可选依赖）
@@ -271,10 +276,9 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		// one of the relay's internal OAuth accounts, not the local API key.
 		relayInternalTokenInvalidated := openai401Code == "token_invalidated" ||
 			(openai401Code == "" && strings.Contains(strings.ToLower(upstreamMsg), "authentication token has been invalidated"))
-		if !customErrorCodesEnabled && authAccount.Platform == PlatformOpenAI &&
-			authAccount.Type == AccountTypeAPIKey &&
-			strings.TrimSpace(authAccount.GetCredential("base_url")) != "" &&
+		if !customErrorCodesEnabled && isOpenAICustomRelayAPIKey(authAccount) &&
 			relayInternalTokenInvalidated {
+			s.recordOpenAIRelayFailure(ctx, authAccount, "relay_internal_token_invalidated")
 			slog.Warn("openai_apikey_relay_internal_auth_error",
 				"account_id", authAccount.ID,
 				"upstream_code", openai401Code,
@@ -416,6 +420,10 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			slog.Warn("account_upstream_error", "account_id", account.ID, "status_code", statusCode)
 			shouldDisable = false
 		}
+	}
+
+	if isOpenAIRelayFailureBudgetHTTPFailure(statusCode, responseBody) {
+		s.recordOpenAIRelayFailure(ctx, account, fmt.Sprintf("http_%d", statusCode))
 	}
 
 	return shouldDisable

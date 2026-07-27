@@ -352,12 +352,14 @@ func ProvideRateLimitService(
 	tempUnschedCache TempUnschedCache,
 	timeoutCounterCache TimeoutCounterCache,
 	openAI403CounterCache OpenAI403CounterCache,
+	relayFailureBudgetCache RelayFailureBudgetCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
 ) *RateLimitService {
 	svc := NewRateLimitService(accountRepo, usageRepo, cfg, geminiQuotaService, tempUnschedCache)
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
+	svc.SetRelayFailureBudgetCache(relayFailureBudgetCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)
 	return svc
