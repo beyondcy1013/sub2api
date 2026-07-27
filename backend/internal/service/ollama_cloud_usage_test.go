@@ -807,8 +807,18 @@ func TestOllamaCloudUsageRefreshSingleflightAndRunnerDeduplicateSharedGroup(t *t
 	<-started
 	go func() { _, err := svc.Refresh(context.Background(), second.ID); errs <- err }()
 	close(release)
-	require.NoError(t, <-errs)
-	require.NoError(t, <-errs)
+	successes := 0
+	for range 2 {
+		err := <-errs
+		if err == nil {
+			successes++
+			continue
+		}
+		// The second goroutine may be scheduled after the first refresh has
+		// completed, in which case the manual-refresh interval correctly applies.
+		require.ErrorIs(t, err, ErrOllamaCloudUsageRefreshRateLimited)
+	}
+	require.GreaterOrEqual(t, successes, 1)
 	require.Equal(t, int64(1), upstream.calls.Load())
 	require.NotNil(t, decodeOllamaCloudUsageSnapshot(first.Extra))
 	require.Equal(t, decodeOllamaCloudUsageSnapshot(first.Extra), decodeOllamaCloudUsageSnapshot(second.Extra))
