@@ -277,6 +277,45 @@ func TestRateLimitService_HandleUpstreamError_OpenAIAPIKeyRelay401(t *testing.T)
 		require.Equal(t, 1, repo.setErrorCalls)
 		require.Zero(t, repo.tempCalls)
 	})
+
+	t.Run("default_endpoint_token_invalidated_still_sets_account_error", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:          185,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Credentials: map[string]any{"api_key": "direct-key"},
+		}
+		body := []byte(`{"error":{"message":"token invalidated","code":"token_invalidated"}}`)
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+		require.True(t, shouldDisable)
+		require.Equal(t, 1, repo.setErrorCalls)
+	})
+
+	t.Run("explicit_relay_401_policy_still_sets_account_error", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       186,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":                    "relay-key",
+				"base_url":                   "https://relay.example.com",
+				"custom_error_codes_enabled": true,
+				"custom_error_codes":         []any{float64(http.StatusUnauthorized)},
+			},
+		}
+		body := []byte(`{"error":{"message":"token invalidated","code":"token_invalidated"}}`)
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+		require.True(t, shouldDisable)
+		require.Equal(t, 1, repo.setErrorCalls)
+	})
 }
 
 // TestRateLimitService_HandleUpstreamError_OAuth401DoesNotOverwriteCredentials
