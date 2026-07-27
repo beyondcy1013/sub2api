@@ -235,6 +235,50 @@ func TestRateLimitService_HandleUpstreamError_NonOAuth401(t *testing.T) {
 	require.Empty(t, invalidator.accounts)
 }
 
+func TestRateLimitService_HandleUpstreamError_OpenAIAPIKeyRelay401(t *testing.T) {
+	t.Run("relay_internal_token_invalidated_does_not_set_account_error", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       183,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "relay-key",
+				"base_url": "https://relay.example.com",
+			},
+		}
+		body := []byte(`{"error":{"message":"Your authentication token has been invalidated. Please try signing in again.","type":"invalid_request_error","code":"token_invalidated"},"status":401}`)
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+		require.False(t, shouldDisable, "the relay's internal OAuth failure must not disable the local API-key account")
+		require.Zero(t, repo.setErrorCalls)
+		require.Zero(t, repo.tempCalls)
+	})
+
+	t.Run("relay_invalid_api_key_still_sets_account_error", func(t *testing.T) {
+		repo := &rateLimitAccountRepoStub{}
+		service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		account := &Account{
+			ID:       184,
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "relay-key",
+				"base_url": "https://relay.example.com",
+			},
+		}
+		body := []byte(`{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}`)
+
+		shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body)
+
+		require.True(t, shouldDisable)
+		require.Equal(t, 1, repo.setErrorCalls)
+		require.Zero(t, repo.tempCalls)
+	})
+}
+
 // TestRateLimitService_HandleUpstreamError_OAuth401DoesNotOverwriteCredentials
 // 回归测试:确保 401 handler 不再使用请求开始时的 account 快照写回 credentials。
 // 原实现会通过 persistAccountCredentials → UpdateCredentials → SetCredentials
