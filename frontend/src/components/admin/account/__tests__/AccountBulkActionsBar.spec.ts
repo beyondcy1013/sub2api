@@ -24,10 +24,13 @@ const SelectStub = {
   `
 }
 
-function mountBar(selectedIds: number[]) {
+function mountBar(selectedIds: number[], totalResults = 45) {
   return mount(AccountBulkActionsBar, {
     props: {
       selectedIds,
+      totalResults,
+      selectingAll: false,
+      allResultsSelected: false,
       proxies: [{ id: 9, name: 'proxy-9' }],
       groups: [{ id: 5, name: 'group-5' }]
     } as any,
@@ -44,16 +47,16 @@ vi.mock('vue-i18n', async () => {
 })
 
 describe('AccountBulkActionsBar', () => {
-  it('零选择时仍提供所有页全选按钮并发出事件', async () => {
+  it('零选择时仍提供所有结果全选按钮并发出事件', async () => {
     const wrapper = mountBar([])
 
     const button = wrapper
       .findAll('button')
-      .find(node => node.text() === 'admin.accounts.bulkActions.selectAllPages')
+      .find(node => node.text().includes('admin.accounts.bulkActions.selectAllResults'))
 
     expect(button).toBeTruthy()
     await button!.trigger('click')
-    expect(wrapper.emitted('select-all-pages')).toHaveLength(1)
+    expect(wrapper.emitted('select-all-results')).toHaveLength(1)
   })
 
   it('零选择时显示代理和群组下拉框但保持禁用', () => {
@@ -74,5 +77,17 @@ describe('AccountBulkActionsBar', () => {
 
     expect(wrapper.emitted('quick-set-proxy')).toEqual([[9]])
     expect(wrapper.emitted('quick-set-group')).toEqual([[5]])
+  })
+
+  it('preserves the upstream billing probe action from v0.1.166', async () => {
+    const wrapper = mountBar([1])
+
+    const button = wrapper.findAll('button').find(item =>
+      item.text().includes('admin.accounts.bulkActions.probeUpstreamBilling')
+    )
+
+    expect(button).toBeDefined()
+    await button!.trigger('click')
+    expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
   })
 })
