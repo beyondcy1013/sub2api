@@ -272,11 +272,11 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
   })
 
-  it('uses four connections by default when importing or creating an account', async () => {
+  it('uses ten connections by default when importing or creating an account', async () => {
     await submitApiKeyAccount('openai')
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
-    expect(createAccountMock.mock.calls[0]?.[0]?.concurrency).toBe(4)
+    expect(createAccountMock.mock.calls[0]?.[0]?.concurrency).toBe(10)
   })
   it('defaults a new account to the last proxy and the first group', async () => {
     const wrapper = mountModal({

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+import accountsViewSource from '../AccountsView.vue?raw'
 
 const {
   deleteAccount,
@@ -9,14 +10,18 @@ const {
   getAllProxies,
   getBatchTodayStats,
   listAccounts,
-  listWithEtag
+  listWithEtag,
+  permanentDelete,
+  restoreFromTrash
 } = vi.hoisted(() => ({
   deleteAccount: vi.fn(),
   getAllGroups: vi.fn(),
   getAllProxies: vi.fn(),
   getBatchTodayStats: vi.fn(),
   listAccounts: vi.fn(),
-  listWithEtag: vi.fn()
+  listWithEtag: vi.fn(),
+  permanentDelete: vi.fn(),
+  restoreFromTrash: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -30,8 +35,8 @@ vi.mock('@/api/admin', () => ({
       recycle: vi.fn(),
       restore: vi.fn(),
       listTrashed: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 }),
-      restoreFromTrash: vi.fn(),
-      permanentDelete: vi.fn(),
+      restoreFromTrash,
+      permanentDelete,
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
       toggleSchedulable: vi.fn()
@@ -79,10 +84,15 @@ const account = {
 }
 
 const DataTableStub = {
-  props: ['data'],
+  props: ['data', 'rowClass'],
   template: `
     <div>
-      <div v-for="row in data" :key="row.id" :data-test="'account-row-' + row.id">
+      <div
+        v-for="row in data"
+        :key="row.id"
+        :data-test="'account-row-' + row.id"
+        :class="typeof rowClass === 'function' ? rowClass(row) : rowClass"
+      >
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-actions" :row="row" />
       </div>
@@ -100,13 +110,50 @@ const AccountTestModalStub = {
 }
 
 const AccountTableActionsStub = {
-  props: ['recycled'],
-  emits: ['toggle-recycled'],
+  props: ['recycled', 'deleted'],
+  emits: ['create', 'toggle-recycled', 'toggle-deleted'],
   template: `
     <div>
+      <button data-test="open-create-account" @click="$emit('create')">create</button>
       <button data-test="toggle-recycled" @click="$emit('toggle-recycled')">toggle</button>
+      <button data-test="toggle-deleted" @click="$emit('toggle-deleted')">deleted</button>
       <slot name="after" />
     </div>
+  `
+}
+
+const AccountBulkActionsBarStub = {
+  props: ['selectedIds', 'showDelete'],
+  emits: ['delete', 'select-all-results'],
+  template: `
+    <div>
+      <button data-test="select-all-results" @click="$emit('select-all-results')">select all results</button>
+      <button v-if="showDelete && selectedIds.length" data-test="bulk-delete" @click="$emit('delete')">delete</button>
+    </div>
+  `
+}
+
+const CreateAccountModalStub = {
+  props: ['show'],
+  emits: ['created', 'close'],
+  template: `
+    <button v-if="show" data-test="complete-create-account" @click="$emit('created')">
+      complete create
+    </button>
+  `
+}
+
+const ImportDataModalStub = {
+  props: ['show'],
+  emits: ['imported', 'close'],
+  template: `
+    <button
+      v-if="show"
+      data-test="complete-data-import"
+      @click="$emit('imported', [{ id: 99, name: 'brake-imported' }])"
+    >
+      complete import
+    </button>
   `
 }
 
@@ -121,7 +168,7 @@ const AccountActionMenuStub = {
   emits: ['delete', 'close'],
   template: `
     <button
-      v-if="show && account"
+      v-if="show && account && account.extra?.deleted !== true"
       data-test="action-menu-delete"
       @click="$emit('delete', account); $emit('close')"
     >common.delete</button>
@@ -141,9 +188,9 @@ function mountView() {
         ConfirmDialog: ConfirmDialogStub,
         AccountTableActions: AccountTableActionsStub,
         AccountTableFilters: true,
-        AccountBulkActionsBar: true,
+        AccountBulkActionsBar: AccountBulkActionsBarStub,
         AccountActionMenu: AccountActionMenuStub,
-        ImportDataModal: true,
+        ImportDataModal: ImportDataModalStub,
         ReAuthAccountModal: true,
         AccountTestModal: AccountTestModalStub,
         AccountStatsModal: true,
@@ -154,7 +201,7 @@ function mountView() {
         ErrorPassthroughRulesModal: true,
         TLSFingerprintProfilesModal: true,
         TrashBinModal: true,
-        CreateAccountModal: true,
+        CreateAccountModal: CreateAccountModalStub,
         EditAccountModal: true,
         BulkEditAccountModal: true,
         PlatformTypeBadge: true,
@@ -172,13 +219,16 @@ function mountView() {
 describe('admin AccountsView recycle-bin deletion', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.stubGlobal('confirm', vi.fn(() => true))
     for (const mock of [
       deleteAccount,
       getAllGroups,
       getAllProxies,
       getBatchTodayStats,
       listAccounts,
-      listWithEtag
+      listWithEtag,
+      permanentDelete,
+      restoreFromTrash
     ]) {
       mock.mockReset()
     }
@@ -195,9 +245,10 @@ describe('admin AccountsView recycle-bin deletion', () => {
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     deleteAccount.mockResolvedValue({ message: 'deleted' })
+    permanentDelete.mockResolvedValue({ message: 'permanently deleted' })
   })
 
-  it('permanently deletes an account from the recycle-bin more menu after confirmation', async () => {
+  it('moves an account from staging into recoverable deleted staging after confirmation', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -217,6 +268,98 @@ describe('admin AccountsView recycle-bin deletion', () => {
 
     expect(deleteAccount).toHaveBeenCalledOnce()
     expect(deleteAccount).toHaveBeenCalledWith(42)
+  })
+
+  it('loads recoverable deleted staging and keeps manual management actions available', async () => {
+    listAccounts
+      .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({
+        items: [{ ...account, extra: { deleted: true } }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+        pages: 1
+      })
+    restoreFromTrash.mockResolvedValue({ message: 'restored' })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="toggle-deleted"]').trigger('click')
+    await flushPromises()
+
+    expect(listAccounts).toHaveBeenLastCalledWith(
+      1,
+      100,
+      expect.objectContaining({ deleted: '1', recycled: '' }),
+      expect.objectContaining({ signal: expect.anything() })
+    )
+    const row = wrapper.get('[data-test="account-row-42"]')
+    expect(row.findAll('button').map(button => button.text())).toEqual([
+      'common.edit',
+      'admin.accounts.testConnection',
+      'admin.accounts.restoreDeleted',
+      'common.more'
+    ])
+
+    await row.get('[data-test="account-restore-deleted-action"]').trigger('click')
+    await flushPromises()
+    expect(restoreFromTrash).toHaveBeenCalledOnce()
+    expect(restoreFromTrash).toHaveBeenCalledWith(42)
+  })
+
+  it('does not expose irreversible deletion from deleted staging', async () => {
+    listAccounts
+      .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [{ ...account, extra: { deleted: true } }], total: 1, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="toggle-deleted"]').trigger('click')
+    await flushPromises()
+
+    const row = wrapper.get('[data-test="account-row-42"]')
+    await row.get('[data-test="account-more-action"]').trigger('click')
+
+    expect(wrapper.find('[data-test="action-menu-delete"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="bulk-delete"]').exists()).toBe(false)
+    expect(permanentDelete).not.toHaveBeenCalled()
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('keeps bulk deletion unavailable after selecting deleted-staging results', async () => {
+    listAccounts
+      .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [{ ...account, id: 42, extra: { deleted: true } }], total: 2, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [{ ...account, id: 42 }, { ...account, id: 43 }], total: 2, page: 1, page_size: 1000, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="toggle-deleted"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="select-all-results"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="bulk-delete"]').exists()).toBe(false)
+    expect(permanentDelete).not.toHaveBeenCalled()
+    expect(deleteAccount).not.toHaveBeenCalled()
+  })
+  it('keeps edit, test connection and more available in staging mode alongside restore', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="toggle-recycled"]').trigger('click')
+    await flushPromises()
+
+    const row = wrapper.get('[data-test="account-row-42"]')
+    // Staging mode keeps the shared edit/test/more actions and swaps recycle for restore.
+    expect(row.findAll('button').map(button => button.text())).toEqual([
+      'common.edit',
+      'admin.accounts.testConnection',
+      'admin.accounts.restore',
+      'common.more'
+    ])
+    expect(row.text()).not.toContain('admin.accounts.recycle')
   })
 
   it('shows edit, test connection, recycle and more in that order, and opens the test modal', async () => {
@@ -256,5 +399,192 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(name.element.parentElement?.classList.contains('inline-flex')).toBe(true)
     expect(name.element.parentElement?.classList.contains('w-[176px]')).toBe(true)
     expect(name.element.parentElement?.classList.contains('max-w-[176px]')).toBe(true)
+  })
+
+  it('temporarily highlights only the account that appears after a successful create', async () => {
+    vi.useFakeTimers()
+    const createdAccount = {
+      ...account,
+      id: 99,
+      name: 'just-created-account',
+      created_at: '2026-07-27T10:00:00Z',
+      updated_at: '2026-07-27T10:00:00Z'
+    }
+    listAccounts
+      .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [account, createdAccount], total: 2, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-create-account"]').trigger('click')
+    await wrapper.get('[data-test="complete-create-account"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+      'account-row-99',
+      'account-row-42'
+    ])
+    expect(wrapper.get('[data-test="account-row-42"]').classes()).not.toContain('recently-created-account-row')
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row')
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row-red')
+
+    vi.advanceTimersByTime(10_000)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row')
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).not.toContain('recently-created-account-row-red')
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row-orange')
+    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+      'account-row-99',
+      'account-row-42'
+    ])
+
+    vi.advanceTimersByTime(10_000)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).not.toContain('recently-created-account-row')
+    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+      'account-row-42',
+      'account-row-99'
+    ])
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('loads the newest matching account and pins it when the active sort omits it from page one', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-27T10:00:00Z'))
+    const createdAccount = {
+      ...account,
+      id: 99,
+      name: 'z-last-by-name',
+      created_at: '2026-07-27T10:00:01Z',
+      updated_at: '2026-07-27T10:00:01Z'
+    }
+    const pageByName = { items: [account], total: 2, page: 1, page_size: 20, pages: 1 }
+    listAccounts
+      .mockResolvedValueOnce(pageByName)
+      .mockResolvedValueOnce(pageByName)
+      .mockResolvedValueOnce({ items: [createdAccount, account], total: 2, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="open-create-account"]').trigger('click')
+    await wrapper.get('[data-test="complete-create-account"]').trigger('click')
+    await flushPromises()
+
+    expect(listAccounts).toHaveBeenLastCalledWith(
+      1,
+      100,
+      expect.objectContaining({ sort_by: 'created_at', sort_order: 'desc' })
+    )
+    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+      'account-row-99',
+      'account-row-42'
+    ])
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('temporarily pins and highlights an account added through data import', async () => {
+    vi.useFakeTimers()
+    const importedAccount = {
+      ...account,
+      id: 99,
+      name: 'brake-imported',
+      created_at: '2026-07-28T09:30:00+08:00',
+      updated_at: '2026-07-28T09:30:00+08:00'
+    }
+    listAccounts
+      .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({ items: [account, importedAccount], total: 2, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.accounts.moreActions"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    const importButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[data-test="account-tools-dropdown"] button')
+    ).find(button => button.textContent?.includes('admin.accounts.dataImport'))
+    expect(importButton).toBeDefined()
+    importButton!.click()
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-test="complete-data-import"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+      'account-row-99',
+      'account-row-42'
+    ])
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('uses imported account identity instead of highlighting a newly appeared name-sort row', async () => {
+    vi.useFakeTimers()
+    const nameSortFirstAccount = {
+      ...account,
+      id: 88,
+      name: 'a.r.n-existing',
+      created_at: '2026-07-28T09:31:00+08:00'
+    }
+    const importedAccount = {
+      ...account,
+      id: 99,
+      name: 'brake-imported',
+      created_at: '2026-07-28T09:30:00+08:00'
+    }
+    listAccounts
+      .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+      .mockResolvedValueOnce({
+        items: [nameSortFirstAccount, account, importedAccount],
+        total: 3,
+        page: 1,
+        page_size: 20,
+        pages: 1
+      })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('button[title="admin.accounts.moreActions"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    const importButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[data-test="account-tools-dropdown"] button')
+    ).find(button => button.textContent?.includes('admin.accounts.dataImport'))
+    importButton!.click()
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-test="complete-data-import"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+      'account-row-99',
+      'account-row-88',
+      'account-row-42'
+    ])
+    expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row')
+    expect(wrapper.get('[data-test="account-row-88"]').classes()).not.toContain('recently-created-account-row')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('keeps dark-mode highlight selectors global through scoped-style compilation', () => {
+    expect(accountsViewSource).toContain(':global(.dark tr.recently-created-account-row-red > td)')
+    expect(accountsViewSource).toContain(':global(.dark tr.recently-created-account-row-orange > td)')
+    expect(accountsViewSource).toContain(':global(.dark div.recently-created-account-row-red)')
+    expect(accountsViewSource).toContain(':global(.dark div.recently-created-account-row-orange)')
+    expect(accountsViewSource).toContain('background-color: rgb(254 226 226) !important')
+    expect(accountsViewSource).toContain('background-color: rgb(255 237 213) !important')
+    expect(accountsViewSource).toContain('background-color: rgb(127 29 29 / 0.36) !important')
+    expect(accountsViewSource).toContain('background-color: rgb(124 45 18 / 0.36) !important')
+    expect(accountsViewSource).not.toContain(':global(.dark) :deep(')
   })
 })

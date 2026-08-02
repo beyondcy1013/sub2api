@@ -11,7 +11,7 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    accounts: { importData: vi.fn() },
+    accounts: { importData: vi.fn(), clearImportedData: vi.fn() },
     proxies: { getAll: vi.fn() },
     groups: { getAll: vi.fn() }
   }
@@ -21,8 +21,8 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 
-const mountModal = () => mount(EnhancedImportDataModal, {
-  props: { show: true },
+const mountModal = (operation: 'import' | 'clear' = 'import') => mount(EnhancedImportDataModal, {
+  props: { show: true, operation },
   global: {
     stubs: {
       BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
@@ -51,6 +51,7 @@ describe('EnhancedImportDataModal', () => {
     showSuccess.mockReset()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
+    vi.mocked(adminAPI.accounts.clearImportedData).mockReset()
     vi.mocked(adminAPI.proxies.getAll).mockReset()
     vi.mocked(adminAPI.groups.getAll).mockReset()
     vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
@@ -66,8 +67,32 @@ describe('EnhancedImportDataModal', () => {
       proxy_reused: 0,
       proxy_failed: 0,
       account_created: 1,
-      account_failed: 0
+      account_failed: 0,
+      created_accounts: [{ id: 300, name: 'brake-imported' }]
     })
+    vi.mocked(adminAPI.accounts.clearImportedData).mockResolvedValue({
+      account_requested: 1,
+      account_matched: 1,
+      account_cleared: 1,
+      account_not_found: 0,
+      account_ambiguous: 0,
+      account_failed: 0,
+      cleared_accounts: [{ id: 300, name: 'brake-imported' }]
+    })
+  })
+
+  it('keeps the destructive clear action out of import mode', () => {
+    const wrapper = mountModal()
+
+    expect(wrapper.find('[data-test="enhanced-import-clear"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="import-apply-default-proxy"]').exists()).toBe(true)
+  })
+
+  it('uses a dedicated clear mode without import routing controls', () => {
+    const wrapper = mountModal('clear')
+
+    expect(wrapper.get('[data-test="enhanced-import-clear"]').text()).toBe('admin.accounts.enhancedImportClearButton')
+    expect(wrapper.find('[data-test="import-apply-default-proxy"]').exists()).toBe(false)
   })
 
   it('imports pasted native sub2api JSON text', async () => {
@@ -98,6 +123,8 @@ describe('EnhancedImportDataModal', () => {
       skip_default_group_bind: true
     })
     expect(wrapper.emitted('imported')).toHaveLength(1)
+    expect(wrapper.emitted('imported')?.[0]).toEqual([[{ id: 300, name: 'brake-imported' }]])
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess', 8000)
   })
 
   it('extracts mixed-message JSON segments and imports them once with routing defaults', async () => {
@@ -160,6 +187,37 @@ describe('EnhancedImportDataModal', () => {
           name: 'codex@example.com',
           platform: 'openai',
           type: 'oauth'
+        })]
+      }),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
+      skip_default_group_bind: true
+    })
+  })
+
+  it('tags each imported account with the source filename part in file mode', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+    const input = wrapper.find('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [makeJsonFile('chatgpt_pro_us_001.json', {
+        type: 'codex',
+        email: 'codex@example.com',
+        refresh_token: 'refresh-token'
+      })]
+    })
+
+    await input.trigger('change')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accounts: [expect.objectContaining({
+          extra: expect.objectContaining({ import_filename: 'chatgpt_pro_us' })
         })]
       }),
       apply_proxy_settings: true,
@@ -326,5 +384,64 @@ describe('EnhancedImportDataModal', () => {
     await flushPromises()
 
     expect(showError).toHaveBeenCalledWith('import unavailable')
+  })
+
+  it('parses mixed text and clears matching imported accounts without routing options', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    const wrapper = mountModal('clear')
+
+    await wrapper.get('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue([
+      'first',
+      JSON.stringify({ type: 'codex', email: 'one@example.com', refresh_token: 'one-refresh' }),
+      'second',
+      JSON.stringify({ type: 'claude', email: 'two@example.com', access_token: 'two-access' })
+    ].join('\n'))
+    await wrapper.get('[data-test="enhanced-import-clear"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('admin.accounts.enhancedImportClearConfirm')
+    expect(adminAPI.accounts.clearImportedData).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accounts: [
+          expect.objectContaining({ name: 'one@example.com', platform: 'openai' }),
+          expect.objectContaining({ name: 'two@example.com', platform: 'anthropic' })
+        ]
+      })
+    })
+    expect(adminAPI.accounts.importData).not.toHaveBeenCalled()
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.enhancedImportClearSuccess', 8000)
+    expect(wrapper.emitted('imported')).toEqual([[[]]])
+  })
+
+  it('does not clear accounts when the operator cancels confirmation', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
+    const wrapper = mountModal('clear')
+
+    await wrapper.get('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify({
+      type: 'codex',
+      email: 'codex@example.com',
+      refresh_token: 'refresh-token'
+    }))
+    await wrapper.get('[data-test="enhanced-import-clear"]').trigger('click')
+    await flushPromises()
+
+    expect(adminAPI.accounts.clearImportedData).not.toHaveBeenCalled()
+  })
+
+  it('does not call the clear API when a native payload contains no accounts', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal('clear')
+
+    await wrapper.get('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify({ proxies: [], accounts: [] }))
+    await wrapper.get('[data-test="enhanced-import-clear"]').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.accounts.enhancedImportClearNoAccounts')
+    expect(adminAPI.accounts.clearImportedData).not.toHaveBeenCalled()
   })
 })

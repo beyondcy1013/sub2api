@@ -51,6 +51,7 @@ describe('SuperPrioritySettingsModal', () => {
       base_strategy: 'default',
       failure_threshold: 2,
       check_interval: '@every 1m',
+      liveness_include_unschedulable: false,
       test_model_id: '',
       test_prompt: '',
       activated_at: '',
@@ -80,6 +81,7 @@ describe('SuperPrioritySettingsModal', () => {
       base_strategy: 'lowest_cost',
       failure_threshold: 2,
       check_interval: '@every 1m',
+      liveness_include_unschedulable: false,
       test_model_id: '',
       test_prompt: '',
     })

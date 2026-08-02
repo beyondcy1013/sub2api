@@ -737,7 +737,7 @@ func (s *OllamaCloudUsageService) RunDue(ctx context.Context) error {
 	for index := range accounts {
 		account := accounts[index]
 		fingerprint, valid := ollamaCloudUsageGroupFingerprint(&account)
-		if !valid || !account.IsActive() || !ollamaCloudUsageConfigured(&account) || !ollamaCloudUsageAutoRefreshEnabled(&account) {
+		if !valid || account.IsDeletedStaging() || !account.IsActive() || !ollamaCloudUsageConfigured(&account) || !ollamaCloudUsageAutoRefreshEnabled(&account) {
 			continue
 		}
 		if _, duplicate := seenGroups[fingerprint]; duplicate {

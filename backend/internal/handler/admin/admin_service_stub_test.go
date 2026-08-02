@@ -24,6 +24,8 @@ type stubAdminService struct {
 	boundAuthIdentity                   *service.AdminBindAuthIdentityInput
 	boundAuthIdentityFor                int64
 	createdAccounts                     []*service.CreateAccountInput
+	deletedAccountIDs                   []int64
+	deleteAccountErrors                 map[int64]error
 	createdProxies                      []*service.CreateProxyInput
 	updatedProxyIDs                     []int64
 	updatedProxies                      []*service.UpdateProxyInput
@@ -53,6 +55,7 @@ type stubAdminService struct {
 		sortBy      string
 		sortOrder   string
 		recycled    bool
+		deleted     bool
 		calls       int
 	}
 	lastListUsers struct {
@@ -399,7 +402,7 @@ func (s *stubAdminService) BatchSetGroupRPMOverrides(_ context.Context, _ int64,
 	return nil
 }
 
-func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled bool) ([]service.Account, int64, error) {
+func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled, deleted bool) ([]service.Account, int64, error) {
 	s.lastListAccounts.platform = platform
 	s.lastListAccounts.accountType = accountType
 	s.lastListAccounts.status = status
@@ -409,6 +412,7 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	s.lastListAccounts.sortBy = sortBy
 	s.lastListAccounts.sortOrder = sortOrder
 	s.lastListAccounts.recycled = recycled
+	s.lastListAccounts.deleted = deleted
 	s.lastListAccounts.calls++
 	accounts := s.accounts
 	total := len(accounts)
@@ -528,6 +532,10 @@ func (s *stubAdminService) UpdateAccountExtra(ctx context.Context, id int64, upd
 }
 
 func (s *stubAdminService) DeleteAccount(ctx context.Context, id int64) error {
+	s.deletedAccountIDs = append(s.deletedAccountIDs, id)
+	if err := s.deleteAccountErrors[id]; err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -247,6 +247,51 @@ func TestOpenAIModelNotFound_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
+func TestOpenAIUnsupportedModel503_DoesNotCreateModelTransientBlock(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := openAIModelNotFoundTempAccount()
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(),
+		account,
+		http.StatusServiceUnavailable,
+		http.Header{},
+		[]byte(`{"error":{"code":"model_not_found","message":"No available channel for model gpt-5.4 under group codex"}}`),
+		"gpt-5.4",
+	)
+
+	require.True(t, shouldDisable)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "gpt-5.4"))
+}
+
+func TestOpenAIRuntimeStatusProviderExposesHiddenBlocks(t *testing.T) {
+	rateLimitService := NewRateLimitService(nil, nil, nil, nil, nil)
+	gateway := &OpenAIGatewayService{}
+	rateLimitService.SetAccountRuntimeBlocker(gateway)
+	proxyID := int64(77)
+	account := &Account{ID: 88, Platform: PlatformOpenAI, ProxyID: &proxyID}
+	now := time.Now()
+
+	gateway.BlockAccountScheduling(account, now.Add(time.Minute), "upstream_disable")
+	gateway.recordOpenAIAccountModelTransientFailure(account, "gpt-5.4", now)
+	gateway.recordOpenAIAccountModelTransientFailure(account, "gpt-5.4", now.Add(time.Second))
+	circuit := gateway.getOpenAIProxyStreamCircuit()
+	circuit.recordFailure(proxyID, now)
+	circuit.recordFailure(proxyID, now.Add(defaultOpenAIProxyStreamFailureCollapse+time.Millisecond))
+
+	status := rateLimitService.OpenAIRuntimeStatus(context.Background(), account)
+	require.NotNil(t, status)
+	require.NotNil(t, status.AccountBlockedUntil)
+	require.Equal(t, "upstream_disable", status.AccountBlockedReason)
+	require.NotNil(t, status.ProxyQuarantinedUntil)
+	require.Len(t, status.ModelRuntimeBlocks, 1)
+	require.Equal(t, "gpt-5.4", status.ModelRuntimeBlocks[0].Model)
+}
+
 func TestOpenAIModelTempUnschedulable_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &OpenAIGatewayService{

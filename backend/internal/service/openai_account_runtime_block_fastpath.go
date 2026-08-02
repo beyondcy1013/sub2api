@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -176,7 +177,7 @@ func (s *OpenAIGatewayService) openAIAccountRuntimeBlockLock(accountID int64) *s
 	return mu
 }
 
-func (s *OpenAIGatewayService) blockAccountSchedulingLocked(account *Account, until time.Time, _ string) (uint64, bool) {
+func (s *OpenAIGatewayService) blockAccountSchedulingLocked(account *Account, until time.Time, reason string) (uint64, bool) {
 	generation := s.openaiAccountRuntimeBlockSequence.Add(1)
 	s.openaiAccountRuntimeBlockGeneration.Store(account.ID, generation)
 	now := time.Now()
@@ -190,6 +191,9 @@ func (s *OpenAIGatewayService) blockAccountSchedulingLocked(account *Account, un
 		if !loaded {
 			actual, stored := s.openaiAccountRuntimeBlockUntil.LoadOrStore(account.ID, blockUntil)
 			if !stored {
+				if reason != "" {
+					s.openaiAccountRuntimeBlockReason.Store(account.ID, reason)
+				}
 				return generation, true
 			}
 			current = actual
@@ -206,6 +210,9 @@ func (s *OpenAIGatewayService) blockAccountSchedulingLocked(account *Account, un
 			return generation, false
 		}
 		if s.openaiAccountRuntimeBlockUntil.CompareAndSwap(account.ID, current, blockUntil) {
+			if reason != "" {
+				s.openaiAccountRuntimeBlockReason.Store(account.ID, reason)
+			}
 			return generation, true
 		}
 	}
@@ -220,6 +227,7 @@ func (s *OpenAIGatewayService) ClearAccountSchedulingBlock(accountID int64) {
 	defer mu.Unlock()
 	s.openaiAccountRuntimeBlockUntil.Delete(accountID)
 	s.openaiAccountRuntimeBlockGeneration.Store(accountID, s.openaiAccountRuntimeBlockSequence.Add(1))
+	s.openaiAccountRuntimeBlockReason.Delete(accountID)
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRuntimeBlocked(account *Account) bool {
@@ -237,6 +245,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountRuntimeBlocked(account *Account) b
 	if !ok || cooldownUntil.IsZero() {
 		s.openaiAccountRuntimeBlockUntil.Delete(account.ID)
 		s.openaiAccountRuntimeBlockGeneration.Store(account.ID, s.openaiAccountRuntimeBlockSequence.Add(1))
+		s.openaiAccountRuntimeBlockReason.Delete(account.ID)
 		return false
 	}
 	if time.Now().Before(cooldownUntil) {
@@ -244,7 +253,41 @@ func (s *OpenAIGatewayService) isOpenAIAccountRuntimeBlocked(account *Account) b
 	}
 	s.openaiAccountRuntimeBlockUntil.Delete(account.ID)
 	s.openaiAccountRuntimeBlockGeneration.Store(account.ID, s.openaiAccountRuntimeBlockSequence.Add(1))
+	s.openaiAccountRuntimeBlockReason.Delete(account.ID)
 	return false
+}
+
+// OpenAIAccountRuntimeBlockUntil returns the account-wide in-memory scheduling
+// block and its reason. This state is not persisted, so the admin API uses it
+// to make otherwise hidden request-time filters visible.
+func (s *OpenAIGatewayService) OpenAIAccountRuntimeBlockUntil(accountID int64) (time.Time, string, bool) {
+	if s == nil || accountID <= 0 {
+		return time.Time{}, "", false
+	}
+	mu := s.openAIAccountRuntimeBlockLock(accountID)
+	mu.Lock()
+	defer mu.Unlock()
+	value, ok := s.openaiAccountRuntimeBlockUntil.Load(accountID)
+	if !ok {
+		return time.Time{}, "", false
+	}
+	until, ok := value.(time.Time)
+	if !ok || until.IsZero() {
+		s.openaiAccountRuntimeBlockUntil.Delete(accountID)
+		s.openaiAccountRuntimeBlockReason.Delete(accountID)
+		return time.Time{}, "", false
+	}
+	if time.Now().Before(until) {
+		reason := ""
+		if raw, ok := s.openaiAccountRuntimeBlockReason.Load(accountID); ok {
+			reason, _ = raw.(string)
+		}
+		return until, reason, true
+	}
+	s.openaiAccountRuntimeBlockUntil.Delete(accountID)
+	s.openaiAccountRuntimeBlockReason.Delete(accountID)
+	s.openaiAccountRuntimeBlockGeneration.Store(accountID, s.openaiAccountRuntimeBlockSequence.Add(1))
+	return time.Time{}, "", false
 }
 
 func (s *OpenAIGatewayService) getOpenAIAccountModelTransientState() *openAIAccountModelTransientState {
@@ -303,6 +346,36 @@ func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Accou
 	}
 	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
 	return state.isBlocked(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
+}
+
+// OpenAIModelRuntimeBlocks returns all active in-memory account+model
+// cooldowns for the account. This state is not persisted, so the admin API
+// uses it to display request-time exclusions that would otherwise be hidden.
+func (s *OpenAIGatewayService) OpenAIModelRuntimeBlocks(accountID int64) []OpenAIModelRuntimeBlock {
+	if s == nil || accountID <= 0 {
+		return nil
+	}
+	state := s.getOpenAIAccountModelTransientState()
+	if state == nil {
+		return nil
+	}
+	blocks := state.activeBlocks(accountID, time.Now())
+	if len(blocks) == 0 {
+		return nil
+	}
+	models := make([]string, 0, len(blocks))
+	for model := range blocks {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	result := make([]OpenAIModelRuntimeBlock, 0, len(models))
+	for _, model := range models {
+		result = append(result, OpenAIModelRuntimeBlock{
+			Model:        model,
+			BlockedUntil: blocks[model],
+		})
+	}
+	return result
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {

@@ -3,9 +3,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ImportDataModal from '../ImportDataModal.vue'
 
 const showError = vi.fn()
+const showSuccess = vi.fn()
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showSuccess: vi.fn(), showWarning: vi.fn() })
+  useAppStore: () => ({ showError, showSuccess, showWarning: vi.fn() })
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -53,6 +54,7 @@ const makeDataFile = () => {
 describe('ImportDataModal routing defaults', () => {
   beforeEach(async () => {
     showError.mockReset()
+    showSuccess.mockReset()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
     vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
@@ -67,7 +69,8 @@ describe('ImportDataModal routing defaults', () => {
       proxy_reused: 0,
       proxy_failed: 0,
       account_created: 1,
-      account_failed: 0
+      account_failed: 0,
+      created_accounts: [{ id: 300, name: 'brake-imported' }]
     })
   })
 
@@ -92,6 +95,47 @@ describe('ImportDataModal routing defaults', () => {
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
       data: expect.any(Object),
+      apply_proxy_settings: true,
+      default_proxy_id: 22,
+      apply_group_settings: true,
+      default_group_ids: [31],
+      skip_default_group_bind: true
+    })
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess', 8000)
+    expect(wrapper.emitted('imported')).toHaveLength(1)
+    expect(wrapper.emitted('imported')?.[0]).toEqual([[{ id: 300, name: 'brake-imported' }]])
+  })
+
+  it('tags each imported account with the source filename part', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    const wrapper = mountModal()
+    await flushPromises()
+
+    const content = JSON.stringify({
+      type: 'sub2api-data',
+      version: 1,
+      exported_at: '2026-07-19T00:00:00Z',
+      proxies: [],
+      accounts: [{ name: 'account-one', platform: 'openai', type: 'oauth', credentials: { x: 'y' } }]
+    })
+    const file = new File([content], 'chatgpt_pro_us_001.json', { type: 'application/json' })
+    Object.defineProperty(file, 'text', { value: () => Promise.resolve(content) })
+
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [file]
+    })
+    await input.trigger('change')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accounts: [expect.objectContaining({
+          extra: expect.objectContaining({ import_filename: 'chatgpt_pro_us' })
+        })]
+      }),
       apply_proxy_settings: true,
       default_proxy_id: 22,
       apply_group_settings: true,

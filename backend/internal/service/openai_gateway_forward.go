@@ -100,6 +100,23 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
+	normalizedReplayBody, normalizedReplayItems, normalizeReplayErr := normalizeOpenAIResponsesReasoningReplay(body)
+	if normalizeReplayErr != nil {
+		return nil, fmt.Errorf("normalize OpenAI Responses reasoning replay: %w", normalizeReplayErr)
+	}
+	if normalizedReplayItems > 0 {
+		body = normalizedReplayBody
+		originalBody = normalizedReplayBody
+		requestView = newOpenAIRequestView(body)
+		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
+		originalModel = reqModel
+		logger.LegacyPrintf(
+			"service.openai_gateway",
+			"[OpenAI] Normalized plaintext reasoning replay items (account: %s, count: %d)",
+			account.Name,
+			normalizedReplayItems,
+		)
+	}
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
 		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItemIDs(body)
 		if sanitizeErr != nil {

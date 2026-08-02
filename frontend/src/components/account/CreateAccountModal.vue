@@ -4091,7 +4091,7 @@ const form = reactive({
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
   proxy_id: isCloneMode.value ? null : getDefaultProxyId(),
-  concurrency: 4,
+  concurrency: 10,
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
@@ -4877,7 +4877,7 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = isCloneMode.value ? null : getDefaultProxyId()
-  form.concurrency = 4
+  form.concurrency = 10
   form.load_factor = null
   form.priority = 1
   form.rate_multiplier = 1

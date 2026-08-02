@@ -70,7 +70,7 @@ func expectOllamaCloudUsageGroupLock(
 	if account.ProxyID != nil {
 		proxyID = *account.ProxyID
 	}
-	mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
+	mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("extra -> 'deleted'")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
 		WithArgs(apiKey, account.ID, account.Platform, account.Type, string(credentials), proxyID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "anchor_matches", "session", "auto_refresh", "snapshot"}).
 			AddRow(account.ID, anchorMatches, sessionJSON, autoJSON, snapshotJSON))
@@ -178,6 +178,7 @@ func TestListOllamaCloudUsageGroupAccountsUsesOneStrictBatchQuery(t *testing.T) 
 	require.Empty(t, accounts)
 	query := normalizeSQLWhitespace(capturedSQL)
 	require.Contains(t, query, "credentials ->> 'api_key' = ANY($1)")
+	require.Contains(t, query, "extra -> 'deleted'")
 	require.Contains(t, query, "platform IN ('openai', 'anthropic')")
 	require.Contains(t, query, "jsonb_typeof(credentials -> 'api_key') = 'string'")
 	require.Contains(t, query, ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'"))
@@ -205,6 +206,7 @@ func TestListDueOllamaCloudUsageAccountsFiltersOrdersAndLimits(t *testing.T) {
 	normalized := normalizeSQLWhitespace(capturedSQL)
 	for _, clause := range []string{
 		"deleted_at IS NULL",
+		"extra -> 'deleted'",
 		"status = 'active'",
 		"platform IN ('openai', 'anthropic')",
 		"type = 'apikey'",

@@ -11,17 +11,20 @@ export interface SuperPrioritySettings {
   base_strategy: 'default' | 'lowest_cost'
   failure_threshold: number
   check_interval: string
+  liveness_include_unschedulable: boolean
   test_model_id: string
   test_prompt: string
   activated_at: string
   demoted_at: string
   is_active: boolean
+  liveness_runtime: SchedulingLivenessRuntimeStatus
 }
 
 export interface SuperPriorityRuntimeParams {
   base_strategy: 'default' | 'lowest_cost'
   failure_threshold: number
   check_interval: string
+  liveness_include_unschedulable: boolean
   test_model_id: string
   test_prompt: string
 }
@@ -34,6 +37,22 @@ export interface SchedulingRefreshCounts {
   checked: number
   succeeded: number
   failed: number
+  skipped: number
+}
+
+export interface SchedulingLivenessRunStatus {
+  trigger: 'scheduled' | 'manual'
+  started_at: string
+  finished_at: string
+  result: SchedulingRefreshCounts
+  error?: string
+}
+
+export interface SchedulingLivenessRuntimeStatus {
+  enabled: boolean
+  running: boolean
+  next_run_at?: string
+  last_run?: SchedulingLivenessRunStatus
 }
 
 export interface SchedulingRulesRefreshResult {

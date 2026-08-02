@@ -104,7 +104,8 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ImportRoutingOptions from './ImportRoutingOptions.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AdminDataImportResult, AdminDataPayload } from '@/types'
+import type { AdminDataImportedAccount, AdminDataImportResult, AdminDataPayload } from '@/types'
+import { extractImportFilenamePart } from '@/utils/importFilename'
 
 interface Props {
   show: boolean
@@ -112,7 +113,7 @@ interface Props {
 
 interface Emits {
   (e: 'close'): void
-  (e: 'imported'): void
+  (e: 'imported', accounts: AdminDataImportedAccount[]): void
 }
 
 const props = defineProps<Props>()
@@ -168,7 +169,7 @@ const handleClose = () => {
   if (importing.value) return
   if (hasCreatedData.value) {
     hasCreatedData.value = false
-    emit('imported')
+    emit('imported', result.value?.created_accounts ?? [])
   }
   emit('close')
 }
@@ -293,6 +294,14 @@ const handleImport = async () => {
         appStore.showError(t('admin.accounts.dataImportInvalidFile', { name: sourceFile.name }))
         return
       }
+      // Tag each account with the source filename part so the 文件名 column
+      // can show which file the account was imported from.
+      const importFilename = extractImportFilenamePart(sourceFile.name)
+      if (importFilename) {
+        for (const acc of parsed.accounts) {
+          acc.extra = { ...(acc.extra || {}), import_filename: importFilename }
+        }
+      }
       dataPayloads.push(parsed)
     }
     const dataPayload = mergeDataPayloads(dataPayloads)
@@ -320,8 +329,8 @@ const handleImport = async () => {
       }
       appStore.showError(t('admin.accounts.dataImportCompletedWithErrors', msgParams))
     } else {
-      appStore.showSuccess(t('admin.accounts.dataImportSuccess', msgParams))
-      emit('imported')
+      appStore.showSuccess(t('admin.accounts.dataImportSuccess', msgParams), 8000)
+      emit('imported', res.created_accounts ?? [])
     }
   } catch (error: any) {
     appStore.showError(error?.message || t('admin.accounts.dataImportFailed'))

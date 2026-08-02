@@ -64,6 +64,8 @@ func TestListSchedulableAccountLoadsUsesSingleProjectionQuery(t *testing.T) {
 	require.NotContains(t, selectClause, "proxy_id")
 	require.NotContains(t, normalized, "account_groups")
 	require.NotContains(t, normalized, "proxies")
+	require.Contains(t, normalized, "extra", "deleted-staging predicate must inspect account extra")
+	require.Contains(t, normalized, "'deleted'", "deleted-staging accounts must not enter scheduler projections")
 	for _, predicateColumn := range []string{
 		"status",
 		"schedulable",

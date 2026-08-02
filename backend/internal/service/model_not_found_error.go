@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -20,6 +21,99 @@ func isUpstreamModelNotFoundError(statusCode int, body []byte) bool {
 
 func isModelNotFoundError(statusCode int, body []byte) bool {
 	return isUpstreamModelNotFoundError(statusCode, body) || statusCode == http.StatusNotFound
+}
+
+// isUpstreamModelRoutingError reports upstream responses that deterministically
+// reject the requested model rather than the account. Vendors express this as
+// 400, 403, 404, 422, or 503 with model-specific routing language. These
+// responses must not trip account-wide or hidden transient blocks; they should
+// cool only the (account, model) pair through the visible model-rate-limit
+// state.
+func isUpstreamModelRoutingError(statusCode int, body []byte) bool {
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound,
+		http.StatusUnprocessableEntity, http.StatusServiceUnavailable:
+	default:
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" {
+		return false
+	}
+	return containsUpstreamModelRoutingKeyword(normalized)
+}
+
+func containsUpstreamModelRoutingKeyword(normalized string) bool {
+	if normalized == "" {
+		return false
+	}
+	modelIndicated := strings.Contains(normalized, "model") || strings.Contains(normalized, "模型")
+	if !modelIndicated {
+		return false
+	}
+	for _, phrase := range []string{
+		"model not found",
+		"unknown model",
+		"model not allowed",
+		"model is not allowed",
+		"no available channel for model",
+		"model not supported",
+		"model is not supported",
+		"does not support model",
+		"model does not exist",
+		"model doesn't exist",
+		"unsupported model",
+		"invalid model",
+		"model unavailable",
+		"not supported model",
+		"不支持模型",
+	} {
+		if strings.Contains(normalized, phrase) {
+			return true
+		}
+	}
+	return strings.Contains(normalized, "not supported") ||
+		strings.Contains(normalized, "not allowed") ||
+		strings.Contains(normalized, "not found") ||
+		(strings.Contains(normalized, "模型") && strings.Contains(normalized, "不支持"))
+}
+
+// isAccountTestUnsupportedModelError classifies structured upstream responses
+// that reject only the selected model. Account tests prefix the JSON payload
+// with transport context, so parse the payload instead of matching the entire
+// rendered error string.
+func isAccountTestUnsupportedModelError(errorMessage string) bool {
+	jsonStart := strings.IndexByte(errorMessage, '{')
+	if jsonStart < 0 {
+		return false
+	}
+
+	var payload any
+	if err := json.Unmarshal([]byte(errorMessage[jsonStart:]), &payload); err != nil {
+		return false
+	}
+	return containsUnsupportedModelValue(payload)
+}
+
+func containsUnsupportedModelValue(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, nested := range typed {
+			if containsUnsupportedModelValue(nested) {
+				return true
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if containsUnsupportedModelValue(nested) {
+				return true
+			}
+		}
+	case string:
+		normalized := normalizeModelNotFoundBody([]byte(typed))
+		return containsUpstreamModelRoutingKeyword(normalized)
+	}
+	return false
 }
 
 // openAICodexPlanGatedModelPhrase matches the deterministic Codex 400 returned

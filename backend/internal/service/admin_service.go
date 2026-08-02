@@ -69,7 +69,7 @@ type AdminService interface {
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
 
 	// Account management
-	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled bool) ([]Account, int64, error)
+	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled, deleted bool) ([]Account, int64, error)
 	// ListAccountsForSchedulerScoreFilter 返回符合过滤条件的全部账号（不分页），
 	// 作为账号列表页计算 OpenAI 调度分数的过滤范围池。
 	ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]Account, error)
@@ -92,7 +92,7 @@ type AdminService interface {
 	DeleteAccount(ctx context.Context, id int64) error
 	RecycleAccount(ctx context.Context, id int64) error
 	RestoreAccount(ctx context.Context, id int64) error
-	// Recycle bin: list soft-deleted accounts (archive only, no connect/refresh/schedule)
+	// Legacy recycle bin compatibility for accounts soft-deleted by older builds.
 	ListTrashedAccounts(ctx context.Context, page, pageSize int, platform, accountType, search string) ([]Account, int64, error)
 	// RestoreFromTrash un-deletes a soft-deleted account, re-creates its group associations,
 	// and re-enters it into the scheduler.

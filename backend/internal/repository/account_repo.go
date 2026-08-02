@@ -768,15 +768,8 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	// Save group associations into extra.recycle_bin_groups so the recycle bin
-	// can fully restore them later. This is done before the AccountGroup rows
-	// are physically deleted below.
-	if len(groupIDs) > 0 {
-		if err := r.UpdateExtra(ctx, id, map[string]any{"recycle_bin_groups": groupIDs}); err != nil {
-			return err
-		}
-	}
-	// 使用事务保证账号与关联分组的删除原子性
+	// Delete is a recoverable second-level staging transition. Preserve the
+	// account, credentials, group bindings, scheduled plans, and usage history.
 	tx, err := r.client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
@@ -791,14 +784,23 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 		txClient = r.client
 	}
 
-	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(id)).Exec(ctx); err != nil {
+	result, err := txClient.ExecContext(ctx, `
+		UPDATE accounts
+		SET extra = (COALESCE(extra, '{}'::jsonb) - 'recycled') || '{"deleted": true}'::jsonb,
+			updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, id)
+	if err != nil {
 		return err
 	}
-	if _, err := txClient.ExecContext(ctx, "DELETE FROM scheduled_test_plans WHERE account_id = $1", id); err != nil {
+	affected, err := result.RowsAffected()
+	if err != nil {
 		return err
 	}
-	// SoftDeleteMixin intercepts this and converts it to UPDATE deleted_at=NOW()
-	if _, err := txClient.Account.Delete().Where(dbaccount.IDEQ(id)).Exec(ctx); err != nil {
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventAccountChanged, &id, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
 		return err
 	}
 
@@ -808,9 +810,6 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 		}
 	}
 	r.deleteSchedulerAccountSnapshot(ctx, id)
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account delete failed: account=%d err=%v", id, err)
-	}
 	return nil
 }
 
@@ -859,7 +858,11 @@ func (r *accountRepository) RestoreTrashedAccount(ctx context.Context, id int64)
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
 	if acc.DeletedAt == nil {
-		return service.ErrAccountNotFound
+		account := accountEntityToService(acc)
+		if account == nil || !account.IsDeletedStaging() {
+			return service.ErrAccountNotFound
+		}
+		return r.UpdateExtra(ctx, id, map[string]any{service.AccountDeletedStagingExtraKey: false})
 	}
 
 	// Extract saved group associations from extra.recycle_bin_groups
@@ -908,7 +911,12 @@ func (r *accountRepository) RestoreTrashedAccount(ctx context.Context, id int64)
 	}
 
 	// Clear the recycle_bin_groups key from extra via raw SQL (Ent has no RemoveExtra)
-	if _, err := txClient.ExecContext(trashCtx, "UPDATE accounts SET extra = extra - 'recycle_bin_groups', updated_at = NOW() WHERE id = $1", id); err != nil {
+	if _, err := txClient.ExecContext(trashCtx, `
+		UPDATE accounts
+		SET extra = (COALESCE(extra, '{}'::jsonb) - 'recycle_bin_groups' - 'recycled') || '{"deleted": false}'::jsonb,
+			updated_at = NOW()
+		WHERE id = $1
+	`, id); err != nil {
 		return err
 	}
 
@@ -926,15 +934,16 @@ func (r *accountRepository) RestoreTrashedAccount(ctx context.Context, id int64)
 	return nil
 }
 
-// PermanentDelete physically removes a soft-deleted account and all remaining associations.
+// PermanentDelete physically removes a deleted-staging or legacy soft-deleted
+// account and all remaining associations.
 func (r *accountRepository) PermanentDelete(ctx context.Context, id int64) error {
 	trashCtx := mixins.SkipSoftDelete(ctx)
 	acc, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(trashCtx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
-	if acc.DeletedAt == nil {
-		// Not soft-deleted; refuse permanent delete to prevent accidental data loss
+	if !accountCanBePermanentlyDeleted(acc) {
+		// Refuse permanent deletion of normal and first-level staged accounts.
 		return service.ErrAccountNotFound
 	}
 
@@ -969,9 +978,20 @@ func (r *accountRepository) PermanentDelete(ctx context.Context, id int64) error
 	return nil
 }
 
+func accountCanBePermanentlyDeleted(acc *dbent.Account) bool {
+	if acc == nil {
+		return false
+	}
+	if acc.DeletedAt != nil {
+		return true
+	}
+	account := accountEntityToService(acc)
+	return account != nil && account.IsDeletedStaging()
+}
+
 // RecycleAccount marks an account as recycled by setting extra.recycled=true.
 func (r *accountRepository) RecycleAccount(ctx context.Context, id int64) error {
-	return r.UpdateExtra(ctx, id, map[string]any{"recycled": true})
+	return r.UpdateExtra(ctx, id, map[string]any{"recycled": true, service.AccountDeletedStagingExtraKey: false})
 }
 
 // RestoreAccount removes the recycled mark by setting extra.recycled=false.
@@ -983,8 +1003,27 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", false)
 }
 
-func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) *dbent.AccountQuery {
+func accountDeletedStagingPredicate(deleted bool) dbpredicate.Account {
+	return dbpredicate.Account(func(s *entsql.Selector) {
+		path := sqljson.Path(service.AccountDeletedStagingExtraKey)
+		if deleted {
+			s.Where(sqljson.ValueEQ(dbaccount.FieldExtra, true, path))
+			return
+		}
+		s.Where(entsql.Or(
+			entsql.Not(sqljson.HasKey(dbaccount.FieldExtra, path)),
+			sqljson.ValueNEQ(dbaccount.FieldExtra, true, path),
+		))
+	})
+}
+
+func accountNotDeletedStagingPredicate() dbpredicate.Account {
+	return accountDeletedStagingPredicate(false)
+}
+
+func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, recycled, deleted bool) *dbent.AccountQuery {
 	q := r.client.Account.Query()
+	q = q.Where(accountDeletedStagingPredicate(deleted))
 
 	// recycled filter: extra.recycled flag controls trash/restore visibility
 	recycledPath := sqljson.Path("recycled")
@@ -1097,7 +1136,7 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 }
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, recycled)
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, recycled, false)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1126,8 +1165,29 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
+func (r *accountRepository) ListDeletedWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, false, true)
+	total, err := q.Clone().Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	accountsQuery := q.Offset(params.Offset()).Limit(params.Limit())
+	for _, order := range accountListOrder(params) {
+		accountsQuery = accountsQuery.Order(order)
+	}
+	accounts, err := accountsQuery.All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	out, err := r.accountsToService(ctx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, paginationResultFromTotal(int64(total), params), nil
+}
+
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, recycled bool) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, recycled).All(ctx)
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, recycled, false).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1139,7 +1199,7 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 		return []service.Account{}, nil
 	}
 
-	q := r.client.Account.Query()
+	q := r.client.Account.Query().Where(accountNotDeletedStagingPredicate())
 	if platformFilter = strings.TrimSpace(platformFilter); platformFilter != "" {
 		q = q.Where(dbaccount.PlatformEQ(platformFilter))
 	}
@@ -1273,7 +1333,7 @@ func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]s
 
 func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, error) {
 	accounts, err := r.client.Account.Query().
-		Where(dbaccount.StatusEQ(service.StatusActive)).
+		Where(dbaccount.StatusEQ(service.StatusActive), accountNotDeletedStagingPredicate()).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
 	if err != nil {
@@ -1302,6 +1362,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 		FROM accounts
 		WHERE deleted_at IS NULL
 			AND schedulable = TRUE
+			AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 			AND platform = ANY($1)
 			AND id > $2`
 	if options.ActiveOnly {
@@ -1383,6 +1444,7 @@ func (r *accountRepository) ListByPlatform(ctx context.Context, platform string)
 		Where(
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
+			accountNotDeletedStagingPredicate(),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
@@ -1772,6 +1834,10 @@ func (r *accountRepository) syncSchedulerAccountSnapshot(ctx context.Context, ac
 		logger.LegacyPrintf("repository.account", "[Scheduler] sync account snapshot read failed: id=%d err=%v", accountID, err)
 		return
 	}
+	if account.IsDeletedStaging() {
+		r.deleteSchedulerAccountSnapshot(ctx, accountID)
+		return
+	}
 	if err := r.schedulerCache.SetAccount(ctx, account); err != nil {
 		logger.LegacyPrintf("repository.account", "[Scheduler] sync account snapshot write failed: id=%d err=%v", accountID, err)
 	}
@@ -1995,6 +2061,7 @@ func (r *accountRepository) schedulableAccountsQuery(now time.Time) *dbent.Accou
 		Where(
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountNotDeletedStagingPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2051,6 +2118,7 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 		JOIN accounts a ON a.id = ag.account_id
 		WHERE ag.group_id = ANY($1)
 			AND a.deleted_at IS NULL
+			AND COALESCE(a.extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 			AND a.status = $2
 			AND a.schedulable = TRUE
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= $3)
@@ -2101,6 +2169,7 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountNotDeletedStagingPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2135,6 +2204,7 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountNotDeletedStagingPredicate(),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -2155,6 +2225,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountNotDeletedStagingPredicate(),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
@@ -2179,6 +2250,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountNotDeletedStagingPredicate(),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
@@ -2231,6 +2303,7 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 		dbaccount.StatusEQ(service.StatusActive),
 		dbaccount.SchedulableEQ(true),
 		dbaccount.PlatformIn(platforms...),
+		accountNotDeletedStagingPredicate(),
 	}
 	if !includeGrouped {
 		preds = append(preds, dbaccount.Not(dbaccount.HasAccountGroups()))
@@ -2608,6 +2681,7 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 		SET schedulable = FALSE,
 			updated_at = NOW()
 		WHERE deleted_at IS NULL
+			AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 			AND schedulable = TRUE
 			AND auto_pause_on_expired = TRUE
 			AND expires_at IS NOT NULL
@@ -2643,9 +2717,9 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 	return int64(len(accountIDs)), nil
 }
 
-// UpdateSchedulingLiveness stores the probe snapshot and owns only status
-// transitions created by this probe. It deliberately preserves schedulable so
-// manual scheduling pauses remain independent from connection health.
+// UpdateSchedulingLiveness stores an observation used by lowest-cost routing.
+// Probe results never mutate the operator-controlled status or schedulable
+// fields. Every update is published so all scheduler replicas see fresh state.
 func (r *accountRepository) UpdateSchedulingLiveness(ctx context.Context, id int64, snapshot *service.AccountSchedulingLiveness) error {
 	if r == nil || r.sql == nil {
 		return errors.New("account repository SQL executor is not configured")
@@ -2658,70 +2732,23 @@ func (r *accountRepository) UpdateSchedulingLiveness(ctx context.Context, id int
 	if err != nil {
 		return err
 	}
-	isDead := snapshot.Status == service.SchedulingLivenessStatusDead
-	isAlive := snapshot.Status == service.SchedulingLivenessStatusAlive
-	errorMessage := service.SchedulingLivenessErrorPrefix + strings.TrimSpace(snapshot.LastError)
-	if strings.TrimSpace(snapshot.LastError) == "" {
-		errorMessage = strings.TrimSpace(service.SchedulingLivenessErrorPrefix)
-	}
-	errorPattern := strings.TrimSpace(service.SchedulingLivenessErrorPrefix) + "%"
-
 	_, err = r.sql.ExecContext(ctx, `
-		WITH current AS (
-			SELECT
-				a.id,
-				a.status,
-				a.error_message,
-				a.extra,
-				(
-					a.status = $4
-					AND COALESCE(a.extra -> $10 ->> $11, '') = 'true'
-					AND BTRIM(a.error_message) LIKE $7
-				) AS owns_liveness_error
-			FROM accounts AS a
-			WHERE a.id = $2 AND a.deleted_at IS NULL
-			FOR UPDATE
-		),
-		updated AS (
-			UPDATE accounts AS a
-			SET extra = COALESCE(a.extra, '{}'::jsonb) || jsonb_build_object(
-					$10,
-					$1::jsonb || jsonb_build_object(
-						$11,
-						CASE WHEN $5 AND (c.status = $3 OR c.owns_liveness_error) THEN TRUE ELSE FALSE END
-					)
-				),
-				status = CASE
-					WHEN $5 AND c.status = $3 THEN $4
-					WHEN $6 AND c.owns_liveness_error THEN $3
-					ELSE c.status
-				END,
-				error_message = CASE
-					WHEN $5 AND (c.status = $3 OR c.owns_liveness_error) THEN $8
-					WHEN $6 AND c.owns_liveness_error THEN ''
-					ELSE c.error_message
-				END,
+		WITH updated AS (
+			UPDATE accounts
+			SET extra = COALESCE(extra, '{}'::jsonb) || jsonb_build_object($4::text, $1::jsonb),
 				updated_at = NOW()
-			FROM current AS c
-			WHERE a.id = c.id
-			RETURNING a.id, a.status IS DISTINCT FROM c.status AS status_changed
+			WHERE id = $2 AND deleted_at IS NULL
+				AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
+			RETURNING id
 		)
 		INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
-		SELECT $9, updated.id, NULL, NULL
+		SELECT $3, updated.id, NULL, NULL
 		FROM updated
-		WHERE updated.status_changed
 	`,
 		string(payload),
 		id,
-		service.StatusActive,
-		service.StatusError,
-		isDead,
-		isAlive,
-		errorPattern,
-		errorMessage,
 		service.SchedulerOutboxEventAccountChanged,
 		service.SchedulingLivenessExtraKey,
-		service.SchedulingLivenessStatusManagedExtraKey,
 	)
 	if err != nil {
 		return err
@@ -2889,6 +2916,7 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 			AND COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb
 			AND COALESCE(extra -> 'upstream_billing_probe_enabled', 'null'::jsonb) = $8::jsonb
 			AND deleted_at IS NULL
+			AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 	`
 	args := []any{string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON)}
 	if resolvedRate, ok := service.ResolvedSchedulingRateFromProbeSnapshot(snapshot); ok {
@@ -3223,8 +3251,8 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		Where(dbaccountgroup.GroupIDEQ(groupID))
 
 	// 通过 account_groups 中间表查询账号，并按需叠加状态/平台/调度能力过滤。
-	preds := make([]dbpredicate.Account, 0, 6)
-	preds = append(preds, dbaccount.DeletedAtIsNil())
+	preds := make([]dbpredicate.Account, 0, 7)
+	preds = append(preds, dbaccount.DeletedAtIsNil(), accountNotDeletedStagingPredicate())
 	if opts.status != "" {
 		preds = append(preds, dbaccount.StatusEQ(opts.status))
 	}
@@ -3682,6 +3710,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				extra #>> '{upstream_billing_probe,next_probe_at}' AS next_probe_at
 			FROM accounts
 			WHERE deleted_at IS NULL
+				AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 				AND status = 'active'
 				AND platform = 'openai'
 				AND type = 'apikey'

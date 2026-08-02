@@ -21,6 +21,11 @@ type schedulingRefresher interface {
 	RefreshNow(context.Context) (service.SchedulingRefreshResult, error)
 }
 
+type schedulingLivenessRefresher interface {
+	schedulingRefresher
+	RuntimeStatus() service.SchedulingLivenessRuntimeStatus
+}
+
 // semverPattern 预编译 semver 格式校验正则
 var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
@@ -67,7 +72,7 @@ type SettingHandler struct {
 	totpService              *service.TotpService
 	userService              *service.UserService
 	superPriorityService     *service.SuperPriorityService
-	schedulingLiveness       schedulingRefresher
+	schedulingLiveness       schedulingLivenessRefresher
 	upstreamBilling          schedulingRefresher
 }
 
@@ -107,7 +112,7 @@ func (h *SettingHandler) SetSuperPriorityService(superPriorityService *service.S
 
 // SetSchedulingRefreshers attaches the two periodic workers used by the
 // scheduling-rules manual refresh endpoint.
-func (h *SettingHandler) SetSchedulingRefreshers(liveness, upstreamBilling schedulingRefresher) {
+func (h *SettingHandler) SetSchedulingRefreshers(liveness schedulingLivenessRefresher, upstreamBilling schedulingRefresher) {
 	h.schedulingLiveness = liveness
 	h.upstreamBilling = upstreamBilling
 }

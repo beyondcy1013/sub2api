@@ -109,17 +109,23 @@ node "$PNPM9" build
 重点检查 profile/capability、错误品牌、凭据、sticky spillover/reassignment、balance
 worker/settings、回收站、clone、账号表、active-only usage 和 rate-limit 恢复测试。
 
+上游升级属于完整门禁场景。正式构建必须使用
+`bash scripts/build-unified-release.sh --full`，不得使用默认 quick 模式；上面的命令可用于
+合并冲突排查和分段复测，完整构建脚本仍会在冻结源码快照内强制重新执行全套验证。
+
 ## 4. 一次构建
 
-必须先生成 `frontend/dist`，再只构建一次：
+通过 webClx 部署 API 排队以下完整构建命令；必须先生成 `frontend/dist`，再只构建一次：
 
 ```bash
-cd /home/third_party/sub2api/backend
-BUILD_OUT=/home/third_party/sub2api/backend/bin/sub2api-unified.new
-CGO_ENABLED=0 go build -tags embed -o "$BUILD_OUT" ./cmd/server/
-go version -m "$BUILD_OUT" | rg 'tags=embed|CGO_ENABLED=0'
-sha256sum "$BUILD_OUT"
+cd /home/third_party/sub2api
+bash scripts/build-unified-release.sh --full
 ```
+
+日常小范围改动的自动部署不带模式参数，因此默认走 quick；本手册描述的上游升级始终显式
+使用 `--full`。构建产物仍为
+`/home/third_party/sub2api/backend/bin/sub2api-unified.new`，并由脚本验证
+`embed`、`CGO_ENABLED=0` 和 SHA-256。
 
 ## 5. 原子部署两次
 

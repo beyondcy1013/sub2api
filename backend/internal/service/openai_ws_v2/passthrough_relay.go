@@ -244,13 +244,20 @@ func Relay(
 		options.OnUsageParseFailure,
 		options.OnTurnComplete,
 		options.BeforeWriteClient,
-		options.BeforeClientWrite,
-		options.AfterClientWrite,
 		func(msgType coderws.MessageType, payload []byte) {
+			if options.BeforeClientWrite != nil {
+				options.BeforeClientWrite(msgType, payload)
+			}
 			if options.StartClientAfterFirstDownstream {
+				// Start the control-plane reader before the first downstream
+				// frame can become visible to the peer. Otherwise the peer can
+				// react to that frame and cancel the outer context while no
+				// reader exists to deliver the precise close code.
 				startClientReader()
 			}
 		},
+		options.AfterClientWrite,
+		nil,
 		&dropDownstreamWrites,
 		upstreamToClientFrames,
 		droppedDownstreamFrames,

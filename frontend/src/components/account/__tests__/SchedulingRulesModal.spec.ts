@@ -11,7 +11,12 @@ const api = vi.hoisted(() => ({
   refreshSchedulingRules: vi.fn()
 }))
 
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) =>
+      params ? `${key}:${JSON.stringify(params)}` : key
+  })
+}))
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     superPriority: {
@@ -27,6 +32,33 @@ vi.mock('@/api/admin', () => ({
 const flush = async () => await Promise.resolve()
 
 describe('SchedulingRulesModal', () => {
+  it('shows algorithm help beside the dialog title and reveals it on hover', async () => {
+    const wrapper = mount(SchedulingRulesModal, {
+      attachTo: document.body,
+      props: { show: false },
+      global: {
+        stubs: {
+          BaseDialog: {
+            props: ['title'],
+            template: '<div><div>{{ title }}<slot name="title-actions" /></div><slot /><slot name="footer" /></div>'
+          }
+        }
+      }
+    })
+
+    expect(wrapper.get('[data-testid="scheduling-rules-help"]').text()).toBe('admin.accounts.schedulingRules.help')
+    await wrapper.getComponent({ name: 'HelpTooltip' }).get('.group').trigger('mouseenter')
+    await flush()
+
+    const tooltip = document.body.querySelector('[role="tooltip"]')
+    expect(tooltip).not.toBeNull()
+    expect((tooltip as HTMLElement).style.display).not.toBe('none')
+    expect(tooltip?.textContent).toContain('admin.accounts.schedulingRules.helpLowestCost')
+    expect(tooltip?.textContent).toContain('admin.accounts.schedulingRules.helpLiveness')
+
+    wrapper.unmount()
+  })
+
   it('saves the selected lowest-cost rule, disables the legacy overlay, and updates the probe interval', async () => {
     api.getSuperPriority.mockResolvedValue({ mode: 'super_priority', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: true })
     api.getProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: false })
@@ -40,9 +72,13 @@ describe('SchedulingRulesModal', () => {
 
     await flush()
     await flush()
+    expect(wrapper.get('[data-testid="scheduling-rule-strategy-group"]').attributes('aria-label')).toBe('admin.accounts.schedulingRules.strategy')
+    expect(wrapper.get('[data-testid="scheduling-rule-liveness-include-unschedulable"]').element).toHaveProperty('checked', false)
     await wrapper.get('[data-testid="scheduling-rule-lowest-cost"]').trigger('click')
     await wrapper.get('[data-testid="scheduling-rule-liveness-interval"]').setValue(3)
     await wrapper.get('[data-testid="scheduling-rule-liveness-threshold"]').setValue(4)
+    expect(wrapper.find('[data-testid="scheduling-rule-liveness-abnormal-only"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="scheduling-rule-liveness-include-unschedulable"]').setValue(true)
     await wrapper.get('[data-testid="scheduling-rule-interval"]').setValue(5)
     await wrapper.get('[data-testid="scheduling-rule-notify-on-change-only"]').setValue(true)
     await wrapper.get('[data-testid="scheduling-rule-save"]').trigger('click')
@@ -53,10 +89,12 @@ describe('SchedulingRulesModal', () => {
     expect(api.updateSuperPriority).toHaveBeenCalledWith(expect.objectContaining({
       base_strategy: 'lowest_cost',
       check_interval: '@every 3m',
-      failure_threshold: 4
+      failure_threshold: 4,
+      liveness_include_unschedulable: true
     }))
     expect(api.updateProbeSettings).toHaveBeenCalledWith({ enabled: true, interval_minutes: 5, notify_on_change_only: true })
     expect(wrapper.emitted('saved')).toHaveLength(1)
+    wrapper.unmount()
   })
 
   it('runs an immediate scheduling refresh without closing the dialog', async () => {
@@ -81,5 +119,44 @@ describe('SchedulingRulesModal', () => {
     expect(api.refreshSchedulingRules).toHaveBeenCalledOnce()
     expect(wrapper.emitted('refreshed')).toEqual([[result]])
     expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('shows the server countdown and latest liveness result in the upper-right header', async () => {
+    api.getSuperPriority.mockResolvedValue({
+      mode: 'normal', base_strategy: 'lowest_cost', failure_threshold: 2, check_interval: '@every 1m',
+      liveness_include_unschedulable: false, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: false,
+      liveness_runtime: {
+        enabled: true,
+        running: false,
+        next_run_at: new Date(Date.now() + 90_000).toISOString(),
+        last_run: {
+          trigger: 'scheduled',
+          started_at: '2026-07-27T12:00:00Z',
+          finished_at: '2026-07-27T12:00:05Z',
+          result: { checked: 4, succeeded: 2, failed: 1, skipped: 1 }
+        }
+      }
+    })
+    api.getProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: false })
+    const wrapper = mount(SchedulingRulesModal, {
+      props: { show: true },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot name="header-actions" /><slot /><slot name="footer" /></div>' }
+        }
+      }
+    })
+
+    await flush()
+    await flush()
+
+    const runtime = wrapper.get('[data-testid="scheduling-rules-runtime"]')
+    expect(runtime.text()).toContain('admin.accounts.schedulingRules.runtimeCountdown')
+    expect(runtime.text()).toContain('"duration":"00:01:30"')
+    expect(runtime.text()).toContain('admin.accounts.schedulingRules.runtimeLastResult')
+    expect(wrapper.get('[data-testid="scheduling-rule-liveness-include-unschedulable"]').element).toHaveProperty('checked', false)
+
+    wrapper.unmount()
   })
 })

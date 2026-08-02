@@ -82,6 +82,12 @@ type Account struct {
 	headerOverrideCacheRawSig         uint64
 }
 
+// AccountDeletedStagingExtraKey marks the recoverable second-level staging
+// state used by the admin account table. It is intentionally separate from
+// deleted_at: operators can still inspect and edit the complete account while
+// automated routing and probe workers must ignore it.
+const AccountDeletedStagingExtraKey = "deleted"
+
 type OpenAIEndpointCapability string
 
 const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
@@ -149,6 +155,10 @@ func (a *Account) IsSyntheticUITest() bool {
 	return ok && enabled
 }
 
+func (a *Account) IsDeletedStaging() bool {
+	return a != nil && a.getExtraBool(AccountDeletedStagingExtraKey)
+}
+
 // BillingRateMultiplier 返回账号计费倍率。
 // - nil 表示未配置/旧缓存缺字段，按 1.0 处理
 // - 允许 0，表示该账号计费为 0
@@ -177,7 +187,7 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
-	if !a.IsActive() || !a.Schedulable {
+	if a == nil || a.IsDeletedStaging() || !a.IsActive() || !a.Schedulable {
 		return false
 	}
 	now := time.Now()
@@ -212,7 +222,7 @@ func (a *Account) IsSchedulable() bool {
 // 手动 Schedulable 开关:spark 影子拥有独立 spark 配额窗口,母账号 global 429(走 RateLimitResetAt)
 // 不应连坐 spark(否则重新耦合影子架构本应解耦的两条 429 道)。nil receiver 返回 false。
 func (a *Account) IsCredentialUsableForShadow() bool {
-	if a == nil || !a.IsActive() {
+	if a == nil || a.IsDeletedStaging() || !a.IsActive() {
 		return false
 	}
 	now := time.Now()

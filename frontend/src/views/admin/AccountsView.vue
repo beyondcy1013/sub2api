@@ -16,13 +16,17 @@
             :loading="loading"
             :show-filters="showFilters"
             :recycled="recycled"
+            :deleted="deleted"
             @toggle-filters="showFilters = !showFilters"
             @toggle-recycled="toggleRecycled"
+            @toggle-deleted="toggleDeleted"
             @refresh="handleManualRefresh"
-            @create="showCreate = true"
-            @view-trash="showTrashBin = true"
+            @create="openCreateAccountModal"
             @scheduling-rules="openSchedulingRulesModal"
           >
+            <template #before>
+              <AccountSchedulingRuntimeSummary ref="schedulingRuntimeSummaryRef" />
+            </template>
             <template #after>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
@@ -114,6 +118,12 @@
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.accounts.enhancedImport') }}</span>
                       </button>
+                      <button class="account-tools-menu-item" @click="openEnhancedImportClear">
+                        <span class="account-tools-menu-icon bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-300">
+                          <Icon name="trash" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.enhancedImportClearButton') }}</span>
+                      </button>
                       <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
                         <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
                           <Icon name="download" size="sm" />
@@ -199,6 +209,8 @@
           :selected-ids="selIds"
           :quick-updating="quickBulkUpdating"
           :refreshing-usage="refreshingUsage"
+          :testing-selected="testingSelected"
+          :show-delete="!deleted"
           :proxies="proxies"
           :groups="groups"
           :total-results="pagination.total"
@@ -209,6 +221,7 @@
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
           @refresh-usage="handleBulkRefreshUsage"
+          @test-and-mark="handleBatchTestAndMark"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -239,6 +252,7 @@
           :estimate-row-height="36"
           :overscan="5"
           :virtualize-threshold="50"
+          :row-class="getAccountRowClass"
         >
           <template #header-select>
             <input
@@ -283,11 +297,19 @@
               </span>
             </div>
           </template>
-          <template #cell-notes="{ value }">
-            <span v-if="value" :title="value" class="whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
+         <template #cell-notes="{ value }">
+           <span v-if="value" :title="value" class="whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
+           <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+         </template>
+          <template #cell-import_filename="{ row }">
+            <span
+              v-if="row.extra?.import_filename"
+              :title="row.extra.import_filename"
+              class="whitespace-nowrap text-sm text-gray-600 dark:text-gray-300"
+            >{{ row.extra.import_filename }}</span>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
-          <template #cell-platform_type="{ row }">
+         <template #cell-platform_type="{ row }">
             <div class="inline-flex items-center gap-1 whitespace-nowrap">
               <div class="inline-flex flex-nowrap items-center gap-1">
                 <PlatformTypeBadge :platform="row.platform" :type="row.type"
@@ -513,8 +535,38 @@
           </template>
           <template #cell-actions="{ row }">
             <div class="flex min-w-max flex-nowrap items-center gap-1.5 whitespace-nowrap">
-              <template v-if="recycled">
+              <button
+                data-test="account-edit-action"
+                @click="handleEdit(row)"
+                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-gray-200 px-2 text-xs font-medium leading-none text-gray-700 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                :title="t('common.edit')"
+                :aria-label="t('common.edit')"
+              >
+                {{ t('common.edit') }}
+              </button>
+              <button
+                data-test="account-test-action"
+                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
+                :title="t('admin.accounts.testConnection')"
+                :aria-label="t('admin.accounts.testConnection')"
+                @click="handleTest(row)"
+              >
+                {{ t('admin.accounts.testConnection') }}
+              </button>
+              <template v-if="deleted">
                 <button
+                  data-test="account-restore-deleted-action"
+                  @click="handleRestoreDeleted(row)"
+                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
+                  :title="t('admin.accounts.restoreDeleted')"
+                  :aria-label="t('admin.accounts.restoreDeleted')"
+                >
+                  {{ t('admin.accounts.restoreDeleted') }}
+                </button>
+              </template>
+              <template v-else-if="recycled">
+                <button
+                  data-test="account-restore-action"
                   @click="handleRestore(row)"
                   class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
                   :title="t('admin.accounts.restore')"
@@ -524,24 +576,6 @@
                 </button>
               </template>
               <template v-else>
-                <button
-                  data-test="account-edit-action"
-                  @click="handleEdit(row)"
-                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-gray-200 px-2 text-xs font-medium leading-none text-gray-700 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                  :title="t('common.edit')"
-                  :aria-label="t('common.edit')"
-                >
-                  {{ t('common.edit') }}
-                </button>
-                <button
-                  data-test="account-test-action"
-                  class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
-                  :title="t('admin.accounts.testConnection')"
-                  :aria-label="t('admin.accounts.testConnection')"
-                  @click="handleTest(row)"
-                >
-                  {{ t('admin.accounts.testConnection') }}
-                </button>
                 <button
                   data-test="account-recycle-action"
                   @click="handleRecycle(row)"
@@ -568,10 +602,10 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountsCreated" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" />
     <SchedulingRulesModal
       :show="showSchedulingRules"
       @close="closeSchedulingRulesModal"
@@ -596,9 +630,9 @@
     <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
-    <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
+    <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="handleAccountsCreated" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
-    <EnhancedImportDataModal :show="showEnhancedImportData" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
+    <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
     <BulkEditAccountModal
       :show="showBulkEdit"
       :account-ids="selIds"
@@ -613,6 +647,7 @@
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
+    <ConfirmDialog :show="showTestRecoveryDialog" :title="t('admin.accounts.testRecoveryTitle')" :message="t('admin.accounts.testRecoveryMessage', { name: testRecoveryAcc?.name })" :confirm-text="t('admin.accounts.recoverState')" :cancel-text="t('common.cancel')" @confirm="confirmTestRecovery" @cancel="cancelTestRecovery" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
@@ -621,7 +656,6 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
-    <TrashBinModal :show="showTrashBin" @close="showTrashBin = false" @restored="reload" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
@@ -647,6 +681,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
+import AccountSchedulingRuntimeSummary from '@/components/admin/account/AccountSchedulingRuntimeSummary.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
@@ -659,7 +694,6 @@ import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
 import AccountBalanceQueryModal from '@/components/admin/account/AccountBalanceQueryModal.vue'
-import TrashBinModal from '@/components/admin/account/TrashBinModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import type { ScheduledAccountActionType } from '@/api/admin/accounts'
@@ -686,7 +720,7 @@ import { refreshAccountUsageInBatches } from '@/utils/batchAccountUsageRefresh'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress, UpdateSchedulingRateRequest } from '@/types'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress, UpdateSchedulingRateRequest, AdminDataImportedAccount } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -697,6 +731,7 @@ const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
+const schedulingRuntimeSummaryRef = ref<InstanceType<typeof AccountSchedulingRuntimeSummary> | null>(null)
 type AccountBulkEditTarget =
   | {
       mode: 'selected'
@@ -737,30 +772,86 @@ const selTypes = computed<AccountType[]>(() => {
   return [...types]
 })
 const showCreate = ref(false)
+type RecentlyCreatedHighlightPhase = 'red' | 'orange'
+
+const RECENTLY_CREATED_RED_MS = 10_000
+const RECENTLY_CREATED_TOTAL_MS = 20_000
+const recentlyCreatedAccountIds = ref<Set<number>>(new Set())
+const recentlyCreatedAccounts = ref<Account[]>([])
+const recentlyCreatedHighlightPhase = ref<RecentlyCreatedHighlightPhase>('red')
+let accountIdsBeforeCreate: Set<number> | null = null
+let accountPageBeforeCreate = 1
+let accountListReadyBeforeCreate = false
+let accountCreateOpenedAt = 0
+let recentlyCreatedPhaseTimer: ReturnType<typeof setTimeout> | null = null
+let recentlyCreatedClearTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearRecentlyCreatedHighlight = () => {
+  if (recentlyCreatedPhaseTimer) {
+    clearTimeout(recentlyCreatedPhaseTimer)
+    recentlyCreatedPhaseTimer = null
+  }
+  if (recentlyCreatedClearTimer) {
+    clearTimeout(recentlyCreatedClearTimer)
+    recentlyCreatedClearTimer = null
+  }
+  recentlyCreatedAccountIds.value = new Set()
+  recentlyCreatedAccounts.value = []
+  recentlyCreatedHighlightPhase.value = 'red'
+}
+
+const beginAccountAdditionTracking = () => {
+  accountIdsBeforeCreate = new Set(accounts.value.map(account => account.id))
+  accountPageBeforeCreate = pagination.page
+  accountListReadyBeforeCreate = !loading.value
+  accountCreateOpenedAt = Date.now()
+}
+
+const openCreateAccountModal = () => {
+  beginAccountAdditionTracking()
+  showCreate.value = true
+}
+
+const getAccountRowClass = (account: Account) => {
+  if (!recentlyCreatedAccountIds.value.has(account.id)) return ''
+  return `recently-created-account-row recently-created-account-row-${recentlyCreatedHighlightPhase.value}`
+}
 const showFilters = ref(false)
 const recycled = ref(false)
-const showTrashBin = ref(false)
+const deleted = ref(false)
 
 const toggleRecycled = () => {
-  recycled.value = !recycled.value
-  ;(params as any).recycled = recycled.value ? '1' : ''
-  reload()
+	recycled.value = !recycled.value
+	deleted.value = false
+	;(params as any).recycled = recycled.value ? '1' : ''
+	;(params as any).deleted = ''
+	reload()
+}
+const toggleDeleted = () => {
+	deleted.value = !deleted.value
+	recycled.value = false
+	;(params as any).deleted = deleted.value ? '1' : ''
+	;(params as any).recycled = ''
+	reload()
 }
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
 const showEnhancedImportData = ref(false)
+const enhancedImportOperation = ref<'import' | 'clear'>('import')
 const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
 const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const quickBulkUpdating = ref<'proxy' | 'group' | null>(null)
 const refreshingUsage = ref(false)
+const testingSelected = ref(false)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
+const showTestRecoveryDialog = ref(false)
 const showSchedulingRules = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
@@ -774,6 +865,7 @@ const deletingAcc = ref<Account | null>(null)
 const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
+const testRecoveryAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const stickySessionsAcc = ref<Account | null>(null)
 const scheduledActionAcc = ref<Account | null>(null)
@@ -1241,6 +1333,7 @@ const {
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
   fetchFn: adminAPI.accounts.list,
+  pageSize: 100,
   initialParams: {
     platform: '',
     type: '',
@@ -1252,28 +1345,37 @@ const {
     include_scheduling_optimal: shouldIncludeSchedulingOptimal() ? '1' : '0',
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order,
-    recycled: ''
+    recycled: '',
+    deleted: ''
   }
 })
 
 const sortedAccounts = computed(() => {
   const currentSort = usageWindowSort.value
-  if (!currentSort) return accounts.value
+  const baseRows = !currentSort
+    ? accounts.value
+    : [...accounts.value]
+        .map((row, index) => ({ row, index }))
+        .sort((a, b) => {
+          const aValue = getUsageWindowSortValue(a.row, currentSort.metric)
+          const bValue = getUsageWindowSortValue(b.row, currentSort.metric)
+          if (aValue === null && bValue === null) return a.index - b.index
+          if (aValue === null) return 1
+          if (bValue === null) return -1
+          if (aValue !== bValue) {
+            return currentSort.order === 'asc' ? aValue - bValue : bValue - aValue
+          }
+          return a.index - b.index
+        })
+        .map(({ row }) => row)
 
-  return [...accounts.value]
-    .map((row, index) => ({ row, index }))
-    .sort((a, b) => {
-      const aValue = getUsageWindowSortValue(a.row, currentSort.metric)
-      const bValue = getUsageWindowSortValue(b.row, currentSort.metric)
-      if (aValue === null && bValue === null) return a.index - b.index
-      if (aValue === null) return 1
-      if (bValue === null) return -1
-      if (aValue !== bValue) {
-        return currentSort.order === 'asc' ? aValue - bValue : bValue - aValue
-      }
-      return a.index - b.index
-    })
-    .map(({ row }) => row)
+  if (recentlyCreatedAccounts.value.length === 0) return baseRows
+
+  const pinnedIds = new Set(recentlyCreatedAccounts.value.map(account => account.id))
+  return [
+    ...recentlyCreatedAccounts.value,
+    ...baseRows.filter(account => !pinnedIds.has(account.id))
+  ].slice(0, pagination.page_size)
 })
 
 const {
@@ -1366,6 +1468,85 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   await baseReload()
   await refreshTodayStatsBatch()
+}
+
+type CreatedAccountHint = Account | AdminDataImportedAccount
+
+const isFullAccountHint = (hint: CreatedAccountHint): hint is Account => 'platform' in hint
+
+const handleAccountsCreated = async (createdAccountHints: CreatedAccountHint[] = []) => {
+  const previousIds = accountIdsBeforeCreate ?? new Set(accounts.value.map(account => account.id))
+  const alreadyHighlightedIds = new Set(recentlyCreatedAccountIds.value)
+  await reload()
+
+  const canUsePageDiff = accountListReadyBeforeCreate && accountPageBeforeCreate === pagination.page
+  const createdById = new Map<number, Account>()
+  for (const hintedAccount of createdAccountHints) {
+    if (previousIds.has(hintedAccount.id)) continue
+    let resolvedAccount = accounts.value.find(account => account.id === hintedAccount.id)
+    if (!resolvedAccount && isFullAccountHint(hintedAccount)) {
+      resolvedAccount = hintedAccount
+    }
+    if (!resolvedAccount) {
+      try {
+        resolvedAccount = await adminAPI.accounts.getById(hintedAccount.id)
+      } catch (error) {
+        console.error(`Failed to load imported account ${hintedAccount.id}:`, error)
+        continue
+      }
+    }
+    if (resolvedAccount.name !== hintedAccount.name || !accountMatchesCurrentFilters(resolvedAccount)) continue
+    createdById.set(resolvedAccount.id, resolvedAccount)
+  }
+  if (createdAccountHints.length === 0) {
+    for (const account of accounts.value) {
+      const appearedAfterAddition = canUsePageDiff
+        ? !previousIds.has(account.id)
+        : accountCreateOpenedAt > 0 && Date.parse(account.created_at) >= accountCreateOpenedAt
+      if (appearedAfterAddition) {
+        createdById.set(account.id, account)
+      }
+    }
+  }
+  let createdAccounts = [...createdById.values()]
+
+  if (createdAccountHints.length === 0 && createdAccounts.length === 0 && accountCreateOpenedAt > 0) {
+    try {
+      const newest = await adminAPI.accounts.list(1, pagination.page_size, {
+        ...toRaw(params),
+        sort_by: 'created_at',
+        sort_order: 'desc'
+      })
+      createdAccounts = (newest.items || []).filter(account => {
+        if (previousIds.has(account.id) || alreadyHighlightedIds.has(account.id)) return false
+        const createdAt = Date.parse(account.created_at)
+        return Number.isFinite(createdAt) && createdAt >= accountCreateOpenedAt
+      })
+    } catch (error) {
+      console.error('Failed to locate newly created accounts:', error)
+    }
+  }
+
+  createdAccounts.sort((left, right) => {
+    const createdAtDiff = Date.parse(right.created_at) - Date.parse(left.created_at)
+    return createdAtDiff || right.id - left.id
+  })
+
+  accountIdsBeforeCreate = new Set(accounts.value.map(account => account.id))
+  if (createdAccounts.length === 0) return
+
+  clearRecentlyCreatedHighlight()
+  recentlyCreatedAccounts.value = createdAccounts
+  recentlyCreatedAccountIds.value = new Set(createdAccounts.map(account => account.id))
+
+  if (recentlyCreatedAccountIds.value.size > 0) {
+    recentlyCreatedHighlightPhase.value = 'red'
+    recentlyCreatedPhaseTimer = setTimeout(() => {
+      recentlyCreatedHighlightPhase.value = 'orange'
+      recentlyCreatedPhaseTimer = null
+    }, RECENTLY_CREATED_RED_MS)
+    recentlyCreatedClearTimer = setTimeout(clearRecentlyCreatedHighlight, RECENTLY_CREATED_TOTAL_MS)
+  }
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1615,16 +1796,26 @@ const toggleAccountToolsDropdown = () => {
 
 const openSyncFromCrs = () => {
   closeAccountToolsDropdown()
+  beginAccountAdditionTracking()
   showSync.value = true
 }
 
 const openImportData = () => {
   closeAccountToolsDropdown()
+  beginAccountAdditionTracking()
   showImportData.value = true
 }
 
 const openEnhancedImportData = () => {
   closeAccountToolsDropdown()
+  beginAccountAdditionTracking()
+  enhancedImportOperation.value = 'import'
+  showEnhancedImportData.value = true
+}
+
+const openEnhancedImportClear = () => {
+  closeAccountToolsDropdown()
+  enhancedImportOperation.value = 'clear'
   showEnhancedImportData.value = true
 }
 
@@ -1845,6 +2036,7 @@ const allColumns = computed(() => {
     { key: 'usage_cost', label: t('admin.accounts.columns.usageCost'), sortable: false, width: '148px' },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
+    { key: 'import_filename', label: t('admin.accounts.columns.importFilename'), sortable: false },
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true, width: '130px' },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'scheduling_rate', label: t('admin.accounts.columns.schedulingRate'), sortable: false },
@@ -1924,7 +2116,7 @@ const toggleSelectAllVisible = (event: Event) => {
 }
 const handleBulkDelete = async () => {
   const accountIds = [...selIds.value]
-  if (!confirm(t('admin.accounts.bulkActions.confirmDelete', { count: accountIds.length }))) return
+  if (!confirm(t('admin.accounts.bulkActions.deleteConfirm', { count: accountIds.length }))) return
   try {
     const result = await adminAPI.accounts.batchDelete(accountIds)
     if (result.failed > 0) {
@@ -1957,6 +2149,31 @@ const handleBulkResetStatus = async () => {
   } catch (error) {
     console.error('Failed to bulk reset status:', error)
     appStore.showError(String(error))
+  }
+}
+const handleBatchTestAndMark = async () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0 || testingSelected.value) return
+
+  testingSelected.value = true
+  try {
+    const result = await adminAPI.accounts.batchTestAndMark(accountIds)
+    if (result.failed > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.testAndMarkPartial', {
+        success: result.success,
+        failed: result.failed,
+        marked: result.marked
+      }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkActions.testAndMarkSuccess', { count: result.success }))
+    }
+    clearSelection()
+    await reload()
+  } catch (error) {
+    console.error('Failed to batch test and mark accounts:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.bulkActions.testAndMarkFailed')))
+  } finally {
+    testingSelected.value = false
   }
 }
 const handleBulkRefreshToken = async () => {
@@ -2131,7 +2348,9 @@ const buildBulkEditFilterSnapshot = () => {
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
-    sort_order: sortOrder
+    sort_order: sortOrder,
+    recycled: recycled.value ? '1' : '',
+    deleted: deleted.value ? '1' : ''
   }
 }
 
@@ -2140,6 +2359,7 @@ const loadAllFilteredAccounts = async (): Promise<Account[]> => {
   const filters = {
     ...buildBulkEditFilterSnapshot(),
     recycled: recycled.value ? '1' : '',
+    deleted: deleted.value ? '1' : '',
     lite: '1',
     include_scheduler_score: '0'
   }
@@ -2153,6 +2373,7 @@ const loadAllFilteredAccounts = async (): Promise<Account[]> => {
 }
 
 const supportsActiveUsageQuery = (account: Account): boolean => {
+  if (account.extra?.deleted === true) return false
   if (account.platform === 'openai') return account.type === 'oauth'
   if (account.platform === 'anthropic') {
     return account.type === 'oauth' || account.type === 'setup-token'
@@ -2311,8 +2532,22 @@ const handleBulkUpdated = () => {
   clearSelection()
   reload()
 }
-const handleDataImported = () => { showImportData.value = false; reload() }
-const handleEnhancedDataImported = () => { showEnhancedImportData.value = false; reload() }
+const handleDataImported = async (createdAccounts: AdminDataImportedAccount[]) => {
+  showImportData.value = false
+  if (createdAccounts.length === 0) {
+    await reload()
+    return
+  }
+  await handleAccountsCreated(createdAccounts)
+}
+const handleEnhancedDataImported = async (createdAccounts: AdminDataImportedAccount[]) => {
+  showEnhancedImportData.value = false
+  if (createdAccounts.length === 0) {
+    await reload()
+    return
+  }
+  await handleAccountsCreated(createdAccounts)
+}
 const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
 const buildAccountQueryFilters = () => ({
@@ -2588,6 +2823,7 @@ const closeSchedulingRulesModal = () => { showSchedulingRules.value = false }
 const handleSchedulingRulesSaved = () => {
   closeSchedulingRulesModal()
   appStore.showSuccess(t('admin.accounts.schedulingRules.saved'))
+  void schedulingRuntimeSummaryRef.value?.refresh()
   enterAutoRefreshSilentWindow()
   void loadUpstreamBillingProbeGlobalState()
   reload()
@@ -2597,6 +2833,7 @@ const handleSchedulingRulesRefreshed = (result: SchedulingRulesRefreshResult) =>
     liveness: result.liveness.checked,
     billing: result.upstream_billing.checked
   }))
+  void schedulingRuntimeSummaryRef.value?.refresh()
   enterAutoRefreshSilentWindow()
   void loadUpstreamBillingProbeGlobalState()
   reload()
@@ -2611,6 +2848,46 @@ const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeStickySessionsModal = () => { showStickySessions.value = false; stickySessionsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
+const handleTestSucceeded = (testedAccount: Account) => {
+  const account = accounts.value.find(item => item.id === testedAccount.id) ?? testedAccount
+  if (account.status === 'active' && account.schedulable !== false) return
+
+  testRecoveryAcc.value = account
+  showTestRecoveryDialog.value = true
+}
+const handleTestFailed = async () => {
+  enterAutoRefreshSilentWindow()
+  await reload()
+}
+const cancelTestRecovery = () => {
+  showTestRecoveryDialog.value = false
+  testRecoveryAcc.value = null
+}
+const confirmTestRecovery = async () => {
+  const account = testRecoveryAcc.value
+  if (!account) return
+
+  cancelTestRecovery()
+  try {
+    let updated = await adminAPI.accounts.recoverState(account.id)
+    patchAccountInList(updated)
+
+    if (updated.status !== 'active') {
+      updated = await adminAPI.accounts.toggleStatus(account.id, 'active')
+      patchAccountInList(updated)
+    }
+    if (updated.schedulable !== true) {
+      updated = await adminAPI.accounts.setSchedulable(account.id, true)
+      patchAccountInList(updated)
+    }
+
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t('admin.accounts.recoverStateSuccess'))
+  } catch (error: any) {
+    console.error('Failed to recover account after successful test:', error)
+    appStore.showError(error?.message || t('admin.accounts.recoverStateFailed'))
+  }
+}
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
 const handleStickySessions = (a: Account) => { stickySessionsAcc.value = a; showStickySessions.value = true }
 const handleScheduledAction = (a: Account, action: ScheduledAccountActionType) => {
@@ -2655,10 +2932,11 @@ const duplicatingAccountIDs = new Set<number>()
 const handleDuplicateAccount = async (a: Account) => {
   if (duplicatingAccountIDs.has(a.id)) return
   duplicatingAccountIDs.add(a.id)
+  beginAccountAdditionTracking()
   try {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
-    reload()
+    await handleAccountsCreated([duplicate])
   } catch (error: any) {
     console.error('Failed to duplicate account:', error)
     appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
@@ -2751,20 +3029,30 @@ const handleCreateSparkShadow = (a: Account) => {
 const confirmCreateSparkShadow = async () => {
   const a = creatingShadowAcc.value
   if (!a) return
+  beginAccountAdditionTracking()
   try {
-    await adminAPI.accounts.createSparkShadow(a.id, { name: `${a.name} (Spark)` })
+    const created = await adminAPI.accounts.createSparkShadow(a.id, { name: `${a.name} (Spark)` })
     showCreateShadowDialog.value = false
     creatingShadowAcc.value = null
     appStore.showSuccess(t('admin.accounts.createSparkShadowSuccess'))
-    reload()
+    await handleAccountsCreated([created])
   } catch (error: any) {
     console.error('Failed to create spark shadow:', error)
     appStore.showError(error?.response?.data?.message || t('admin.accounts.createSparkShadowFailed'))
   }
 }
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
-const confirmDelete = async () => { if(!deletingAcc.value) return; try { await adminAPI.accounts.delete(deletingAcc.value.id); showDeleteDialog.value = false; deletingAcc.value = null; reload() } catch (error) { console.error('Failed to delete account:', error) } }
-// Permanent delete is available via more-menu in both modes
+const confirmDelete = async () => {
+  if (!deletingAcc.value) return
+  try {
+    await adminAPI.accounts.delete(deletingAcc.value.id)
+    showDeleteDialog.value = false
+    deletingAcc.value = null
+    reload()
+  } catch (error) {
+    console.error('Failed to delete account:', error)
+  }
+}
 
 const handleRecycle = async (a: Account) => {
   try {
@@ -2781,6 +3069,17 @@ const handleRestore = async (a: Account) => {
     reload()
   } catch (error) {
     console.error('Failed to restore account:', error)
+  }
+}
+
+const handleRestoreDeleted = async (a: Account) => {
+  try {
+    await adminAPI.accounts.restoreFromTrash(a.id)
+    appStore.showSuccess(t('admin.accounts.restoreDeletedSuccess'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to restore deleted-staging account:', error)
+    appStore.showError(error?.response?.data?.message || t('admin.accounts.restoreDeletedFailed'))
   }
 }
 
@@ -2875,6 +3174,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearRecentlyCreatedHighlight()
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', handleViewportResize)
   document.removeEventListener('click', handleClickOutside)
@@ -2882,6 +3182,136 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+:deep(.recently-created-account-row),
+:deep(.recently-created-account-row *) {
+  font-weight: 700 !important;
+}
+
+:deep(tr.recently-created-account-row-red > td) {
+  background-color: rgb(254 226 226) !important;
+  box-shadow:
+    inset 0 2px 0 rgb(239 68 68 / 0.8),
+    inset 0 -2px 0 rgb(239 68 68 / 0.8),
+    0 5px 12px -8px rgb(220 38 38 / 0.9);
+}
+
+:deep(tr.recently-created-account-row-red > td:first-child) {
+  box-shadow:
+    inset 2px 0 0 rgb(239 68 68 / 0.8),
+    inset 0 2px 0 rgb(239 68 68 / 0.8),
+    inset 0 -2px 0 rgb(239 68 68 / 0.8),
+    0 5px 12px -8px rgb(220 38 38 / 0.9);
+}
+
+:deep(tr.recently-created-account-row-red > td:last-child) {
+  box-shadow:
+    inset -2px 0 0 rgb(239 68 68 / 0.8),
+    inset 0 2px 0 rgb(239 68 68 / 0.8),
+    inset 0 -2px 0 rgb(239 68 68 / 0.8),
+    0 5px 12px -8px rgb(220 38 38 / 0.9);
+}
+
+:deep(.recently-created-account-row [data-test='account-name-value']) {
+  font-weight: 700;
+}
+
+:deep(div.recently-created-account-row-red) {
+  border-color: rgb(239 68 68 / 0.8);
+  background-color: rgb(254 226 226);
+  box-shadow: 0 8px 18px -8px rgb(220 38 38 / 0.8);
+}
+
+/* Keep the full selector global: compiler-sfc drops the tail after :global(.dark). */
+:global(.dark tr.recently-created-account-row-red > td) {
+  background-color: rgb(127 29 29 / 0.36) !important;
+  box-shadow:
+    inset 0 2px 0 rgb(248 113 113 / 0.72),
+    inset 0 -2px 0 rgb(248 113 113 / 0.72),
+    0 5px 12px -8px rgb(248 113 113 / 0.82);
+}
+
+:global(.dark tr.recently-created-account-row-red > td:first-child) {
+  box-shadow:
+    inset 2px 0 0 rgb(248 113 113 / 0.72),
+    inset 0 2px 0 rgb(248 113 113 / 0.72),
+    inset 0 -2px 0 rgb(248 113 113 / 0.72),
+    0 5px 12px -8px rgb(248 113 113 / 0.82);
+}
+
+:global(.dark tr.recently-created-account-row-red > td:last-child) {
+  box-shadow:
+    inset -2px 0 0 rgb(248 113 113 / 0.72),
+    inset 0 2px 0 rgb(248 113 113 / 0.72),
+    inset 0 -2px 0 rgb(248 113 113 / 0.72),
+    0 5px 12px -8px rgb(248 113 113 / 0.82);
+}
+
+:global(.dark div.recently-created-account-row-red) {
+  border-color: rgb(248 113 113 / 0.72);
+  background-color: rgb(127 29 29 / 0.36);
+  box-shadow: 0 8px 18px -8px rgb(248 113 113 / 0.76);
+}
+
+:deep(tr.recently-created-account-row-orange > td) {
+  background-color: rgb(255 237 213) !important;
+  box-shadow:
+    inset 0 2px 0 rgb(249 115 22 / 0.8),
+    inset 0 -2px 0 rgb(249 115 22 / 0.8),
+    0 5px 12px -8px rgb(234 88 12 / 0.9);
+}
+
+:deep(tr.recently-created-account-row-orange > td:first-child) {
+  box-shadow:
+    inset 2px 0 0 rgb(249 115 22 / 0.8),
+    inset 0 2px 0 rgb(249 115 22 / 0.8),
+    inset 0 -2px 0 rgb(249 115 22 / 0.8),
+    0 5px 12px -8px rgb(234 88 12 / 0.9);
+}
+
+:deep(tr.recently-created-account-row-orange > td:last-child) {
+  box-shadow:
+    inset -2px 0 0 rgb(249 115 22 / 0.8),
+    inset 0 2px 0 rgb(249 115 22 / 0.8),
+    inset 0 -2px 0 rgb(249 115 22 / 0.8),
+    0 5px 12px -8px rgb(234 88 12 / 0.9);
+}
+
+:deep(div.recently-created-account-row-orange) {
+  border-color: rgb(249 115 22 / 0.8);
+  background-color: rgb(255 237 213);
+  box-shadow: 0 8px 18px -8px rgb(234 88 12 / 0.8);
+}
+
+:global(.dark tr.recently-created-account-row-orange > td) {
+  background-color: rgb(124 45 18 / 0.36) !important;
+  box-shadow:
+    inset 0 2px 0 rgb(251 146 60 / 0.72),
+    inset 0 -2px 0 rgb(251 146 60 / 0.72),
+    0 5px 12px -8px rgb(251 146 60 / 0.82);
+}
+
+:global(.dark tr.recently-created-account-row-orange > td:first-child) {
+  box-shadow:
+    inset 2px 0 0 rgb(251 146 60 / 0.72),
+    inset 0 2px 0 rgb(251 146 60 / 0.72),
+    inset 0 -2px 0 rgb(251 146 60 / 0.72),
+    0 5px 12px -8px rgb(251 146 60 / 0.82);
+}
+
+:global(.dark tr.recently-created-account-row-orange > td:last-child) {
+  box-shadow:
+    inset -2px 0 0 rgb(251 146 60 / 0.72),
+    inset 0 2px 0 rgb(251 146 60 / 0.72),
+    inset 0 -2px 0 rgb(251 146 60 / 0.72),
+    0 5px 12px -8px rgb(251 146 60 / 0.82);
+}
+
+:global(.dark div.recently-created-account-row-orange) {
+  border-color: rgb(251 146 60 / 0.72);
+  background-color: rgb(124 45 18 / 0.36);
+  box-shadow: 0 8px 18px -8px rgb(251 146 60 / 0.76);
+}
+
 .account-tools-menu-item {
   @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700;
 }

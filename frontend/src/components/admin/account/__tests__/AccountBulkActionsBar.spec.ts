@@ -24,13 +24,14 @@ const SelectStub = {
   `
 }
 
-function mountBar(selectedIds: number[], totalResults = 45) {
+function mountBar(selectedIds: number[], testingSelected = false, totalResults = 45) {
   return mount(AccountBulkActionsBar, {
     props: {
       selectedIds,
       totalResults,
       selectingAll: false,
       allResultsSelected: false,
+      testingSelected,
       proxies: [{ id: 9, name: 'proxy-9' }],
       groups: [{ id: 5, name: 'group-5' }]
     } as any,
@@ -89,5 +90,22 @@ describe('AccountBulkActionsBar', () => {
     expect(button).toBeDefined()
     await button!.trigger('click')
     expect(wrapper.emitted('probe-upstream-billing')).toHaveLength(1)
+  })
+
+  it('选择账号后提供批量测试并标记按钮', async () => {
+    const wrapper = mountBar([1, 2])
+
+    const button = wrapper.get('[data-test="batch-test-and-mark"]')
+    await button.trigger('click')
+
+    expect(wrapper.emitted('test-and-mark')).toEqual([[]])
+  })
+
+  it('批量测试运行时禁用按钮并显示进度文案', () => {
+    const wrapper = mountBar([1, 2], true)
+
+    const button = wrapper.get('[data-test="batch-test-and-mark"]')
+    expect(button.attributes()).toHaveProperty('disabled')
+    expect(button.text()).toBe('admin.accounts.bulkActions.testingAndMarking')
   })
 })

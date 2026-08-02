@@ -259,6 +259,24 @@ func TestOpenAIEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testin
 
 }
 
+func TestOpenAIEnsureForwardErrorResponse_MainProfileIncludesSource(t *testing.T) {
+	require.NoError(t, clienterror.Configure("main"))
+	t.Cleanup(func() { require.NoError(t, clienterror.Configure("main")) })
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureForwardErrorResponse(c, false)
+
+	require.True(t, wrote)
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.Equal(t, "upstream_error", gjson.GetBytes(w.Body.Bytes(), "error.type").String())
+	require.Equal(t, "Upstream request failed (source: sub2api)", gjson.GetBytes(w.Body.Bytes(), "error.message").String())
+	require.Equal(t, "sub2api", gjson.GetBytes(w.Body.Bytes(), "error.source").String())
+}
+
 // Writer 已写后 ensureForwardErrorResponse 必须仍然把错误信息以 SSE
 // 形式追加给客户端（streamStarted 强制 true）。
 // 这是 case B 修复：旧实现遇到 Writer.Written 直接 return false，
@@ -367,7 +385,7 @@ func TestOpenAIEnsureForwardErrorResponse_ImageJSONKeepaliveWritesSingleJSONFall
 	require.NoError(t, decoder.Decode(&payload))
 	require.ErrorIs(t, decoder.Decode(&payload), io.EOF)
 	require.Equal(t, "upstream_error", gjson.Get(w.Body.String(), "error.type").String())
-	require.Equal(t, clienterror.WithSource(clienterror.Upstream("Upstream request failed")), gjson.Get(w.Body.String(), "error.message").String())
+	require.Equal(t, clienterror.WithGatewaySource(clienterror.Upstream("Upstream request failed")), gjson.Get(w.Body.String(), "error.message").String())
 	require.Equal(t, clienterror.Source, gjson.Get(w.Body.String(), "error.source").String())
 }
 

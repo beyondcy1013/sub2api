@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" v-if="showUsageWindows">
+  <div ref="rootRef" v-if="showUsageWindows && !isDeletedStaging">
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
       v-if="
@@ -735,15 +735,17 @@ const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
 })
 
+const isDeletedStaging = computed(() => props.account.extra?.deleted === true)
+
 const openAIUsageRefreshKey = computed(() => buildOpenAIUsageRefreshKey(props.account))
 
 const shouldAutoLoadUsageOnMount = computed(() => {
   // 账号状态不正常（inactive / error）时，进入页面不自动刷新用量，避免对已知不可用账号发起无意义的上游查询。
-  return shouldFetchUsage.value && props.account.status === 'active'
+  return !isDeletedStaging.value && shouldFetchUsage.value && props.account.status === 'active'
 })
 
 const shouldLazyLoadOnMobile = computed(() => {
-  return props.account.status === 'active' && shouldFetchUsage.value && !isDesktopViewport.value
+  return !isDeletedStaging.value && props.account.status === 'active' && shouldFetchUsage.value && !isDesktopViewport.value
 })
 
 // Antigravity quota types (用于 API 返回的数据)

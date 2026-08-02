@@ -287,6 +287,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'test-succeeded', account: Account): void
+  (e: 'test-failed', account: Account): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -322,7 +324,31 @@ const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
 ])
+
+function displayConfiguredUpstreamURL(account: Account): string {
+  const configuredURL = account.custom_base_url_enabled
+    ? account.custom_base_url
+    : account.credentials?.base_url
+
+  if (typeof configuredURL !== 'string' || !configuredURL.trim()) return ''
+
+  try {
+    const url = new URL(configuredURL.trim())
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+
+    // The account configuration may contain credentials or a signed URL.
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return ''
+  }
+}
+
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+const preferredOpenAITestModel = 'gpt-5.6-sol'
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
@@ -393,6 +419,10 @@ const loadAvailableModels = async () => {
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
+      } else if (props.account.platform === 'openai') {
+        // Account mappings are JSON objects, so their API response order is not stable.
+        const preferredModel = availableModels.value.find((m) => m.id === preferredOpenAITestModel)
+        selectedModelId.value = preferredModel?.id || availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model
         const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
@@ -447,7 +477,13 @@ const startTest = async () => {
 
   resetState()
   status.value = 'connecting'
-  addLine(t('admin.accounts.startingTestForAccount', { name: props.account.name }), 'text-blue-400')
+  const upstreamURL = displayConfiguredUpstreamURL(props.account)
+  addLine(
+    upstreamURL
+      ? t('admin.accounts.startingTestForAccountWithUpstream', { name: props.account.name, url: upstreamURL })
+      : t('admin.accounts.startingTestForAccount', { name: props.account.name }),
+    'text-blue-400'
+  )
   addLine(t('admin.accounts.testAccountTypeLabel', { type: props.account.type }), 'text-gray-400')
   addLine('', 'text-gray-300')
 
@@ -494,6 +530,8 @@ const startTest = async () => {
 
     const decoder = new TextDecoder()
     let buffer = ''
+    let testSucceeded = false
+    let testFailed = false
 
     while (true) {
       const { done, value } = await reader.read()
@@ -510,12 +548,22 @@ const startTest = async () => {
             try {
               const event = JSON.parse(jsonStr)
               handleEvent(event)
+              if (event.type === 'test_complete' && event.success === true) {
+                testSucceeded = true
+              } else if (event.type === 'error' || (event.type === 'test_complete' && event.success === false)) {
+                testFailed = true
+              }
             } catch (e) {
               console.error('Failed to parse SSE event:', e)
             }
           }
         }
       }
+    }
+    if (testSucceeded && props.account) {
+      emit('test-succeeded', props.account)
+    } else if (testFailed && props.account) {
+      emit('test-failed', props.account)
     }
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {

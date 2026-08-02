@@ -59,6 +59,99 @@ func TestIsUpstreamModelNotFoundError(t *testing.T) {
 	}
 }
 
+func TestIsUpstreamModelRoutingError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       []byte
+		want       bool
+	}{
+		{
+			name:       "503 no available channel for model",
+			statusCode: http.StatusServiceUnavailable,
+			body:       []byte(`{"error":{"code":"model_not_found","message":"No available channel for model gpt-5.6-luna under group codex"}}`),
+			want:       true,
+		},
+		{
+			name:       "400 model is not supported",
+			statusCode: http.StatusBadRequest,
+			body:       []byte(`{"error":{"message":"The model gpt-5.6-sol is not supported by this account"}}`),
+			want:       true,
+		},
+		{
+			name:       "422 model does not exist",
+			statusCode: http.StatusUnprocessableEntity,
+			body:       []byte(`{"error":{"message":"model does not exist"}}`),
+			want:       true,
+		},
+		{
+			name:       "403 chinese group model rejection",
+			statusCode: http.StatusForbidden,
+			body:       []byte(`{"error":{"message":"当前分组不支持模型「claude-fable-5」"}}`),
+			want:       true,
+		},
+		{
+			name:       "503 generic unavailable is not model routing",
+			statusCode: http.StatusServiceUnavailable,
+			body:       []byte(`{"error":{"message":"Service temporarily unavailable"}}`),
+			want:       false,
+		},
+		{
+			name:       "500 is not model routing",
+			statusCode: http.StatusInternalServerError,
+			body:       []byte(`{"error":{"message":"model not found"}}`),
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isUpstreamModelRoutingError(tt.statusCode, tt.body); got != tt.want {
+				t.Fatalf("isUpstreamModelRoutingError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsAccountTestUnsupportedModelError(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{
+			name: "group has no account supporting configured model",
+			message: `API returned 404: {"error":{"message":"Model \"gpt-5.6-sol\" is not supported by any configured account in this group",` +
+				`"type":"model_not_found"},"type":"error"}`,
+			want: true,
+		},
+		{
+			name: "upstream distributor has no model channel",
+			message: `API returned 503: {"error":{"code":"model_not_found",` +
+				`"message":"No available channel for model gpt-5.6-luna under group codex"}}`,
+			want: true,
+		},
+		{
+			name:    "cpu overload remains a liveness failure",
+			message: `API returned 503: {"error":{"code":"system_cpu_overloaded","message":"system cpu overloaded"}}`,
+			want:    false,
+		},
+		{
+			name:    "timeout remains a liveness failure",
+			message: "Request failed: context deadline exceeded",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAccountTestUnsupportedModelError(tt.message); got != tt.want {
+				t.Fatalf("isAccountTestUnsupportedModelError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAntigravityModelNotFoundKeepsBare404Fallback(t *testing.T) {
 	if !isModelNotFoundError(http.StatusNotFound, []byte(`endpoint not found`)) {
 		t.Fatal("antigravity model-not-found helper should keep bare 404 fallback")

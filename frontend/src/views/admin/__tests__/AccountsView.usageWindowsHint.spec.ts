@@ -119,7 +119,8 @@ function mountView() {
         HelpTooltip: HelpTooltipStub,
         Pagination: true,
         ConfirmDialog: true,
-        AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+        AccountTableActions: { template: '<div><slot name="before" /><slot name="beforeCreate" /><slot name="after" /></div>' },
+        AccountSchedulingRuntimeSummary: { template: '<div data-test="scheduling-runtime-summary"></div>' },
         AccountTableFilters: { template: '<div></div>' },
         AccountBulkActionsBar: true,
         AccountActionMenu: true,
@@ -187,6 +188,13 @@ describe('admin AccountsView usage windows hint', () => {
     const hint = wrapper.find('[data-test="usage-windows-hint"]')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
+  })
+
+  it('renders the loop-test countdown and result summary at the start of the account toolbar', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="scheduling-runtime-summary"]').exists()).toBe(true)
   })
 
   it('keeps Ollama Cloud in the single usage column and ignores legacy column preferences', async () => {

@@ -116,6 +116,38 @@
       </div>
     </div>
 
+    <!-- Ephemeral request-time filters that are not persisted in account status -->
+    <div
+      v-if="account.runtime_status?.account_blocked_until || account.runtime_status?.proxy_quarantined_until || (account.runtime_status?.model_runtime_blocks?.length ?? 0) > 0"
+      class="flex flex-col gap-1"
+    >
+      <span
+        v-if="account.runtime_status?.account_blocked_until"
+        class="text-xs font-medium text-orange-600 dark:text-orange-400"
+        :title="t('admin.accounts.status.runtimeBlockedUntil', { time: formatDateTimeToMinute(account.runtime_status.account_blocked_until) })"
+      >
+        {{ t('admin.accounts.status.runtimeBlocked') }}
+        <span class="text-[10px] opacity-70">{{ formatCountdown(account.runtime_status.account_blocked_until) }}</span>
+      </span>
+      <span
+        v-if="account.runtime_status?.proxy_quarantined_until"
+        class="text-xs font-medium text-orange-600 dark:text-orange-400"
+        :title="t('admin.accounts.status.proxyQuarantinedUntil', { time: formatDateTimeToMinute(account.runtime_status.proxy_quarantined_until) })"
+      >
+        {{ t('admin.accounts.status.proxyQuarantined') }}
+        <span class="text-[10px] opacity-70">{{ formatCountdown(account.runtime_status.proxy_quarantined_until) }}</span>
+      </span>
+      <span
+        v-for="item in account.runtime_status?.model_runtime_blocks ?? []"
+        :key="`runtime-${item.model}`"
+        class="text-xs font-medium text-orange-600 dark:text-orange-400"
+        :title="t('admin.accounts.status.modelRuntimeBlockedUntil', { model: formatScopeName(item.model), time: formatDateTimeToMinute(item.blocked_until) })"
+      >
+        {{ t('admin.accounts.status.modelRuntimeBlocked', { model: formatScopeName(item.model) }) }}
+        <span class="text-[10px] opacity-70">{{ formatCountdown(item.blocked_until) }}</span>
+      </span>
+    </div>
+
     <!-- Overload Indicator (529) -->
     <div v-if="isOverloaded" class="group relative">
       <span class="text-xs text-red-600 dark:text-red-400">529</span>

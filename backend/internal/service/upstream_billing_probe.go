@@ -36,6 +36,8 @@ const (
 	upstreamBillingProbeCycleInterval          = time.Minute
 	upstreamBillingProbeRequestTimeout         = 10 * time.Second
 	upstreamBillingProbeMaxBodyBytes           = 64 * 1024
+	nikoAPIBillingProbeRequestTimeout          = 30 * time.Second
+	nikoAPIBillingProbeMaxBodyBytes            = 8 * 1024 * 1024
 	upstreamBillingProbeMaxPerCycle            = 20
 	upstreamBillingProbeConcurrency            = 4
 	upstreamBillingProbeMaxDelay               = 24 * time.Hour
@@ -107,6 +109,13 @@ type upstreamBillingProbeResponse struct {
 	EffectiveRateMultiplier *float64 `json:"effective_rate_multiplier"`
 	Timezone                *string  `json:"timezone"`
 	ObservedAt              string   `json:"observed_at"`
+}
+
+type upstreamBillingProbeFetchResult struct {
+	Data          map[string]any
+	HTTPStatus    int
+	FailureReason string
+	RetryAfter    time.Duration
 }
 
 // GetUpstreamBillingProbeSettings returns defaults when the setting is absent.
@@ -608,60 +617,126 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		}
 		proxyURL = account.Proxy.URL()
 	}
-	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/sub2api/billing")
-	probeCtx, cancel := context.WithTimeout(ctx, upstreamBillingProbeRequestTimeout)
+	var tlsProfile *tlsfingerprint.Profile
+	if s.accountTestService.tlsFPProfileService != nil {
+		tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(account)
+	}
+	var lastFetch upstreamBillingProbeFetchResult
+	for index, scheme := range upstreamBillingProbeSchemes(account) {
+		lastFetch = s.fetchUpstreamBillingProbe(ctx, account, normalizedBaseURL, proxyURL, apiKey, scheme, tlsProfile, now)
+		if lastFetch.Data != nil {
+			break
+		}
+		if index == 0 && shouldTryNextUpstreamBillingProbeScheme(lastFetch.FailureReason) {
+			continue
+		}
+		break
+	}
+	if lastFetch.Data == nil {
+		return s.persistProbeFailure(
+			ctx, account, intervalMinutes, now, lastFetch.HTTPStatus, lastFetch.FailureReason, lastFetch.RetryAfter,
+		)
+	}
+	snapshot := &UpstreamBillingProbeSnapshot{
+		Status:        UpstreamBillingProbeStatusOK,
+		Data:          lastFetch.Data,
+		ReceivedAt:    probeTimePtr(now),
+		FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
+		LastAttemptAt: now,
+		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
+		HTTPStatus:    lastFetch.HTTPStatus,
+	}
+	if err := s.updateSnapshot(ctx, account, snapshot); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
+}
+
+func upstreamBillingProbeSchemes(account *Account) []AccountBalanceQueryScheme {
+	scheme := decodeAccountBalanceQueryConfig(account.Extra).Scheme
+	switch scheme {
+	case AccountBalanceQuerySchemeNikoAPI:
+		return []AccountBalanceQueryScheme{AccountBalanceQuerySchemeNikoAPI}
+	case AccountBalanceQuerySchemeAuto:
+		return []AccountBalanceQueryScheme{AccountBalanceQuerySchemeSub2API, AccountBalanceQuerySchemeNikoAPI}
+	default:
+		return []AccountBalanceQueryScheme{AccountBalanceQuerySchemeSub2API}
+	}
+}
+
+func shouldTryNextUpstreamBillingProbeScheme(reason string) bool {
+	return reason == "unsupported" || reason == "invalid_response"
+}
+
+func (s *UpstreamBillingProbeService) fetchUpstreamBillingProbe(
+	ctx context.Context,
+	account *Account,
+	baseURL string,
+	proxyURL string,
+	apiKey string,
+	scheme AccountBalanceQueryScheme,
+	tlsProfile *tlsfingerprint.Profile,
+	now time.Time,
+) upstreamBillingProbeFetchResult {
+	endpoint := "/v1/sub2api/billing"
+	timeout := upstreamBillingProbeRequestTimeout
+	maxBodyBytes := int64(upstreamBillingProbeMaxBodyBytes)
+	parser := parseUpstreamBillingProbeResponse
+	if scheme == AccountBalanceQuerySchemeNikoAPI {
+		endpoint = "/api/log/token"
+		timeout = nikoAPIBillingProbeRequestTimeout
+		maxBodyBytes = nikoAPIBillingProbeMaxBodyBytes
+		parser = parseNikoAPIBillingResponse
+	}
+	probeURL, err := resolveAccountBalanceQueryURL(baseURL, endpoint)
+	if err != nil {
+		return upstreamBillingProbeFetchResult{FailureReason: "request_build_failed"}
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, bytes.NewReader(nil))
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "request_build_failed", 0)
+		return upstreamBillingProbeFetchResult{FailureReason: "request_build_failed"}
 	}
 	reqCtx := WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI)
 	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	account.ApplyHeaderOverrides(req.Header)
-	var tlsProfile *tlsfingerprint.Profile
-	if s.accountTestService.tlsFPProfileService != nil {
-		tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(account)
-	}
 	resp, err := s.accountTestService.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "request_failed", 0)
+		return upstreamBillingProbeFetchResult{FailureReason: "request_failed"}
 	}
 	if resp == nil || resp.Body == nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "empty_response", 0)
+		return upstreamBillingProbeFetchResult{FailureReason: "empty_response"}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, upstreamBillingProbeMaxBodyBytes+1))
-	if readErr != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_read_failed", retryAfter(resp.Header, now))
+	result := upstreamBillingProbeFetchResult{
+		HTTPStatus: resp.StatusCode,
+		RetryAfter: retryAfter(resp.Header, now),
 	}
-	if len(body) > upstreamBillingProbeMaxBodyBytes {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "response_too_large", retryAfter(resp.Header, now))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	if readErr != nil {
+		result.FailureReason = "response_read_failed"
+		return result
+	}
+	if int64(len(body)) > maxBodyBytes {
+		result.FailureReason = "response_too_large"
+		return result
 	}
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "unsupported", retryAfter(resp.Header, now))
+		result.FailureReason = "unsupported"
+		return result
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "http_error", retryAfter(resp.Header, now))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		result.FailureReason = "http_error"
+		return result
 	}
-	data, err := parseUpstreamBillingProbeResponse(body)
+	result.Data, err = parser(body)
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, resp.StatusCode, "invalid_response", retryAfter(resp.Header, now))
+		result.FailureReason = "invalid_response"
 	}
-	snapshot := &UpstreamBillingProbeSnapshot{
-		Status:        UpstreamBillingProbeStatusOK,
-		Data:          data,
-		ReceivedAt:    probeTimePtr(now),
-		FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
-		LastAttemptAt: now,
-		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
-		HTTPStatus:    resp.StatusCode,
-	}
-	if err := s.updateSnapshot(ctx, account, snapshot); err != nil {
-		return nil, err
-	}
-	return snapshot, nil
+	return result
 }
 
 func (s *UpstreamBillingProbeService) persistProbeFailure(
@@ -790,6 +865,112 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("inconsistent effective billing multiplier")
 	}
 	return data, nil
+}
+
+func parseNikoAPIBillingResponse(body []byte) (map[string]any, error) {
+	var payload struct {
+		Success bool             `json:"success"`
+		Data    []map[string]any `json:"data"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+	if !payload.Success {
+		return nil, fmt.Errorf("nikoapi log query failed")
+	}
+
+	var latest map[string]any
+	var latestOther map[string]any
+	var latestAt int64
+	var latestGroupRate float64
+	var latestUserRate float64
+	var latestHasUserRate bool
+	for _, record := range payload.Data {
+		logType, ok := numericBillingValue(record["type"])
+		if !ok || int(logType) != 2 {
+			continue
+		}
+		createdAtValue, ok := numericBillingValue(record["created_at"])
+		if !ok || createdAtValue <= 0 || createdAtValue > float64(math.MaxInt64) {
+			continue
+		}
+		other, ok := parseNikoAPILogOther(record["other"])
+		if !ok {
+			continue
+		}
+		groupRate, hasGroupRate := numericBillingValue(other["group_ratio"])
+		userRate, hasUserRate := numericBillingValue(other["user_group_ratio"])
+		hasGroupRate = hasGroupRate && validUpstreamBillingMultiplier(groupRate)
+		hasUserRate = hasUserRate && validUpstreamBillingMultiplier(userRate)
+		if !hasGroupRate && !hasUserRate {
+			continue
+		}
+		createdAt := int64(createdAtValue)
+		if latest != nil && createdAt <= latestAt {
+			continue
+		}
+		if !hasGroupRate {
+			groupRate = userRate
+		}
+		latest = record
+		latestOther = other
+		latestAt = createdAt
+		latestGroupRate = groupRate
+		latestUserRate = userRate
+		latestHasUserRate = hasUserRate
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("nikoapi response has no billed consumption log")
+	}
+
+	resolvedRate := latestGroupRate
+	if latestHasUserRate {
+		resolvedRate = latestUserRate
+	}
+	data := map[string]any{
+		"object":                    "nikoapi.observed_billing",
+		"schema_version":            1,
+		"billing_scope":             "token",
+		"group_rate_multiplier":     latestGroupRate,
+		"resolved_rate_multiplier":  resolvedRate,
+		"peak_rate_enabled":         false,
+		"effective_rate_multiplier": resolvedRate,
+		"observed_at":               time.Unix(latestAt, 0).UTC().Format(time.RFC3339),
+		"algorithm":                 string(AccountBalanceQuerySchemeNikoAPI),
+	}
+	if latestHasUserRate {
+		data["user_rate_multiplier"] = latestUserRate
+	}
+	if group, _ := latest["group"].(string); strings.TrimSpace(group) != "" {
+		data["group"] = strings.TrimSpace(group)
+	}
+	if modelRatio, ok := numericBillingValue(latestOther["model_ratio"]); ok && validUpstreamBillingMultiplier(modelRatio) {
+		data["model_rate_multiplier"] = modelRatio
+	}
+	return data, nil
+}
+
+func parseNikoAPILogOther(value any) (map[string]any, bool) {
+	if object, ok := value.(map[string]any); ok {
+		return object, true
+	}
+	raw, ok := value.(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil, false
+	}
+	var object map[string]any
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&object); err != nil || object == nil {
+		return nil, false
+	}
+	return object, true
+}
+
+func validUpstreamBillingMultiplier(value float64) bool {
+	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {

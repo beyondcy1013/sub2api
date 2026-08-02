@@ -19,7 +19,16 @@
       <label class="block rounded border border-gray-200 p-3 dark:border-dark-600">
         <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('admin.accounts.schedulingRate.manual') }}</span>
         <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRate.manualHint') }}</span>
-        <input v-model.number="manualRate" data-testid="scheduling-rate-manual" type="number" min="0" step="0.001" class="mt-2 w-32 rounded border border-gray-300 px-2 py-1 text-sm dark:border-dark-600 dark:bg-dark-700 dark:text-white" />
+        <input
+          v-model.number="manualRate"
+          data-testid="scheduling-rate-manual"
+          type="number"
+          min="0"
+          step="0.001"
+          :disabled="autoOverwrite"
+          class="mt-2 w-32 rounded border border-gray-300 px-2 py-1 text-sm disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-600 dark:bg-dark-700 dark:text-white dark:disabled:border-dark-600 dark:disabled:bg-dark-800 dark:disabled:text-gray-500"
+          @change="lockManualRate"
+        />
       </label>
       <label class="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-3 dark:border-dark-600">
         <input v-model="autoOverwrite" data-testid="scheduling-rate-auto-overwrite" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
@@ -42,6 +51,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import { useAppStore } from '@/stores/app'
 import type { Account, UpdateSchedulingRateRequest } from '@/types'
 
 const props = withDefaults(defineProps<{
@@ -57,18 +67,28 @@ const emit = defineEmits<{
   (event: 'save', payload: UpdateSchedulingRateRequest): void
 }>()
 const { t } = useI18n()
+const appStore = useAppStore()
 const autoOverwrite = ref(true)
 const manualRate = ref(1)
+const manualEditNoticeShown = ref(false)
 watch(() => [props.show, props.account?.id], () => {
   autoOverwrite.value = props.account?.scheduling_rate_sync_mode
     ? props.account.scheduling_rate_sync_mode === 'auto_overwrite'
     : props.account?.scheduling_rate_source !== 'manual'
   manualRate.value = props.account?.rate_multiplier ?? 1
+  manualEditNoticeShown.value = false
 }, { immediate: true })
 const formatRate = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? `${Number(value.toPrecision(6))}x` : '?'
+const lockManualRate = () => {
+  autoOverwrite.value = false
+  if (manualEditNoticeShown.value) return
+  appStore.showInfo(t('admin.accounts.schedulingRate.manualEditLocks'))
+  manualEditNoticeShown.value = true
+}
 const copyUpstreamToManual = () => {
   if (!props.upstreamKnown || typeof props.upstreamRate !== 'number') return
   manualRate.value = props.upstreamRate
+  lockManualRate()
 }
 const save = () => {
   emit('save', {

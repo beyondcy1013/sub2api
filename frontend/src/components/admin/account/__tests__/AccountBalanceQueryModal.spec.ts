@@ -41,7 +41,7 @@ describe('AccountBalanceQueryModal', () => {
     api.queryAccountBalance.mockResolvedValue({
       account_id: account.id,
       success: true,
-      scheme: 'newapi',
+      scheme: 'nikoapi',
       api_url: 'https://relay.example/api/usage/token/',
       balance: 6250000,
       unit: 'quota',
@@ -63,8 +63,25 @@ describe('AccountBalanceQueryModal', () => {
     expect(wrapper.text()).toContain('6250000')
     expect(wrapper.text()).toContain('quota')
     expect((wrapper.emitted('updated')?.[0]?.[0] as Account).extra?.balance_query).toMatchObject({
-      scheme: 'newapi',
+      scheme: 'nikoapi',
       detected_api_url: 'https://relay.example/api/usage/token/',
+    })
+    wrapper.unmount()
+  })
+
+  it('将旧 NewAPI 配置显示并回写为 NikoAPI 算法', async () => {
+    const wrapper = mount(AccountBalanceQueryModal, {
+      props: { show: true, account },
+      attachTo: document.body,
+      global: { stubs: { Teleport: true } },
+    })
+    await flushPromises()
+
+    expect((wrapper.get('[data-testid="balance-query-scheme"]').element as HTMLSelectElement).value).toBe('nikoapi')
+    expect(wrapper.find('option[value="newapi"]').exists()).toBe(false)
+    expect(wrapper.find('option[value="nikoapi"]').exists()).toBe(true)
+    expect((wrapper.emitted('updated')?.[0]?.[0] as Account).extra?.balance_query).toMatchObject({
+      scheme: 'nikoapi',
     })
     wrapper.unmount()
   })

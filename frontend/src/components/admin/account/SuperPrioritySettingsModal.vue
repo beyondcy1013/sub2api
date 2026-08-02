@@ -175,6 +175,7 @@ const form = reactive<SuperPriorityRuntimeParams>({
   base_strategy: 'default',
   failure_threshold: 2,
   check_interval: '@every 1m',
+  liveness_include_unschedulable: false,
   test_model_id: '',
   test_prompt: '',
 })
@@ -187,6 +188,7 @@ const load = async () => {
     form.base_strategy = data.base_strategy
     form.failure_threshold = data.failure_threshold
     form.check_interval = data.check_interval
+    form.liveness_include_unschedulable = data.liveness_include_unschedulable === true
     form.test_model_id = data.test_model_id
     form.test_prompt = data.test_prompt
   } catch (err) {
@@ -221,6 +223,7 @@ const saveParams = async () => {
       base_strategy: form.base_strategy,
       failure_threshold: form.failure_threshold,
       check_interval: form.check_interval,
+      liveness_include_unschedulable: form.liveness_include_unschedulable,
       test_model_id: form.test_model_id,
       test_prompt: form.test_prompt,
     })

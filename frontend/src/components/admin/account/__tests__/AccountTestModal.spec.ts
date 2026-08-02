@@ -28,7 +28,8 @@ vi.mock('@/composables/useClipboard', () => ({
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   const messages: Record<string, string> = {
-    'admin.accounts.imagePromptDefault': 'Generate a cute orange cat astronaut sticker on a clean pastel background.'
+    'admin.accounts.imagePromptDefault': 'Generate a cute orange cat astronaut sticker on a clean pastel background.',
+    'admin.accounts.startingTestForAccountWithUpstream': 'Starting test for account: {name} (upstream: {url})'
   }
   return {
     ...actual,
@@ -37,7 +38,10 @@ vi.mock('vue-i18n', async () => {
         if (key === 'admin.accounts.imageReceived' && params?.count) {
           return `received-${params.count}`
         }
-        return messages[key] || key
+        return Object.entries(params || {}).reduce(
+          (message, [name, value]) => message.replace(`{${name}}`, String(value)),
+          messages[key] || key
+        )
       }
     })
   }
@@ -138,6 +142,24 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(request.body)).toMatchObject({
       model_id: 'gemini-3.1-flash-image'
     })
+    expect(wrapper.emitted('test-succeeded')?.[0]?.[0]).toMatchObject({ id: 42 })
+  })
+
+  it('测试失败时不发送成功事件', async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"test_complete","success":false,"error":"upstream failed"}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    expect(wrapper.emitted('test-succeeded')).toBeUndefined()
+    expect(wrapper.emitted('test-failed')?.[0]?.[0]).toMatchObject({ id: 42 })
   })
 
   it('切换自动测试后立即保存，并在下次打开时使用该配置', async () => {
@@ -226,6 +248,37 @@ describe('AccountTestModal', () => {
     })
   })
 
+  it('OpenAI 测试优先选择 GPT-5.6 Sol，而不是依赖映射返回顺序', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-5.6-terra', display_name: 'GPT-5.6 Terra' },
+      { id: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' },
+      { id: 'gpt-5.6-luna', display_name: 'GPT-5.6 Luna' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 14,
+      name: 'OpenAI Account',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toMatchObject({
+      model_id: 'gpt-5.6-sol'
+    })
+  })
+
   it('OpenAI Compact 探测会携带 compact 测试模式', async () => {
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.4', display_name: 'GPT-5.4' }
@@ -258,5 +311,33 @@ describe('AccountTestModal', () => {
       prompt: '',
       mode: 'compact'
     })
+  })
+
+  it('starts a test with a sanitized configured upstream URL', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-5.4', display_name: 'GPT-5.4' }
+    ])
+    const wrapper = mountModal({
+      id: 99,
+      name: '眉间雪free25_nikoapi.xyz',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active',
+      credentials: {
+        base_url: 'https://api-user:api-password@nikoapi.xyz/v1?api_key=secret#token'
+      }
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(
+      'Starting test for account: 眉间雪free25_nikoapi.xyz (upstream: https://nikoapi.xyz/v1)'
+    )
+    expect(wrapper.text()).not.toContain('api-user')
+    expect(wrapper.text()).not.toContain('api-password')
+    expect(wrapper.text()).not.toContain('secret')
   })
 })

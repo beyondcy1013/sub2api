@@ -27,6 +27,7 @@ func TestAccountRepositoryListDueUpstreamBillingProbeAccountsBoundsQuery(t *test
 	require.Empty(t, accounts)
 	normalized := normalizeSQLWhitespace(capturedSQL)
 	require.Contains(t, normalized, "deleted_at IS NULL")
+	require.Contains(t, normalized, "extra -> 'deleted'")
 	require.Contains(t, normalized, "status = 'active'")
 	require.Contains(t, normalized, "platform = 'openai'")
 	require.Contains(t, normalized, "type = 'apikey'")

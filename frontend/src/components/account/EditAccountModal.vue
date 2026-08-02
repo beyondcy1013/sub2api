@@ -79,88 +79,6 @@
           <p class="input-hint">{{ t('admin.accounts.apiKeyPlainVisibleHint') }}</p>
         </div>
 
-        <div
-          v-if="account.platform === 'openai'"
-          class="border-t border-gray-200 pt-4 dark:border-dark-600"
-        >
-          <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <label class="input-label mb-0">{{ t('admin.accounts.relayFailureBudget.title') }}</label>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.relayFailureBudget.hint') }}
-              </p>
-            </div>
-            <Toggle
-              v-model="relayFailureBudgetEnabled"
-              data-testid="relay-failure-budget-toggle"
-              :aria-label="t('admin.accounts.relayFailureBudget.title')"
-            />
-          </div>
-
-          <div v-if="relayFailureBudgetEnabled" class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.relayFailureBudget.windowMinutes') }}</label>
-              <input
-                v-model.number="relayFailureBudgetWindowMinutes"
-                data-testid="relay-failure-budget-window-minutes"
-                type="number"
-                min="1"
-                :max="MAX_RELAY_FAILURE_BUDGET_WINDOW_MINUTES"
-                step="1"
-                class="input"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.relayFailureBudget.thresholdPercent') }}</label>
-              <input
-                v-model.number="relayFailureBudgetThresholdPercent"
-                data-testid="relay-failure-budget-threshold-percent"
-                type="number"
-                min="1"
-                max="100"
-                step="1"
-                class="input"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.relayFailureBudget.minRequests') }}</label>
-              <input
-                v-model.number="relayFailureBudgetMinRequests"
-                data-testid="relay-failure-budget-min-requests"
-                type="number"
-                min="1"
-                :max="MAX_RELAY_FAILURE_BUDGET_MIN_REQUESTS"
-                step="1"
-                class="input"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.relayFailureBudget.consecutiveFailures') }}</label>
-              <input
-                v-model.number="relayFailureBudgetConsecutiveFailures"
-                data-testid="relay-failure-budget-consecutive-failures"
-                type="number"
-                min="1"
-                :max="MAX_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES"
-                step="1"
-                class="input"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{ t('admin.accounts.relayFailureBudget.cooldownMinutes') }}</label>
-              <input
-                v-model.number="relayFailureBudgetCooldownMinutes"
-                data-testid="relay-failure-budget-cooldown-minutes"
-                type="number"
-                min="1"
-                :max="MAX_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES"
-                step="1"
-                class="input"
-              />
-            </div>
-          </div>
-        </div>
-
         <!-- Model Restriction Section (不适用于 Antigravity) -->
         <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -1498,7 +1416,7 @@
         <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
-      <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div class="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input v-model.number="form.concurrency" type="number" min="1" class="input"
@@ -1521,11 +1439,6 @@
             data-tour="account-form-priority"
           />
           <p class="input-hint">{{ t('admin.accounts.priorityHint') }}</p>
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
-          <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.001" class="input" />
-          <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -2828,100 +2741,10 @@ const allowedModels = ref<string[]>([])
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
-const DEFAULT_RELAY_FAILURE_BUDGET_WINDOW_MINUTES = 10
-const DEFAULT_RELAY_FAILURE_BUDGET_THRESHOLD_PERCENT = 30
-const DEFAULT_RELAY_FAILURE_BUDGET_MIN_REQUESTS = 10
-const DEFAULT_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES = 5
-const DEFAULT_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES = 2
-const MAX_RELAY_FAILURE_BUDGET_WINDOW_MINUTES = 1440
-const MAX_RELAY_FAILURE_BUDGET_MIN_REQUESTS = 10000
-const MAX_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES = 1000
-const MAX_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES = 1440
 const GROK_CLIENT_TOOL_CACHE_EXTRA_KEY = 'grok_client_tool_cache_enabled'
 const poolModeEnabled = ref(false)
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
-const relayFailureBudgetEnabled = ref(false)
-const relayFailureBudgetWindowMinutes = ref(DEFAULT_RELAY_FAILURE_BUDGET_WINDOW_MINUTES)
-const relayFailureBudgetThresholdPercent = ref(DEFAULT_RELAY_FAILURE_BUDGET_THRESHOLD_PERCENT)
-const relayFailureBudgetMinRequests = ref(DEFAULT_RELAY_FAILURE_BUDGET_MIN_REQUESTS)
-const relayFailureBudgetConsecutiveFailures = ref(DEFAULT_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES)
-const relayFailureBudgetCooldownMinutes = ref(DEFAULT_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES)
-
-function isCustomOpenAIRelayBaseUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value.trim())
-    const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
-    return Boolean(parsed.protocol && host && host !== 'api.openai.com')
-  } catch {
-    return false
-  }
-}
-
-function normalizeRelayFailureBudgetNumber(value: unknown, fallback: number, min: number, max: number): number {
-  const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) return fallback
-  return parsed
-}
-
-function resetRelayFailureBudget() {
-  relayFailureBudgetEnabled.value = false
-  relayFailureBudgetWindowMinutes.value = DEFAULT_RELAY_FAILURE_BUDGET_WINDOW_MINUTES
-  relayFailureBudgetThresholdPercent.value = DEFAULT_RELAY_FAILURE_BUDGET_THRESHOLD_PERCENT
-  relayFailureBudgetMinRequests.value = DEFAULT_RELAY_FAILURE_BUDGET_MIN_REQUESTS
-  relayFailureBudgetConsecutiveFailures.value = DEFAULT_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES
-  relayFailureBudgetCooldownMinutes.value = DEFAULT_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES
-}
-
-function loadRelayFailureBudget(credentials: Record<string, unknown>, baseUrl: string) {
-  const configuredEnabled = credentials.relay_failure_budget_enabled
-  relayFailureBudgetEnabled.value =
-    configuredEnabled === true ||
-    (configuredEnabled === undefined && isCustomOpenAIRelayBaseUrl(baseUrl))
-  relayFailureBudgetWindowMinutes.value = normalizeRelayFailureBudgetNumber(
-    credentials.relay_failure_budget_window_minutes,
-    DEFAULT_RELAY_FAILURE_BUDGET_WINDOW_MINUTES,
-    1,
-    MAX_RELAY_FAILURE_BUDGET_WINDOW_MINUTES
-  )
-  relayFailureBudgetThresholdPercent.value = normalizeRelayFailureBudgetNumber(
-    credentials.relay_failure_budget_failure_threshold_percent,
-    DEFAULT_RELAY_FAILURE_BUDGET_THRESHOLD_PERCENT,
-    1,
-    100
-  )
-  relayFailureBudgetMinRequests.value = normalizeRelayFailureBudgetNumber(
-    credentials.relay_failure_budget_min_requests,
-    DEFAULT_RELAY_FAILURE_BUDGET_MIN_REQUESTS,
-    1,
-    MAX_RELAY_FAILURE_BUDGET_MIN_REQUESTS
-  )
-  relayFailureBudgetConsecutiveFailures.value = normalizeRelayFailureBudgetNumber(
-    credentials.relay_failure_budget_consecutive_failures,
-    DEFAULT_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES,
-    1,
-    MAX_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES
-  )
-  relayFailureBudgetCooldownMinutes.value = normalizeRelayFailureBudgetNumber(
-    credentials.relay_failure_budget_cooldown_minutes,
-    DEFAULT_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES,
-    1,
-    MAX_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES
-  )
-}
-
-function relayFailureBudgetValuesAreValid(): boolean {
-  return relayFailureBudgetWindowMinutes.value >= 1 &&
-    relayFailureBudgetWindowMinutes.value <= MAX_RELAY_FAILURE_BUDGET_WINDOW_MINUTES &&
-    relayFailureBudgetThresholdPercent.value >= 1 &&
-    relayFailureBudgetThresholdPercent.value <= 100 &&
-    relayFailureBudgetMinRequests.value >= 1 &&
-    relayFailureBudgetMinRequests.value <= MAX_RELAY_FAILURE_BUDGET_MIN_REQUESTS &&
-    relayFailureBudgetConsecutiveFailures.value >= 1 &&
-    relayFailureBudgetConsecutiveFailures.value <= MAX_RELAY_FAILURE_BUDGET_CONSECUTIVE_FAILURES &&
-    relayFailureBudgetCooldownMinutes.value >= 1 &&
-    relayFailureBudgetCooldownMinutes.value <= MAX_RELAY_FAILURE_BUDGET_COOLDOWN_MINUTES
-}
 
 function parsePoolModeRetryStatusCodes(input: string): number[] {
   if (!input || !input.trim()) return []
@@ -3340,7 +3163,6 @@ const form = reactive({
   concurrency: 1,
   load_factor: null as number | null,
   priority: 1,
-  rate_multiplier: 1,
   status: 'active' as 'active' | 'inactive' | 'error',
   group_ids: [] as number[],
   expires_at: null as number | null
@@ -3429,7 +3251,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
-  form.rate_multiplier = newAccount.rate_multiplier ?? 1
   form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
     ? newAccount.status
     : 'active'
@@ -3474,7 +3295,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAIResponsesMode.value = 'auto'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
-  resetRelayFailureBudget()
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
@@ -3661,10 +3481,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             ? 'https://api.x.ai/v1'
             : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
-    if (newAccount.platform === 'openai') {
-      loadRelayFailureBudget(credentials, editBaseUrl.value)
-    }
-
     // Load model mappings and detect mode
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
 
@@ -4258,32 +4074,6 @@ const handleSubmit = async () => {
       const newCredentials: Record<string, unknown> = {
         ...currentCredentials,
         base_url: newBaseUrl
-      }
-
-      if (props.account.platform === 'openai') {
-        if (relayFailureBudgetEnabled.value) {
-          if (!isCustomOpenAIRelayBaseUrl(newBaseUrl)) {
-            appStore.showError(t('admin.accounts.relayFailureBudget.customRelayRequired'))
-            return
-          }
-          if (!relayFailureBudgetValuesAreValid()) {
-            appStore.showError(t('admin.accounts.relayFailureBudget.invalidValues'))
-            return
-          }
-          newCredentials.relay_failure_budget_enabled = true
-          newCredentials.relay_failure_budget_window_minutes = relayFailureBudgetWindowMinutes.value
-          newCredentials.relay_failure_budget_failure_threshold_percent = relayFailureBudgetThresholdPercent.value
-          newCredentials.relay_failure_budget_min_requests = relayFailureBudgetMinRequests.value
-          newCredentials.relay_failure_budget_consecutive_failures = relayFailureBudgetConsecutiveFailures.value
-          newCredentials.relay_failure_budget_cooldown_minutes = relayFailureBudgetCooldownMinutes.value
-        } else {
-          newCredentials.relay_failure_budget_enabled = false
-          delete newCredentials.relay_failure_budget_window_minutes
-          delete newCredentials.relay_failure_budget_failure_threshold_percent
-          delete newCredentials.relay_failure_budget_min_requests
-          delete newCredentials.relay_failure_budget_consecutive_failures
-          delete newCredentials.relay_failure_budget_cooldown_minutes
-        }
       }
 
       // Handle API key

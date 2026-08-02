@@ -41,6 +41,11 @@ type closeSpyFrameConn struct {
 	closeCalls atomic.Int32
 }
 
+type blockingWriteFrameConn struct {
+	writeCtx     chan context.Context
+	releaseWrite chan struct{}
+}
+
 func newPassthroughTestFrameConn(frames []passthroughTestFrame, autoClose bool) *passthroughTestFrameConn {
 	c := &passthroughTestFrameConn{
 		readCh: make(chan passthroughTestFrame, len(frames)+1),
@@ -178,6 +183,36 @@ func (c *closeSpyFrameConn) CloseCalls() int32 {
 	}
 	return c.closeCalls.Load()
 }
+
+func newBlockingWriteFrameConn() *blockingWriteFrameConn {
+	return &blockingWriteFrameConn{
+		writeCtx:     make(chan context.Context, 1),
+		releaseWrite: make(chan struct{}),
+	}
+}
+
+func (c *blockingWriteFrameConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	<-ctx.Done()
+	return coderws.MessageText, nil, ctx.Err()
+}
+
+func (c *blockingWriteFrameConn) WriteFrame(ctx context.Context, _ coderws.MessageType, _ []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.writeCtx <- ctx
+	select {
+	case <-c.releaseWrite:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *blockingWriteFrameConn) Close() error { return nil }
 
 func TestRelay_BasicRelayAndUsage(t *testing.T) {
 	t.Parallel()
@@ -772,6 +807,56 @@ func TestRelay_DownstreamPreambleStartsClientReader(t *testing.T) {
 		require.Nil(t, relayExit)
 	case <-time.After(time.Second):
 		t.Fatal("relay did not finish after terminal event and upstream close")
+	}
+}
+
+func TestRelay_OuterCancellationDoesNotCancelInFlightClientWrite(t *testing.T) {
+	clientConn := newBlockingWriteFrameConn()
+	defer close(clientConn.releaseWrite)
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
+		{
+			msgType: coderws.MessageText,
+			payload: []byte(`{"type":"response.created","response":{"id":"resp_cancel"}}`),
+		},
+	}, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	resultCh := make(chan *RelayExit, 1)
+	beforeCancelWriteErr := make(chan error, 1)
+	var writeCtx context.Context
+	go func() {
+		_, relayExit := Relay(
+			ctx,
+			clientConn,
+			upstreamConn,
+			[]byte(`{"type":"response.create","model":"gpt-5.1"}`),
+			RelayOptions{
+				StartClientAfterFirstDownstream: true,
+				BeforeRelayCancel: func(RelayExit) {
+					beforeCancelWriteErr <- writeCtx.Err()
+				},
+			},
+		)
+		resultCh <- relayExit
+	}()
+
+	select {
+	case writeCtx = <-clientConn.writeCtx:
+	case <-time.After(time.Second):
+		t.Fatal("relay did not start the downstream client write")
+	}
+	cancel()
+	select {
+	case writeErr := <-beforeCancelWriteErr:
+		require.NoError(t, writeErr, "outer cancellation must leave the client write alive for the control close frame")
+	case <-time.After(time.Second):
+		t.Fatal("relay did not invoke the pre-cancel callback")
+	}
+
+	select {
+	case relayExit := <-resultCh:
+		require.NotNil(t, relayExit)
+	case <-time.After(time.Second):
+		t.Fatal("relay did not exit after outer cancellation")
 	}
 }
 

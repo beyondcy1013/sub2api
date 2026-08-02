@@ -525,6 +525,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/account-policy-settings',
+    name: 'AdminAccountPolicySettings',
+    component: () => import('@/views/admin/AccountPolicySettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Account Policy Settings',
+      titleKey: 'admin.accountPolicy.title',
+      descriptionKey: 'admin.accountPolicy.description'
+    }
+  },
+  {
     path: '/admin/balance-check-settings',
     name: 'AdminBalanceCheckSettings',
     component: () => import('@/views/admin/BalanceCheckSettingsView.vue'),

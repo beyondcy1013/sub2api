@@ -149,7 +149,7 @@ const result = ref<AccountBalanceQueryResult | null>(null)
 const schemeOptions = computed(() => [
   { value: 'auto' as const, label: t('admin.accounts.balanceQuery.schemes.auto') },
   { value: 'sub2api' as const, label: t('admin.accounts.balanceQuery.schemes.sub2api') },
-  { value: 'newapi' as const, label: t('admin.accounts.balanceQuery.schemes.newapi') },
+  { value: 'nikoapi' as const, label: t('admin.accounts.balanceQuery.schemes.nikoapi') },
   { value: 'openai_compatible' as const, label: t('admin.accounts.balanceQuery.schemes.openaiCompatible') },
   { value: 'cpa' as const, label: t('admin.accounts.balanceQuery.schemes.cpa') },
   { value: 'custom' as const, label: t('admin.accounts.balanceQuery.schemes.custom') },
@@ -169,7 +169,13 @@ const canQuery = computed(() => Boolean(
 ))
 
 const schemeLabel = (value?: AccountBalanceQueryScheme) => {
-  return schemeOptions.value.find(option => option.value === value)?.label ?? value ?? '-'
+  const normalized = normalizeScheme(value)
+  return schemeOptions.value.find(option => option.value === normalized)?.label ?? normalized ?? '-'
+}
+
+const normalizeScheme = (value?: AccountBalanceQueryScheme): AccountBalanceQueryScheme => {
+  if (!value) return 'auto'
+  return value === 'newapi' ? 'nikoapi' : value
 }
 
 const formatQueriedAt = (value: string) => {
@@ -180,12 +186,13 @@ const formatQueriedAt = (value: string) => {
 const currentAccountConfig = (): AccountBalanceQueryConfig => {
   const value = props.account?.extra?.balance_query
   if (!value || typeof value !== 'object') return { scheme: 'auto' }
-  return value as AccountBalanceQueryConfig
+  const config = value as AccountBalanceQueryConfig
+  return { ...config, scheme: normalizeScheme(config.scheme) }
 }
 
 const reset = () => {
   const config = currentAccountConfig()
-  scheme.value = config.scheme || 'auto'
+  scheme.value = normalizeScheme(config.scheme)
   apiURL.value = config.api_url || ''
   signInSiteID.value = config.sign_in_site_id || ''
   persistedScheme.value = scheme.value
@@ -222,7 +229,7 @@ const saveConfigIfChanged = async () => {
     api_url: effectiveAPIURL,
     sign_in_site_id: normalizedSignInSiteID,
   })
-  scheme.value = config.scheme
+  scheme.value = normalizeScheme(config.scheme)
   apiURL.value = config.api_url || ''
   signInSiteID.value = config.sign_in_site_id || ''
   persistedScheme.value = scheme.value
@@ -247,10 +254,11 @@ const runQuery = async (saveChanges: boolean) => {
       return
     }
 
-    const detectedFallback = response.scheme !== savedConfig.scheme
+    const responseScheme = normalizeScheme(response.scheme)
+    const detectedFallback = responseScheme !== normalizeScheme(savedConfig.scheme)
     const nextConfig: AccountBalanceQueryConfig = {
       ...savedConfig,
-      scheme: response.scheme,
+      scheme: responseScheme,
       api_url: detectedFallback ? '' : (savedConfig.api_url || ''),
       sign_in_site_id: response.sign_in_site_id || savedConfig.sign_in_site_id || '',
       detected_api_url: response.api_url,

@@ -1,14 +1,14 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.accounts.enhancedImportTitle')"
+    :title="dialogTitle"
     width="normal"
     close-on-click-outside
     @close="handleClose"
   >
-    <form id="enhanced-import-data-form" class="space-y-4" @submit.prevent="handleImport">
+    <form id="enhanced-import-data-form" class="space-y-4" @submit.prevent="handleSubmit">
       <p class="text-sm text-gray-600 dark:text-dark-300">
-        {{ t('admin.accounts.enhancedImportHint') }}
+        {{ dialogHint }}
       </p>
 
       <div
@@ -100,10 +100,10 @@
         </div>
       </div>
 
-      <ImportRoutingOptions ref="routingOptionsRef" />
+      <ImportRoutingOptions v-if="operation === 'import'" ref="routingOptionsRef" />
 
       <div
-        v-if="result"
+        v-if="operation === 'import' && result"
         class="space-y-2 rounded-lg border border-gray-200 p-4 dark:border-dark-700"
       >
         <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -126,17 +126,28 @@
     </form>
 
     <template #footer>
-      <div class="flex justify-end gap-3">
-        <button class="btn btn-secondary" type="button" :disabled="importing" @click="handleClose">
+      <div class="flex w-full justify-end gap-3">
+        <button class="btn btn-secondary" type="button" :disabled="busy" @click="handleClose">
           {{ t('common.cancel') }}
         </button>
         <button
+          v-if="operation === 'clear'"
+          class="btn btn-danger"
+          type="button"
+          data-test="enhanced-import-clear"
+          :disabled="busy"
+          @click="handleClear"
+        >
+          {{ submitLabel }}
+        </button>
+        <button
+          v-else
           class="btn btn-primary"
           type="submit"
           form="enhanced-import-data-form"
-          :disabled="importing"
+          :disabled="busy"
         >
-          {{ importing ? t('admin.accounts.dataImporting') : t('admin.accounts.dataImportButton') }}
+          {{ submitLabel }}
         </button>
       </div>
     </template>
@@ -152,7 +163,8 @@ import Icon from '@/components/icons/Icon.vue'
 import ImportRoutingOptions from './ImportRoutingOptions.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AdminDataImportResult, AdminDataPayload } from '@/types'
+import type { AdminDataImportedAccount, AdminDataImportResult, AdminDataPayload } from '@/types'
+import { extractImportFilenamePart } from '@/utils/importFilename'
 import {
   EnhancedImportError,
   mergeEnhancedImportPayloads,
@@ -162,20 +174,24 @@ import {
 
 interface Props {
   show: boolean
+  operation?: 'import' | 'clear'
 }
 
 interface Emits {
   (event: 'close'): void
-  (event: 'imported'): void
+  (event: 'imported', accounts: AdminDataImportedAccount[]): void
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  operation: 'import'
+})
 const emit = defineEmits<Emits>()
 const { t } = useI18n()
 const appStore = useAppStore()
 
 const sourceMode = ref<'file' | 'text'>('file')
 const importing = ref(false)
+const clearing = ref(false)
 const files = ref<File[]>([])
 const jsonText = ref('')
 const dragDepth = ref(0)
@@ -184,6 +200,28 @@ const result = ref<AdminDataImportResult | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const routingOptionsRef = ref<InstanceType<typeof ImportRoutingOptions> | null>(null)
 
+const operation = computed(() => props.operation)
+const busy = computed(() => importing.value || clearing.value)
+const dialogTitle = computed(() => t(
+  operation.value === 'clear'
+    ? 'admin.accounts.enhancedImportClearTitle'
+    : 'admin.accounts.enhancedImportTitle'
+))
+const dialogHint = computed(() => t(
+  operation.value === 'clear'
+    ? 'admin.accounts.enhancedImportClearHint'
+    : 'admin.accounts.enhancedImportHint'
+))
+const submitLabel = computed(() => {
+  if (operation.value === 'clear') {
+    return clearing.value
+      ? t('admin.accounts.enhancedImportClearing')
+      : t('admin.accounts.enhancedImportClearButton')
+  }
+  return importing.value
+    ? t('admin.accounts.dataImporting')
+    : t('admin.accounts.dataImportButton')
+})
 const dragActive = computed(() => dragDepth.value > 0)
 const fileListTitle = computed(() => files.value.map(file => file.name).join(', '))
 const selectedFilesLabel = computed(() => {
@@ -224,7 +262,7 @@ const isJsonFile = (file: File) =>
   file.name.toLowerCase().endsWith('.json') || file.type === 'application/json'
 
 const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => {
-  if (importing.value) return
+  if (busy.value) return
   const incoming = Array.from(sourceFiles || [])
   const picked = incoming.filter(isJsonFile)
   if (!picked.length) {
@@ -242,7 +280,7 @@ const handleFileChange = (event: Event) => {
 }
 
 const handleDragEnter = () => {
-  if (!importing.value) dragDepth.value += 1
+  if (!busy.value) dragDepth.value += 1
 }
 
 const handleDragLeave = () => {
@@ -251,7 +289,7 @@ const handleDragLeave = () => {
 
 const handleDrop = (event: DragEvent) => {
   dragDepth.value = 0
-  if (!importing.value) setSelectedFiles(event.dataTransfer?.files)
+  if (!busy.value) setSelectedFiles(event.dataTransfer?.files)
 }
 
 const readFileAsText = async (file: File): Promise<string> => {
@@ -268,10 +306,10 @@ const readFileAsText = async (file: File): Promise<string> => {
 }
 
 const handleClose = () => {
-  if (importing.value) return
+  if (busy.value) return
   if (hasCreatedData.value) {
     hasCreatedData.value = false
-    emit('imported')
+    emit('imported', result.value?.created_accounts ?? [])
   }
   emit('close')
 }
@@ -301,13 +339,21 @@ const readPayloads = async (): Promise<AdminDataPayload[] | null> => {
 
   const payloads: AdminDataPayload[] = []
   for (const file of files.value) {
-    payloads.push(parseEnhancedImportSource(await readFileAsText(file), file.name))
+    const payload = parseEnhancedImportSource(await readFileAsText(file), file.name)
+    // Tag each account with the source filename part for the 文件名 column.
+    const importFilename = extractImportFilenamePart(file.name)
+    if (importFilename) {
+      for (const acc of payload.accounts) {
+        acc.extra = { ...(acc.extra || {}), import_filename: importFilename }
+      }
+    }
+    payloads.push(payload)
   }
   return payloads
 }
 
 const handleImport = async () => {
-  if (importing.value) return
+  if (busy.value) return
   importing.value = true
   try {
     const payloads = await readPayloads()
@@ -334,8 +380,8 @@ const handleImport = async () => {
       return
     }
 
-    appStore.showSuccess(t('admin.accounts.dataImportSuccess', messageParams))
-    emit('imported')
+    appStore.showSuccess(t('admin.accounts.dataImportSuccess', messageParams), 8000)
+    emit('imported', response.created_accounts ?? [])
   } catch (error: unknown) {
     if (error instanceof EnhancedImportError) {
       showParseError(error)
@@ -344,6 +390,51 @@ const handleImport = async () => {
     }
   } finally {
     importing.value = false
+  }
+}
+
+const handleSubmit = () => operation.value === 'clear' ? handleClear() : handleImport()
+
+const handleClear = async () => {
+  if (busy.value) return
+  clearing.value = true
+  try {
+    const payloads = await readPayloads()
+    if (!payloads) return
+    const data = mergeEnhancedImportPayloads(payloads)
+    if (data.accounts.length === 0) {
+      appStore.showError(t('admin.accounts.enhancedImportClearNoAccounts'))
+      return
+    }
+    if (!window.confirm(t('admin.accounts.enhancedImportClearConfirm', { count: data.accounts.length }))) {
+      return
+    }
+
+    result.value = null
+    const response = await adminAPI.accounts.clearImportedData({ data })
+    const messageParams = {
+      account_cleared: response.account_cleared,
+      account_not_found: response.account_not_found,
+      account_ambiguous: response.account_ambiguous,
+      account_failed: response.account_failed
+    }
+    const hasIssues = response.account_not_found > 0 || response.account_ambiguous > 0 || response.account_failed > 0
+    if (hasIssues) {
+      appStore.showError(t('admin.accounts.enhancedImportClearCompletedWithErrors', messageParams))
+    } else {
+      appStore.showSuccess(t('admin.accounts.enhancedImportClearSuccess', messageParams), 8000)
+    }
+    if (response.account_cleared > 0) {
+      emit('imported', [])
+    }
+  } catch (error: unknown) {
+    if (error instanceof EnhancedImportError) {
+      showParseError(error)
+    } else {
+      appStore.showError(error instanceof Error ? error.message : t('admin.accounts.enhancedImportClearFailed'))
+    }
+  } finally {
+    clearing.value = false
   }
 }
 </script>

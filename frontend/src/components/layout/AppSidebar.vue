@@ -770,6 +770,7 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
+    { path: '/admin/account-policy-settings', label: t('nav.accountPolicySettings'), icon: CogIcon },
     { path: '/admin/balance-check-settings', label: '余额检测设置', icon: CogIcon, featureFlag: flagBalanceCheck },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },

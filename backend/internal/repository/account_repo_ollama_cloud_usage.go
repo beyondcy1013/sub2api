@@ -57,6 +57,7 @@ func (r *accountRepository) ListOllamaCloudUsageGroupAccounts(ctx context.Contex
 		SELECT id
 		FROM accounts
 		WHERE deleted_at IS NULL
+			AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 			AND `+ollamaCloudUsageEligibleSQL+`
 			AND credentials ->> 'api_key' = ANY($1)
 		ORDER BY id
@@ -304,6 +305,7 @@ func lockOllamaCloudUsageGroup(
 			COALESCE((extra -> 'ollama_cloud_usage_snapshot')::text, 'null')
 		FROM accounts
 		WHERE deleted_at IS NULL
+			AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 			AND `+ollamaCloudUsageEligibleSQL+`
 			AND credentials ->> 'api_key' = $1
 		ORDER BY id
@@ -430,6 +432,7 @@ func (r *accountRepository) ListDueOllamaCloudUsageAccounts(
 				extra -> 'ollama_cloud_usage_snapshot' AS snapshot
 			FROM accounts
 			WHERE deleted_at IS NULL
+				AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 				AND status = 'active'
 				AND `+ollamaCloudUsageEligibleSQL+`
 				AND jsonb_typeof(extra -> 'ollama_cloud_usage_session') = 'string'
@@ -439,6 +442,7 @@ func (r *accountRepository) ListDueOllamaCloudUsageAccounts(
 				MAX(last_used_at) AS group_last_used_at
 			FROM accounts
 			WHERE deleted_at IS NULL
+				AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 				AND `+ollamaCloudUsageEligibleSQL+`
 				AND jsonb_typeof(credentials -> 'api_key') = 'string'
 			GROUP BY credentials ->> 'api_key'

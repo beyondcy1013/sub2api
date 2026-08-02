@@ -157,6 +157,35 @@ func (s *openAIAccountModelTransientState) size() int {
 	return len(s.entries)
 }
 
+func (s *openAIAccountModelTransientState) activeBlocks(accountID int64, now time.Time) map[string]time.Time {
+	if s == nil || accountID <= 0 {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	blocks := make(map[string]time.Time)
+	for key, entry := range s.entries {
+		if key.AccountID != accountID {
+			continue
+		}
+		if !entry.lastFailure.IsZero() && now.Sub(entry.lastFailure) > openAIModelTransientFailureWindow {
+			delete(s.entries, key)
+			continue
+		}
+		if !entry.blockUntil.IsZero() && now.Before(entry.blockUntil) {
+			blocks[key.Model] = entry.blockUntil
+		}
+	}
+	if len(blocks) == 0 {
+		return nil
+	}
+	return blocks
+}
+
 func (s *openAIAccountModelTransientState) evictOldestLocked() {
 	if len(s.entries) < s.maxEntries {
 		return

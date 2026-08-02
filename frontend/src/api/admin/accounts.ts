@@ -16,6 +16,7 @@ import type {
   AccountUsageStatsResponse,
   TempUnschedulableStatus,
   AdminDataPayload,
+  AdminDataClearResult,
   AdminDataImportResult,
   CodexSessionImportRequest,
   CodexSessionImportResult,
@@ -52,6 +53,7 @@ export async function list(
     include_scheduler_score?: string
     include_scheduling_optimal?: string
     recycled?: string
+    deleted?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -90,6 +92,7 @@ export async function listWithEtag(
     include_scheduler_score?: string
     include_scheduling_optimal?: string
     recycled?: string
+    deleted?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -137,6 +140,59 @@ export async function listWithEtag(
  */
 export async function getById(id: number): Promise<Account> {
   const { data } = await apiClient.get<Account>(`/admin/accounts/${id}`)
+  return data
+}
+
+export interface RelayFailureBudgetPolicySettings {
+  supported: boolean
+  enabled: boolean
+  window_minutes: number
+  failure_threshold_percent: number
+  min_requests: number
+  consecutive_failures: number
+  cooldown_minutes: number
+}
+
+export interface AccountQuotaPolicySettings {
+  supported: boolean
+  total_limit: number
+  daily_limit: number
+  weekly_limit: number
+}
+
+export interface AccountSchedulingRatePolicySettings {
+  rate_multiplier: number
+  sync_mode: 'auto_overwrite' | 'manual_lock'
+}
+
+export interface AccountPolicySettings {
+  account_id: number
+  relay_failure_budget: RelayFailureBudgetPolicySettings
+  quota: AccountQuotaPolicySettings
+  scheduling_rate: AccountSchedulingRatePolicySettings
+}
+
+export interface UpdateAccountPolicySettingsRequest {
+  relay_failure_budget?: Omit<RelayFailureBudgetPolicySettings, 'supported'>
+  quota?: Omit<AccountQuotaPolicySettings, 'supported'>
+  scheduling_rate?: AccountSchedulingRatePolicySettings
+}
+
+export async function getPolicySettings(id: number): Promise<AccountPolicySettings> {
+  const { data } = await apiClient.get<AccountPolicySettings>(
+    `/admin/accounts/${id}/policy-settings`
+  )
+  return data
+}
+
+export async function updatePolicySettings(
+  id: number,
+  policy: UpdateAccountPolicySettingsRequest
+): Promise<AccountPolicySettings> {
+  const { data } = await apiClient.put<AccountPolicySettings>(
+    `/admin/accounts/${id}/policy-settings`,
+    policy
+  )
   return data
 }
 
@@ -226,7 +282,7 @@ export async function checkMixedChannelRisk(
 }
 
 /**
- * Delete account
+ * Move account into recoverable deleted staging.
  * @param id - Account ID
  * @returns Success confirmation
  */
@@ -254,7 +310,7 @@ export async function restoreAccount(id: number): Promise<{ message: string }> {
 }
 
 /**
- * List soft-deleted accounts in the recycle bin (archive only).
+ * List legacy soft-deleted accounts created by older builds.
  */
 export async function listTrashedAccounts(params: {
   page?: number
@@ -268,7 +324,7 @@ export async function listTrashedAccounts(params: {
 }
 
 /**
- * Restore a soft-deleted account from the recycle bin (re-creates group associations).
+ * Restore an account from deleted staging or the legacy soft-delete bin.
  * @param id - Account ID
  */
 export async function restoreFromTrash(id: number): Promise<{ message: string }> {
@@ -277,7 +333,7 @@ export async function restoreFromTrash(id: number): Promise<{ message: string }>
 }
 
 /**
- * Permanently delete a soft-deleted account (irreversible).
+ * Permanently delete a deleted-staging or legacy soft-deleted account (irreversible).
  * @param id - Account ID
  */
 export async function permanentDeleteAccount(id: number): Promise<{ message: string }> {
@@ -373,6 +429,20 @@ export async function testAccount(id: number): Promise<{
     message: string
     latency_ms?: number
   }>(`/admin/accounts/${id}/test`)
+  return data
+}
+
+export interface BatchTestAndMarkResult {
+  success: number
+  failed: number
+  marked: number
+  results: Array<{ account_id: number; success: boolean; marked?: boolean; error?: string }>
+}
+
+export async function batchTestAndMark(accountIds: number[]): Promise<BatchTestAndMarkResult> {
+  const { data } = await apiClient.post<BatchTestAndMarkResult>('/admin/accounts/batch-test-and-mark', {
+    account_ids: accountIds
+  })
   return data
 }
 
@@ -852,6 +922,15 @@ export async function importData(payload: {
   return data
 }
 
+export async function clearImportedData(payload: {
+  data: AdminDataPayload
+}): Promise<AdminDataClearResult> {
+  const { data } = await apiClient.post<AdminDataClearResult>('/admin/accounts/data/clear', {
+    data: payload.data
+  })
+  return data
+}
+
 export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult> {
   const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload, {
     timeout: 120000 // 120s timeout for large session imports
@@ -1141,6 +1220,8 @@ export const accountsAPI = {
   list,
   listWithEtag,
   getById,
+  getPolicySettings,
+  updatePolicySettings,
   create,
   duplicate,
   clone,
@@ -1155,6 +1236,7 @@ export const accountsAPI = {
   setSuperPriority: setAccountSuperPriority,
   toggleStatus,
   testAccount,
+  batchTestAndMark,
   refreshCredentials,
   applyOAuthCredentials,
   getStats,
@@ -1186,6 +1268,7 @@ export const accountsAPI = {
   syncFromCrs,
   exportData,
   importData,
+  clearImportedData,
   importCodexSession,
   createOpenAICodexPAT,
   getAntigravityDefaultModelMapping,

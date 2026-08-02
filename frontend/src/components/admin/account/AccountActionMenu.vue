@@ -10,10 +10,6 @@
       >
         <div class="py-1">
           <template v-if="account">
-            <button @click="$emit('stats', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
-              <Icon name="chart" size="sm" class="text-indigo-500" />
-              {{ t('admin.accounts.viewStats') }}
-            </button>
             <button @click="$emit('schedule', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
@@ -22,7 +18,7 @@
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
-            <button v-if="account.type === 'apikey'" @click="$emit('query-balance', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+            <button v-if="account.type === 'apikey' && !isDeletedStaging" @click="$emit('query-balance', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="dollar" size="sm" class="text-emerald-600" />
               {{ t('admin.accounts.balanceQuery.action') }}
             </button>
@@ -41,14 +37,6 @@
                 {{ t('admin.accounts.refreshToken') }}
               </button>
             </template>
-            <button v-if="isOpenAIOAuthParent" @click="$emit('create-spark-shadow', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
-              <Icon name="sparkles" size="sm" />
-              {{ t('admin.accounts.createSparkShadow') }}
-            </button>
-            <button v-if="supportsPrivacy" @click="$emit('set-privacy', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
-              <Icon name="shield" size="sm" />
-              {{ t('admin.accounts.setPrivacy') }}
-            </button>
             <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
             <button @click="$emit('recover-state', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="sync" size="sm" />
@@ -66,9 +54,22 @@
               <Icon name="refresh" size="sm" />
               {{ t('admin.accounts.resetQuota') }}
             </button>
-            <button @click="$emit('delete', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
+            <button v-if="!isDeletedStaging" @click="$emit('delete', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
               <Icon name="trash" size="sm" />
               {{ t('common.delete') }}
+            </button>
+            <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+            <button @click="$emit('stats', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="chart" size="sm" class="text-indigo-500" />
+              {{ t('admin.accounts.viewStats') }}
+            </button>
+            <button v-if="isOpenAIOAuthParent" @click="$emit('create-spark-shadow', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="sparkles" size="sm" />
+              {{ t('admin.accounts.createSparkShadow') }}
+            </button>
+            <button v-if="supportsPrivacy" @click="$emit('set-privacy', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-emerald-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="shield" size="sm" />
+              {{ t('admin.accounts.setPrivacy') }}
             </button>
           </template>
         </div>
@@ -94,9 +95,11 @@ const canDuplicate = computed(() => {
 const isAntigravityOAuth = computed(() => props.account?.platform === 'antigravity' && props.account?.type === 'oauth')
 const isOpenAIOAuth = computed(() => props.account?.platform === 'openai' && props.account?.type === 'oauth')
 const isOpenAI = computed(() => props.account?.platform === 'openai')
+const isDeletedStaging = computed(() => props.account?.extra?.deleted === true)
 const canReceiveStickySessions = computed(() =>
-  isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment) &&
-  isOpenAI.value &&
+	isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment) &&
+	isOpenAI.value &&
+	!isDeletedStaging.value &&
   props.account?.status === 'active' &&
   props.account?.schedulable === true
 )

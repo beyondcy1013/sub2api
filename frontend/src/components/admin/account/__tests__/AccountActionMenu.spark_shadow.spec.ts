@@ -234,6 +234,42 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
+  it('删除态账号保留管理菜单但不再提供删除和自动资源查询入口', () => {
+    const account = makeAccount({
+      platform: 'openai',
+      type: 'apikey',
+      extra: { deleted: true },
+    })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const body = getBodyText()
+    expect(body).toContain('admin.accounts.recoverState')
+    expect(body).toContain('admin.accounts.viewStats')
+    expect(body).not.toContain('common.delete')
+    expect(body).not.toContain('admin.accounts.balanceQuery.action')
+    expect(body).not.toContain('admin.accounts.stickySessions.action')
+    wrapper.unmount()
+  })
+
+  it('将查看统计、创建 Spark 影子账号和设置隐私集中在菜单末尾', () => {
+    const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const labels = getBodyButtons().map(button => button.textContent?.trim())
+    expect(labels.slice(-3)).toEqual([
+      'admin.accounts.viewStats',
+      'admin.accounts.createSparkShadow',
+      'admin.accounts.setPrivacy',
+    ])
+    wrapper.unmount()
+  })
+
   it('点击按钮触发 create-spark-shadow 事件并携带 account', async () => {
     const account = makeAccount({ platform: 'openai', type: 'oauth', parent_account_id: null })
     const wrapper = mount(AccountActionMenu, {

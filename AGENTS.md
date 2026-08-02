@@ -55,6 +55,26 @@ Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/third_party/
 ## Deploy Checklist
 
 - Unless the user explicitly requests no deployment, finish every code-change task by automatically running the unified dual-service build, deployment, and live verification before the final response.
+- Routine code-change deployments use `bash scripts/build-unified-release.sh`
+  with no mode flag. Its default `quick` mode reuses Go test-cache results,
+  skips the duplicate full Vitest run, and still performs the exact-snapshot
+  backend suite, TypeScript typecheck, Vite production build, embedded Go
+  build, source-integrity checks, and install audit. Run task-focused backend
+  and frontend tests before queueing this fast deployment. The frozen build
+  copy uses the stable, `flock`-guarded
+  `/data/cargo-target/sub2api-unified-source` workspace so unchanged Go test
+  results can be reused across deployments; source hashes before and after
+  synchronization still reject mixed or concurrent source state. Go tests also
+  override webClx's per-run `TMPDIR` with the stable, lock-protected
+  `/data/cargo-target/sub2api-unified-go-test-tmp`; changing that path defeats
+  result-cache reuse for tests that call `t.TempDir` or `os.TempDir`.
+- Use `bash scripts/build-unified-release.sh --full` only for upstream merges,
+  dependency/toolchain changes, migrations, security/auth changes, broad
+  cross-module refactors, or when focused regression coverage cannot be
+  identified. Full mode forces uncached backend tests and the complete Vitest
+  suite. Do not make full mode the automatic default again.
+- `bash scripts/build-unified-release.sh --print-plan` is the non-building
+  mode audit. Unknown or conflicting build-mode arguments must fail closed.
 
 1. Build the canonical frontend and `-tags embed` Go binary exactly once.
 2. Atomically install the same bytes to `/home/third_party/bin/sub2api/sub2api`
@@ -84,6 +104,13 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
 - Do not add `api_key` back to `SensitiveCredentialKeys`; OAuth tokens, session keys, cookies, AWS secrets, service account JSON, and private keys must remain redacted.
 - `MergePreservingSensitiveCreds` must preserve an existing `api_key` when an older or partial frontend update omits it.
 - `frontend/src/components/account/EditAccountModal.vue` should preload `credentials.api_key` and render API key inputs as `type="text"` for account API key fields.
+- OpenAI API Key accounts with a custom `base_url` must treat an upstream 401
+  `token_invalidated` code, or the canonical `authentication token has been
+  invalidated` message when the relay omits that code, as the relay's internal
+  OAuth failure: fail over the request without changing local `status` or
+  `schedulable`. This exception does not apply to OAuth accounts,
+  `invalid_api_key`, default OpenAI endpoints, or an administrator's explicit
+  custom 401 error-code policy.
 - **Account management table column layout** (`frontend/src/views/admin/AccountsView.vue` `allColumns`):
   - The leading order is `选择` -> `操作` -> `名称` -> `容量` -> `状态` -> `调度` -> `用量窗口` -> `平台/类型`.
   - After `创建时间`, keep `今日费用` -> `分组` (when visible) -> `余额` -> `5h请求` -> `5h Token` -> `7d请求` -> `7d Token` -> `窗口总费用`.
@@ -117,6 +144,8 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   - `accounts.rate_multiplier` is the sole lowest-cost ranking value. Successful automatic probes copy only `resolved_rate_multiplier` into it; peak/effective snapshots do not rank requests.
   - `extra.scheduling_rate_sync_mode` is `auto_overwrite` (default) or `manual_lock`. Legacy upstream/manual source values map to those modes only when the new field is absent.
   - In `lowest_cost`, a periodic bounded-concurrency connection test records `extra.scheduling_liveness`. Fresh `dead` accounts are excluded, while missing/stale/suspect states remain fallback candidates; later success restores eligibility without changing `status` or `schedulable`.
+  - `super_priority.liveness_abnormal_only` optionally limits automatic and manual liveness batches to active accounts whose liveness is missing, stale, `suspect`, or `dead`. Fresh `alive` accounts are skipped only until their snapshot expires, so they re-enter the probe scope instead of remaining trusted forever.
+  - The scheduling-rules dialog shows server-owned liveness runtime state in its upper-right header: running state, next expected batch time, and the latest checked/succeeded/failed/skipped result. Keep this sourced from the backend runner rather than a browser-only schedule.
   - The account table marks the current optimal scheduling rate in gold only for accounts that are schedulable, have a fresh `alive` liveness result, and tie for the lowest `rate_multiplier` in at least one scheduling group. All tied minima are marked; ungrouped accounts compare only with ungrouped accounts on the same platform. The calculation uses the full active account pool, not the current page, and is an administrative hint rather than a guarantee for every model-specific request.
 - After upstream upgrades, verify with:
 
@@ -189,6 +218,15 @@ pnpm vitest run \
   `skip_default_group_bind: true`.
 - The text-mode UI keeps the bilingual usage guide and extraction summary.
   Never log or persist pasted credentials/tokens outside the import request.
+- The account tools menu keeps `批量清除导入账号` directly below `增强导入`.
+  It opens the enhanced parser in a dedicated clear mode without import routing
+  controls; the normal enhanced-import modal does not show the destructive
+  action. Clear mode reuses the same file/text parser, sends only normalized
+  account data to the clear endpoint, and never removes imported proxies. The
+  backend matches platform/type plus a
+  stable credential identity, permits a name-only fallback only when unique,
+  and moves every match into recoverable deleted staging through the normal
+  account delete service. Missing or ambiguous matches must not be guessed.
 - Focused regression verification:
 
 ```bash
@@ -198,28 +236,28 @@ pnpm vitest run \
   src/components/admin/account/__tests__/EnhancedImportDataModal.spec.ts
 ```
 
-## Account Staging Filter / Trash Bin Feature
+## Account Staging / Recoverable Deleted Staging
 
 - **Bulk account editing is direct and change-tracked**:
   - Value controls in `BulkEditAccountModal.vue` remain usable before their field checkbox is selected.
   - Changing a value automatically selects only that field for submission; untouched field defaults must not enter the bulk-update payload.
   - Field checkboxes remain available for explicit operations whose desired value equals the form default, including clearing a proxy, groups, mappings, or other existing account values.
 - **Account staging** (formerly "recycle") is an extra filter via `extra.recycled = true`. It does NOT use soft-delete (`deleted_at`). The filter toggle is labeled "暂存" (Staging) with an `inbox` icon in `AccountTableActions.vue`.
-- `accountListFilteredQuery` in `account_repo.go` accepts a `recycled bool` param: `true` shows only staged accounts, `false` (default) excludes them.
-- All callers of `ListAccounts`, `ListWithFilters`, `ListAllWithFilters` must pass the `recycled bool` as the final parameter.
+- `accountListFilteredQuery` in `account_repo.go` accepts separate `recycled` and `deleted` modes. They are mutually exclusive; ordinary lists exclude both lifecycle states.
+- All callers of `ListAccounts` must pass both lifecycle booleans. `ListWithFilters` and `ListAllWithFilters` continue to accept `recycled` and always exclude deleted-staging rows.
 - Backend staging routes: `POST /api/v1/admin/accounts/:id/recycle` and `POST /api/v1/admin/accounts/:id/restore`.
 - Frontend: `AccountTableActions.vue` has a staging toggle button (inbox icon); `AccountsView.vue` shows 暂存/取消暂存 buttons in the action column depending on mode.
 - Active account rows keep the direct action order `编辑` -> `测试连接` -> `暂存` -> `更多`; `测试连接` is not duplicated inside `AccountActionMenu.vue`.
-- **Trash bin** (真正的回收站) is a separate feature for soft-deleted accounts:
-  - `DELETE /admin/accounts/:id` already soft-deletes via `SoftDeleteMixin` (`deleted_at = NOW()`). Group associations are saved to `extra.recycle_bin_groups` before soft-delete for full restore.
-  - `GET /api/v1/admin/accounts/trash` lists soft-deleted accounts using `SkipSoftDelete`.
-  - `POST /api/v1/admin/accounts/:id/restore-from-trash` clears `deleted_at`, re-creates `AccountGroup` rows, notifies scheduler.
-  - `DELETE /api/v1/admin/accounts/:id/permanent-delete` physically removes the row (uses `SkipSoftDelete`).
-  - Frontend: `TrashBinModal.vue` is opened from the trash icon button in `AccountTableActions.vue`.
-  - Repository methods: `ListTrashedAccounts`, `RestoreTrashedAccount`, `PermanentDelete`.
-  - Service methods: `ListTrashedAccounts`, `RestoreFromTrash`, `PermanentDeleteAccount`.
-  - `AccountRepository` and `AdminService` interfaces require these new methods; all test stubs must implement them.
+- **Recoverable deleted staging** is the second lifecycle level via `extra.deleted = true`; new deletes must not set `deleted_at`:
+  - `DELETE /api/v1/admin/accounts/:id` moves the row into deleted staging, removes `extra.recycled`, and preserves credentials, groups, usage/history, and scheduled configuration.
+  - Ordinary and recycled lists exclude deleted-staging rows. `GET /api/v1/admin/accounts?deleted=1` lists only deleted-staging rows; `deleted=1` and `recycled=1` together are rejected.
+  - The trash icon in `AccountTableActions.vue` toggles the deleted-staging table. Rows retain `编辑`, `测试连接`, `恢复`, and `更多`; restore uses `POST /api/v1/admin/accounts/:id/restore-from-trash`.
+  - Deleted-staging rows are never request-routing candidates and must be excluded from OAuth refresh, scheduled tests, liveness, upstream-rate/billing probes, automatic usage/balance refresh, expiration auto-pause, scheduler-score pools, and model-availability scans. Explicit operator management remains available.
+  - Ordinary edits must preserve the server-owned `deleted` marker. Duplicating a deleted/staged row must not copy either lifecycle marker to the new account.
+  - Migration `191_convert_account_soft_delete_to_deleted_staging.sql` restores legacy soft-deleted rows and saved group bindings, clears `deleted_at`, and marks them `extra.deleted=true`.
+  - Legacy soft-delete list/permanent-delete repository, service, and API methods remain compatibility-only for pre-migration callers. The current account-management UI must not expose irreversible permanent deletion.
 - `AccountTestModal.vue` defaults `自动测试` to enabled, waits for the default model to load before starting, and persists checkbox changes in browser storage under `sub2api.account-test.auto-start`.
+- After a successful direct connection test, an account whose status is not `active` or whose scheduling is paused prompts the operator before recovery. Confirmation performs full runtime-state recovery, activates an inactive account when needed, and enables scheduling; already active and schedulable accounts do not prompt.
 - Account names stay inside the fixed-width name cell with single-line truncation and overflow clipping. Do not restore the name-triggered hover tooltip that teleports content outside the cell.
 - sub2freeApi has an additional `clone` function in `accounts.ts` that sub2api does not — re-add it when syncing files.
 - Status/Groups/Capacity table cells use plain text (text-color classes only), NOT badge/card styling. See `references/account-table-column-layout.md`.
@@ -228,9 +266,10 @@ pnpm vitest run \
 
 ## Account Actions And Active Sticky-Session Reassignment
 
-- New/imported account form initialization and reset use `concurrency: 4`; do not restore upstream `10`.
+- New-account form initialization and reset use `concurrency: 10`. Enhanced CLIProxyAPI imports also default new accounts to `concurrency: 10`; native backup imports preserve each account's exported concurrency.
 - New-account form initialization and reset select the last available proxy and the first available group. If proxy/group props arrive after the modal opens, fill only still-empty selections; never overwrite an operator's existing choice. Empty candidate lists remain unassigned.
 - `AccountActionMenu.vue` always displays `恢复状态` for every account.
+- The bottom of `AccountActionMenu.vue` keeps the low-frequency actions in this order: `查看统计` -> `创建 Spark 影子账号` (when available) -> `设置隐私` (when available). Do not move them back above the recovery, scheduling, quota-reset, or delete actions.
 - The action menu keeps `w-[7.8rem] max-h-[calc(100vh-1rem)] overflow-y-auto`; `AccountsView.vue` keeps a `125` px width estimate and a `320` px height estimate for viewport positioning.
 - `迁入粘性会话` appears for active, schedulable OpenAI target accounts and defaults to bindings active in the last 5 minutes. Allowed windows are 1, 5, 15, and 60 minutes.
 - Its frontend capability flag is opt-out while public settings are loading: an explicit `sticky_session_reassignment_enabled: false` still hides it for the free profile, but a temporarily missing field must not make the main-profile action disappear.

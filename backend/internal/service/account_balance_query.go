@@ -29,8 +29,10 @@ const (
 type AccountBalanceQueryScheme string
 
 const (
-	AccountBalanceQuerySchemeAuto             AccountBalanceQueryScheme = "auto"
-	AccountBalanceQuerySchemeSub2API          AccountBalanceQueryScheme = "sub2api"
+	AccountBalanceQuerySchemeAuto    AccountBalanceQueryScheme = "auto"
+	AccountBalanceQuerySchemeSub2API AccountBalanceQueryScheme = "sub2api"
+	AccountBalanceQuerySchemeNikoAPI AccountBalanceQueryScheme = "nikoapi"
+	// AccountBalanceQuerySchemeNewAPI is accepted as a legacy alias for nikoapi.
 	AccountBalanceQuerySchemeNewAPI           AccountBalanceQueryScheme = "newapi"
 	AccountBalanceQuerySchemeOpenAICompatible AccountBalanceQueryScheme = "openai_compatible"
 	AccountBalanceQuerySchemeCPA              AccountBalanceQueryScheme = "cpa"
@@ -283,7 +285,7 @@ func accountBalanceQueryCandidates(baseURL string, config AccountBalanceQueryCon
 	}
 	for _, scheme := range []AccountBalanceQueryScheme{
 		AccountBalanceQuerySchemeSub2API,
-		AccountBalanceQuerySchemeNewAPI,
+		AccountBalanceQuerySchemeNikoAPI,
 		AccountBalanceQuerySchemeOpenAICompatible,
 		AccountBalanceQuerySchemeCPA,
 		AccountBalanceQuerySchemeSignIn,
@@ -299,7 +301,7 @@ func defaultAccountBalanceQueryEndpoint(scheme AccountBalanceQueryScheme) string
 	switch scheme {
 	case AccountBalanceQuerySchemeSub2API:
 		return "/v1/usage"
-	case AccountBalanceQuerySchemeNewAPI:
+	case AccountBalanceQuerySchemeNikoAPI:
 		return "/api/usage/token/"
 	case AccountBalanceQuerySchemeOpenAICompatible:
 		return "/v1/dashboard/billing/subscription"
@@ -375,6 +377,17 @@ func (s *UpstreamBillingProbeService) queryAccountBalanceCandidate(
 		attempt.Error = "invalid_response"
 		return nil, attempt
 	}
+	if candidate.scheme == AccountBalanceQuerySchemeNikoAPI {
+		statusURL, resolveErr := resolveAccountBalanceQueryURL(normalizedBaseURL, "/api/status")
+		if resolveErr == nil {
+			statusBody, _, statusErrCode := s.doAccountBalanceQueryRequest(ctx, account, proxyURL, statusURL)
+			if statusErrCode == "" {
+				if converted, convertErr := convertNikoAPIQuotaBalance(parsed, statusBody); convertErr == nil {
+					parsed = converted
+				}
+			}
+		}
+	}
 	return parsed, attempt
 }
 
@@ -440,7 +453,7 @@ func parseAccountBalanceResponse(scheme AccountBalanceQueryScheme, body []byte) 
 			return nil, fmt.Errorf("Sub2API response has no balance")
 		}
 		return validatedParsedAccountBalance(balance, accountBalanceString(payload, "unit", "quota.unit", "USD"), false)
-	case AccountBalanceQuerySchemeNewAPI:
+	case AccountBalanceQuerySchemeNikoAPI:
 		code, _ := payload["code"].(bool)
 		object, _ := accountBalanceValue(payload, "data.object").(string)
 		if !code || object != "token_usage" {
@@ -476,6 +489,53 @@ func parseAccountBalanceResponse(scheme AccountBalanceQueryScheme, body []byte) 
 	default:
 		return nil, fmt.Errorf("unsupported balance query scheme")
 	}
+}
+
+func convertNikoAPIQuotaBalance(balance *parsedAccountBalance, statusBody []byte) (*parsedAccountBalance, error) {
+	if balance == nil {
+		return nil, fmt.Errorf("nikoapi balance is missing")
+	}
+	var payload map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(statusBody))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+	if success, _ := payload["success"].(bool); !success {
+		return nil, fmt.Errorf("nikoapi status query failed")
+	}
+	quotaPerUnit, ok := firstAccountBalanceNumber(payload, "data.quota_per_unit")
+	if !ok || quotaPerUnit <= 0 || math.IsNaN(quotaPerUnit) || math.IsInf(quotaPerUnit, 0) {
+		return nil, fmt.Errorf("nikoapi status has invalid quota_per_unit")
+	}
+	displayType, _ := accountBalanceValue(payload, "data.quota_display_type").(string)
+	displayType = strings.ToUpper(strings.TrimSpace(displayType))
+	converted := balance.Balance
+	unit := "quota"
+	switch displayType {
+	case "USD":
+		converted /= quotaPerUnit
+		unit = "USD"
+	case "CNY":
+		exchangeRate, ok := firstAccountBalanceNumber(payload, "data.usd_exchange_rate")
+		if !ok || exchangeRate <= 0 || math.IsNaN(exchangeRate) || math.IsInf(exchangeRate, 0) {
+			return nil, fmt.Errorf("nikoapi status has invalid usd_exchange_rate")
+		}
+		converted = converted / quotaPerUnit * exchangeRate
+		unit = "CNY"
+	case "CUSTOM":
+		exchangeRate, ok := firstAccountBalanceNumber(payload, "data.custom_currency_exchange_rate")
+		if !ok || exchangeRate <= 0 || math.IsNaN(exchangeRate) || math.IsInf(exchangeRate, 0) {
+			return nil, fmt.Errorf("nikoapi status has invalid custom currency exchange rate")
+		}
+		converted = converted / quotaPerUnit * exchangeRate
+		unit = accountBalanceString(payload, "data.custom_currency_symbol", "CUSTOM")
+	case "TOKENS":
+		unit = "tokens"
+	default:
+		return nil, fmt.Errorf("nikoapi status has unsupported quota display type")
+	}
+	return validatedParsedAccountBalance(converted, unit, balance.Unlimited)
 }
 
 func parseOpenAICompatibleSubscription(body []byte) (float64, error) {
@@ -581,8 +641,8 @@ func normalizeAccountBalanceQueryScheme(scheme AccountBalanceQueryScheme) Accoun
 	switch AccountBalanceQueryScheme(strings.ToLower(strings.TrimSpace(string(scheme)))) {
 	case AccountBalanceQuerySchemeSub2API:
 		return AccountBalanceQuerySchemeSub2API
-	case AccountBalanceQuerySchemeNewAPI:
-		return AccountBalanceQuerySchemeNewAPI
+	case AccountBalanceQuerySchemeNikoAPI, AccountBalanceQuerySchemeNewAPI:
+		return AccountBalanceQuerySchemeNikoAPI
 	case AccountBalanceQuerySchemeOpenAICompatible:
 		return AccountBalanceQuerySchemeOpenAICompatible
 	case AccountBalanceQuerySchemeCPA:
@@ -600,6 +660,7 @@ func isSupportedAccountBalanceQueryScheme(scheme AccountBalanceQueryScheme) bool
 	normalized := AccountBalanceQueryScheme(strings.ToLower(strings.TrimSpace(string(scheme))))
 	return normalized == AccountBalanceQuerySchemeAuto ||
 		normalized == AccountBalanceQuerySchemeSub2API ||
+		normalized == AccountBalanceQuerySchemeNikoAPI ||
 		normalized == AccountBalanceQuerySchemeNewAPI ||
 		normalized == AccountBalanceQuerySchemeOpenAICompatible ||
 		normalized == AccountBalanceQuerySchemeCPA ||

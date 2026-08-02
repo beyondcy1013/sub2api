@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -36,6 +37,29 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	assert.Equal(t, "upstream_error", errorObj["type"])
 	assert.Equal(t, "【上游错误】 Upstream request failed (source: sub2freeApi)", errorObj["message"])
 
+}
+
+func TestGatewayEnsureForwardErrorResponse_MainProfileIncludesSource(t *testing.T) {
+	require.NoError(t, clienterror.Configure("main"))
+	t.Cleanup(func() { require.NoError(t, clienterror.Configure("main")) })
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil)
+
+	h := &GatewayHandler{}
+	wrote := h.ensureForwardErrorResponse(c, false)
+
+	require.True(t, wrote)
+	require.Equal(t, http.StatusBadGateway, w.Code)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &parsed))
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "upstream_error", errorObj["type"])
+	require.Equal(t, "Upstream request failed (source: sub2api)", errorObj["message"])
+	require.Equal(t, "sub2api", errorObj["source"])
 }
 
 // Writer 已写后 ensureForwardErrorResponse 必须把错误以 SSE 形式追加，

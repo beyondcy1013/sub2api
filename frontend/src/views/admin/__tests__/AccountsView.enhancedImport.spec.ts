@@ -54,8 +54,8 @@ const mountView = () => mount(AccountsView, {
       AccountActionMenu: true,
       ImportDataModal: true,
       EnhancedImportDataModal: {
-        props: ['show'],
-        template: '<div data-test="enhanced-import-modal" :data-show="String(show)" />'
+        props: ['show', 'operation'],
+        template: '<div data-test="enhanced-import-modal" :data-show="String(show)" :data-operation="operation" />'
       },
       ReAuthAccountModal: true,
       AccountTestModal: true,
@@ -93,7 +93,7 @@ describe('admin AccountsView enhanced import menu', () => {
     getAllGroups.mockResolvedValue([])
   })
 
-  it('places enhanced import directly below import and opens its modal', async () => {
+  it('places enhanced import below import and clear-import directly below enhanced import', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -106,11 +106,35 @@ describe('admin AccountsView enhanced import menu', () => {
     const menuItems = wrapper.findAll('.account-tools-menu-item')
     const labels = menuItems.map(item => item.text())
     const importIndex = labels.findIndex(label => label.includes('admin.accounts.dataImport'))
-    const enhancedIndex = labels.findIndex(label => label.includes('admin.accounts.enhancedImport'))
+    const enhancedIndex = labels.findIndex(label => label === 'admin.accounts.enhancedImport')
+    const clearIndex = labels.findIndex(label => label.includes('admin.accounts.enhancedImportClearButton'))
     expect(enhancedIndex).toBe(importIndex + 1)
+    expect(clearIndex).toBe(enhancedIndex + 1)
 
     await menuItems[enhancedIndex]!.trigger('click')
-    expect(wrapper.find('[data-test="enhanced-import-modal"]').attributes('data-show')).toBe('true')
+    const modal = wrapper.find('[data-test="enhanced-import-modal"]')
+    expect(modal.attributes('data-show')).toBe('true')
+    expect(modal.attributes('data-operation')).toBe('import')
+  })
+
+  it('opens the enhanced parser in clear mode from the new menu item', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const moreButton = wrapper.findAll('button').find(button =>
+      button.text().includes('admin.accounts.moreActions')
+    )
+    await moreButton!.trigger('click')
+
+    const clearItem = wrapper.findAll('.account-tools-menu-item').find(item =>
+      item.text().includes('admin.accounts.enhancedImportClearButton')
+    )
+    expect(clearItem).toBeTruthy()
+    await clearItem!.trigger('click')
+
+    const modal = wrapper.find('[data-test="enhanced-import-modal"]')
+    expect(modal.attributes('data-show')).toBe('true')
+    expect(modal.attributes('data-operation')).toBe('clear')
   })
 
   it('positions the teleported tools menu below its trigger on desktop', async () => {

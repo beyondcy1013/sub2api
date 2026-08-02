@@ -1565,6 +1565,9 @@ type SuperPriorityConfig struct {
 	FailureThreshold int `mapstructure:"failure_threshold" yaml:"failure_threshold"`
 	// CheckInterval 定时探测 cron 表达式，默认 "@every 1m"。
 	CheckInterval string `mapstructure:"check_interval" yaml:"check_interval"`
+	// LivenessIncludeUnschedulable controls whether manually paused accounts
+	// (schedulable=false) participate in connection liveness probes.
+	LivenessIncludeUnschedulable bool `mapstructure:"liveness_include_unschedulable" yaml:"liveness_include_unschedulable"`
 	// TestModelID 探测对话使用的模型；空则复用各平台 DefaultTestModel。
 	TestModelID string `mapstructure:"test_model_id" yaml:"test_model_id"`
 	// TestPrompt 探测对话 prompt，空则复用测试连接默认 prompt。
@@ -2197,6 +2200,7 @@ func setDefaults() {
 	viper.SetDefault("super_priority.base_strategy", "default")
 	viper.SetDefault("super_priority.failure_threshold", 2)
 	viper.SetDefault("super_priority.check_interval", "@every 1m")
+	viper.SetDefault("super_priority.liveness_include_unschedulable", false)
 	viper.SetDefault("super_priority.test_model_id", "")
 	viper.SetDefault("super_priority.test_prompt", "")
 	viper.SetDefault("super_priority.activated_at", "")

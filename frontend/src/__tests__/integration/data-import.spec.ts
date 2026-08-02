@@ -137,7 +137,7 @@ describe('ImportDataModal', () => {
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        accounts: [{ name: 'a' }]
+        accounts: [expect.objectContaining({ name: 'a', extra: { import_filename: 'valid' } })]
       }),
       apply_proxy_settings: true,
       default_proxy_id: 22,
@@ -181,7 +181,10 @@ describe('ImportDataModal', () => {
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
       data: expect.objectContaining({
         proxies: [{ proxy_key: 'p' }],
-        accounts: [{ name: 'a' }, { name: 'b' }]
+        accounts: [
+          expect.objectContaining({ name: 'a', extra: { import_filename: 'first' } }),
+          expect.objectContaining({ name: 'b', extra: { import_filename: 'second' } })
+        ]
       }),
       apply_proxy_settings: true,
       default_proxy_id: 22,
@@ -189,7 +192,7 @@ describe('ImportDataModal', () => {
       default_group_ids: [31],
       skip_default_group_bind: true
     })
-    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess', 8000)
   })
 
   it('部分成功时关闭弹窗仍通知父组件刷新', async () => {

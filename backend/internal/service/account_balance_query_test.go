@@ -50,7 +50,7 @@ func balanceQueryAccount(extra map[string]any) *Account {
 	}
 }
 
-func TestAccountBalanceQueryFallsBackAndPersistsDetectedNewAPIScheme(t *testing.T) {
+func TestAccountBalanceQueryFallsBackAndPersistsDetectedNikoAPIScheme(t *testing.T) {
 	account := balanceQueryAccount(map[string]any{
 		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeSub2API},
 	})
@@ -74,16 +74,17 @@ func TestAccountBalanceQueryFallsBackAndPersistsDetectedNewAPIScheme(t *testing.
 
 	require.NoError(t, err)
 	require.True(t, result.Success)
-	require.Equal(t, AccountBalanceQuerySchemeNewAPI, result.Scheme)
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, result.Scheme)
 	require.Equal(t, 6250000.0, result.Balance)
 	require.Equal(t, "quota", result.Unit)
-	require.Len(t, upstream.requests, 2)
+	require.Len(t, upstream.requests, 3)
 	require.Equal(t, "/v1/usage", upstream.requests[0].URL.Path)
 	require.Equal(t, "/api/usage/token/", upstream.requests[1].URL.Path)
 	require.Equal(t, "Bearer sk-balance-query", upstream.requests[1].Header.Get("Authorization"))
+	require.Equal(t, "/api/status", upstream.requests[2].URL.Path)
 
 	config := decodeAccountBalanceQueryConfig(account.Extra)
-	require.Equal(t, AccountBalanceQuerySchemeNewAPI, config.Scheme)
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, config.Scheme)
 	require.Equal(t, result.APIURL, config.DetectedAPIURL)
 	require.NotNil(t, config.LastResult)
 	require.Equal(t, result.Balance, config.LastResult.Balance)
@@ -138,15 +139,21 @@ func TestAccountBalanceQueryFallsBackToSignInAndPersistsMatchedSite(t *testing.T
 
 func TestAccountBalanceQueryUsesRememberedSchemeFirst(t *testing.T) {
 	account := balanceQueryAccount(map[string]any{
-		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeNewAPI},
+		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeNikoAPI},
 	})
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
 	upstream := &accountBalanceQueryHTTPStub{handler: func(req *http.Request) *http.Response {
-		require.Equal(t, "/api/usage/token/", req.URL.Path)
-		return balanceQueryResponse(http.StatusOK, `{
-			"code":true,
-			"data":{"object":"token_usage","total_available":42,"unlimited_quota":false}
-		}`)
+		switch req.URL.Path {
+		case "/api/usage/token/":
+			return balanceQueryResponse(http.StatusOK, `{
+				"code":true,
+				"data":{"object":"token_usage","total_available":42,"unlimited_quota":false}
+			}`)
+		case "/api/status":
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"not found"}`)
+		default:
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"unexpected endpoint"}`)
+		}
 	}}
 	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
 
@@ -154,8 +161,49 @@ func TestAccountBalanceQueryUsesRememberedSchemeFirst(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, result.Success)
-	require.Equal(t, AccountBalanceQuerySchemeNewAPI, result.Scheme)
-	require.Len(t, upstream.requests, 1)
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, result.Scheme)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/api/status", upstream.requests[1].URL.Path)
+}
+
+func TestAccountBalanceQueryNikoAPIConvertsQuotaUsingStatus(t *testing.T) {
+	account := balanceQueryAccount(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeNikoAPI},
+	})
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &accountBalanceQueryHTTPStub{handler: func(req *http.Request) *http.Response {
+		switch req.URL.Path {
+		case "/api/usage/token/":
+			return balanceQueryResponse(http.StatusOK, `{
+				"code":true,
+				"data":{"object":"token_usage","total_available":6250000,"unlimited_quota":false}
+			}`)
+		case "/api/status":
+			return balanceQueryResponse(http.StatusOK, `{
+				"success":true,
+				"data":{"quota_per_unit":500000,"quota_display_type":"CNY","usd_exchange_rate":1}
+			}`)
+		default:
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"unexpected endpoint"}`)
+		}
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	result, err := svc.QueryAccountBalance(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, 12.5, result.Balance)
+	require.Equal(t, "CNY", result.Unit)
+	require.Len(t, upstream.requests, 2)
+}
+
+func TestAccountBalanceQueryNormalizesLegacyNewAPIToNikoAPI(t *testing.T) {
+	config := decodeAccountBalanceQueryConfig(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeNewAPI},
+	})
+
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, config.Scheme)
 }
 
 func TestAccountBalanceQueryCustomAPIIsSavedAndParsed(t *testing.T) {
@@ -287,9 +335,9 @@ func TestAccountBalanceQueryFallbackClearsSchemeSpecificAPIURL(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, result.Success)
-	require.Equal(t, AccountBalanceQuerySchemeNewAPI, result.Scheme)
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, result.Scheme)
 	config := decodeAccountBalanceQueryConfig(account.Extra)
-	require.Equal(t, AccountBalanceQuerySchemeNewAPI, config.Scheme)
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, config.Scheme)
 	require.Empty(t, config.APIURL)
 }
 

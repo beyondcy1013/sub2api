@@ -14,6 +14,8 @@ func TestClientErrorProfileMain(t *testing.T) {
 	require.Equal(t, "local failure", Local("local failure"))
 	require.Equal(t, "upstream failure", Upstream("upstream failure"))
 	require.Equal(t, "failure", WithSource("failure"))
+	require.Equal(t, "failure (source: sub2api)", WithGatewaySource("failure"))
+	require.Equal(t, "failure (source: sub2api)", WithGatewaySource("failure (source: sub2api)"))
 }
 
 func TestClientErrorProfileFree(t *testing.T) {
@@ -24,6 +26,7 @@ func TestClientErrorProfileFree(t *testing.T) {
 	require.Equal(t, "【sub2freeApi限制】 local failure", Local("local failure"))
 	require.Equal(t, "【上游错误】 upstream failure", Upstream("upstream failure"))
 	require.Equal(t, "failure (source: sub2freeApi)", WithSource("failure"))
+	require.Equal(t, "failure (source: sub2freeApi)", WithGatewaySource("failure"))
 }
 
 func TestClientErrorProfileRejectsUnknownValue(t *testing.T) {

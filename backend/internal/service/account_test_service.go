@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,70 @@ const (
 	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
 	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
 )
+
+type backgroundAccountTestContextKey struct{}
+
+func isBackgroundAccountTest(ctx context.Context) bool {
+	background, _ := ctx.Value(backgroundAccountTestContextKey{}).(bool)
+	return background
+}
+
+func accountTestModelID(account *Account, requestedModelID string) string {
+	requestedModelID = strings.TrimSpace(requestedModelID)
+	if account == nil {
+		return requestedModelID
+	}
+
+	mapping := stringMappingFromRaw(account.Credentials["model_mapping"])
+	if len(mapping) == 0 || (requestedModelID != "" && account.IsModelSupported(requestedModelID)) {
+		return requestedModelID
+	}
+
+	modelIDs := accountTestModelCandidates(account)
+	if len(modelIDs) == 0 {
+		return requestedModelID
+	}
+	return modelIDs[0]
+}
+
+// accountTestModelCandidates returns stable, concrete models declared by an
+// account's explicit mapping. Mapping keys are the public account model list;
+// concrete values are included as a fallback for wildcard-only mappings.
+func accountTestModelCandidates(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	mapping := stringMappingFromRaw(account.Credentials["model_mapping"])
+	if len(mapping) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(mapping)*2)
+	modelIDs := make([]string, 0, len(mapping)*2)
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.ContainsAny(value, "*?") {
+			return
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		modelIDs = append(modelIDs, value)
+	}
+	for modelID, mappedModelID := range mapping {
+		add(modelID)
+		add(mappedModelID)
+	}
+	sort.Slice(modelIDs, func(i, j int) bool {
+		left, right := strings.ToLower(modelIDs[i]), strings.ToLower(modelIDs[j])
+		if left == right {
+			return modelIDs[i] < modelIDs[j]
+		}
+		return left < right
+	})
+	return modelIDs
+}
 
 // TestEvent represents a SSE event for account testing
 type TestEvent struct {
@@ -185,6 +250,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	modelID = accountTestModelID(account, modelID)
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -331,11 +397,6 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
 
-		// 403 表示账号被上游封禁，标记为 error 状态
-		if resp.StatusCode == http.StatusForbidden {
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
-		}
-
 		return s.sendErrorAndEnd(c, errMsg)
 	}
 
@@ -402,9 +463,6 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusForbidden {
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
-		}
 		return s.sendErrorAndEnd(c, errMsg)
 	}
 
@@ -693,11 +751,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
-		// 401 Unauthorized: 标记账号为永久错误
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
-		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
 
@@ -877,10 +930,6 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
-		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) returned %d: %s", resp.StatusCode, string(body)))
 	}
 
@@ -1020,10 +1069,6 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
-		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
 
@@ -1058,7 +1103,7 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	account.RateLimitedAt = &now
 	account.RateLimitResetAt = resetAt
 
-	if account.Status == StatusError {
+	if account.Status == StatusError && !isBackgroundAccountTest(ctx) {
 		if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
 			return
 		}
@@ -1933,7 +1978,9 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 
 // sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
-	log.Printf("Account test error: %s", errorMsg)
+	if !isBackgroundAccountTest(c.Request.Context()) || !isAccountTestUnsupportedModelError(errorMsg) {
+		log.Printf("Account test error: %s", errorMsg)
+	}
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)
 }
@@ -1945,7 +1992,8 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
-	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	backgroundCtx := context.WithValue(ctx, backgroundAccountTestContextKey{}, true)
+	ginCtx.Request = (&http.Request{}).WithContext(backgroundCtx)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
 

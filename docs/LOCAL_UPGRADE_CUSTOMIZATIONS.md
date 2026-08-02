@@ -78,7 +78,30 @@ Both profiles must preserve all of the following:
 - `MergePreservingSensitiveCreds` preserves an existing `api_key` and every
   redacted credential when an older or partial frontend omits it.
 - API-key account fields use `type="text"` and preload the current value.
-- New-account initialization and reset use `concurrency: 4`.
+- An OpenAI API Key account with a custom `base_url` treats an upstream 401
+  `token_invalidated` code, or the canonical `authentication token has been
+  invalidated` message when the relay omits that code, as the relay's internal
+  OAuth-account failure. The current request still fails over, but local
+  `status` and `schedulable` remain unchanged. OAuth accounts, default OpenAI
+  endpoints, `invalid_api_key`, and explicit custom 401 error-code policies
+  retain their existing behavior.
+- Custom OpenAI API-key relays may use the configurable relay failure budget:
+  relay-internal invalidations, 408s, eligible 5xx responses, and transient
+  transport failures are counted over a rolling window. When the configured
+  ratio, minimum-request, or consecutive-failure threshold is reached, apply
+  only the finite `openai_relay_failure_budget` runtime cooldown; never write
+  a permanent account error. Success after cooldown clears the prior history.
+- Local account state, relay failure-budget, quota-limit, and scheduling-rate
+  controls live on the dedicated `/admin/account-policy-settings` page. Its
+  per-account `GET|PUT /api/v1/admin/accounts/:id/policy-settings` contract
+  reads and writes the existing account record in one update; it does not
+  create a second source of truth. Runtime recovery and schedulable changes
+  continue through their dedicated state APIs so cache invalidation and
+  recovery behavior remain intact. Do not put relay failure-budget controls
+  or the generic `rate_multiplier` field back into the upstream-heavy
+  `EditAccountModal.vue`; unrelated account edits must not overwrite the
+  dedicated scheduling-rate mode or value.
+- New-account initialization and reset use `concurrency: 10`.
 - A new account selects the last available proxy and first available group.
   Late candidate arrival fills only empty selections and never overwrites an
   operator choice.
@@ -92,6 +115,9 @@ Both profiles must preserve all of the following:
   for candidates before submitting. Disabling proxy application preserves the
   imported proxy relationship; disabling group application preserves the
   existing no-default-group import behavior.
+- Enhanced CLIProxyAPI imports default newly normalized accounts to
+  `concurrency: 10`. Native sub2api backup imports preserve each account's
+  explicit exported concurrency; manual new-account initialization is also `10`.
 - Their shared routing controls expose an opt-in automatic-save checkbox. When
   enabled, the last submitted proxy/group application flags and selections are
   restored for later standard and enhanced imports. Removed candidate IDs fall
@@ -104,34 +130,58 @@ Both profiles must preserve all of the following:
   with a one-based source label, then all segments merge into one import request
   in source order. Pure JSON and multi-file modes remain compatible; incomplete
   enclosing JSON is rejected instead of importing one of its inner values.
+- The account tools menu exposes `批量清除导入账号` directly below Enhanced
+  Import. It opens the enhanced parser in a dedicated clear mode without import
+  routing controls; the normal import mode does not expose the destructive
+  action. Clear mode reuses the exact same file/text normalization, ignores
+  proxies, and asks the backend to match
+  ordinary or staged accounts by platform/type plus stable credential identity.
+  Name-only fallback is allowed only for a unique match. Matching accounts move
+  through the normal recoverable deleted-staging service; missing and ambiguous
+  inputs are reported without guessing or exposing credential values.
 - Clone mode preserves the source proxy/group assignments, including explicit
   unassigned values, and never applies new-account routing defaults.
 - Account **staging** (formerly "recycle") uses `extra.recycled`; it does not use soft delete.
+- Standard and enhanced file imports tag every imported account with the source file's name part in `extra.import_filename`. The label is derived by stripping the file extension and splitting the stem at its **last** underscore, returning the part before that underscore (e.g. `chatgpt_pro_us_001.json` -> `chatgpt_pro_us`; a name with no underscore keeps the whole stem). It is shown in a dedicated `文件名` (`import_filename`) account-management table column placed after `备注` (notes); accounts with no value show `-`. Pasted-text enhanced import (no source file) leaves the field unset. The helper lives in `frontend/src/utils/importFilename.ts`.
   The filter is labeled "暂存" (Staging) with an `inbox` icon. It acts as an extra
   filter, not a deletion mechanism.
 - Normal account lists exclude staged rows; staged lists include only
   recycled rows.
-- **Trash bin** (真正的回收站) is a separate feature for soft-deleted accounts:
-  - `DELETE /admin/accounts/:id` already soft-deletes via `SoftDeleteMixin`
-    (`deleted_at = NOW()`). Before soft-delete, group associations are saved to
-    `extra.recycle_bin_groups` for full restore.
-  - `GET /admin/accounts/trash` lists soft-deleted accounts (archive only, no
-    connect/refresh/schedule). It uses `SkipSoftDelete` to bypass the
-    `deleted_at IS NULL` interceptor.
-  - `POST /admin/accounts/:id/restore-from-trash` clears `deleted_at`,
-    re-creates `AccountGroup` rows from `extra.recycle_bin_groups`, and
-    notifies the scheduler.
-  - `DELETE /admin/accounts/:id/permanent-delete` physically removes the row
-    and all associations (uses `SkipSoftDelete` to bypass the soft-delete hook).
-  - Frontend `TrashBinModal.vue` lists trashed accounts with restore and
-    permanent-delete actions. It is opened from the trash icon button in
-    `AccountTableActions.vue`.
-  - Repository methods: `ListTrashedAccounts`, `RestoreTrashedAccount`,
-    `PermanentDelete` in `account_repo.go`.
-  - Service methods: `ListTrashedAccounts`, `RestoreFromTrash`,
-    `PermanentDeleteAccount` in `admin_account.go`.
+- **Recoverable deleted staging** is a second lifecycle level represented by
+  `extra.deleted = true`; new deletes never set `deleted_at`:
+  - `DELETE /admin/accounts/:id` removes `extra.recycled`, marks the account as
+    deleted staging, and preserves credentials, account-group bindings, usage
+    history, scheduled tests, and other configuration.
+  - Ordinary/recycled lists exclude deleted-staging rows. The main account
+    table requests `deleted=1` from its trash-icon toggle to display only those
+    rows; `deleted=1` and `recycled=1` are mutually exclusive.
+  - Deleted-staging rows keep the normal manual-management surface, including
+    edit, direct connection test, recovery/state actions, statistics, and
+    restore. Deleting again from this view permanently deletes the account;
+    this applies to both a single row and all-page batch selections and uses an
+    explicit irreversible-action confirmation.
+  - `POST /admin/accounts/:id/restore-from-trash` clears the new marker and
+    republishes the scheduler snapshot. The same endpoint retains compatibility
+    with legacy soft-deleted rows.
+  - Routing and automated workers must exclude `extra.deleted=true`, including
+    OAuth token refresh, scheduled tests, scheduling liveness, upstream billing
+    and rate probes, automatic Ollama/usage/balance refresh, expiry auto-pause,
+    scheduler candidate/score queries, and model-availability scans.
+  - Full account edits preserve the server-owned lifecycle marker. Duplicates
+    discard both `deleted` and `recycled`, so the new paused account appears in
+    the normal list.
+  - Migration `191_convert_account_soft_delete_to_deleted_staging.sql` restores
+    group bindings saved by the former trash flow, clears `deleted_at`, and
+    converts every legacy soft-deleted account to `extra.deleted=true`.
+  - The permanent-delete route accepts only deleted-staging or legacy
+    soft-deleted rows; normal and first-level staged rows remain protected.
 - Active rows expose `编辑`, `测试连接`, `暂存`, and `更多` directly in that order.
   The more menu does not duplicate `测试连接`.
+- Staging (`recycled`) rows expose the same direct `编辑`, `测试连接`, and `更多`
+  actions as active rows, with only the toggle action differing: staging rows show
+  `取消暂存` (`恢复`) where active rows show `暂存`. Edit and test-connection must
+  stay reachable in staging mode because staged accounts keep full credentials and
+  config; the backend does not gate test/edit on `extra.recycled`.
 - API-key accounts expose `查询余额` in `更多`. Each account stores its balance
   query scheme and optional same-origin API URL in `extra.balance_query`.
   Automatic probing supports Sub2API, NewAPI, OpenAI-compatible billing, and
@@ -152,9 +202,22 @@ Both profiles must preserve all of the following:
   override it with `SIGNIN_BALANCE_SERVICE_URL`. The override must remain a
   loopback HTTP URL, redirects stay disabled, and request duration and response
   size remain bounded.
+- The bottom of the `更多` menu keeps the low-frequency actions ordered as
+  `查看统计` -> `创建 Spark 影子账号` (when available) -> `设置隐私` (when
+  available), after recovery, scheduled actions, quota reset, and delete.
 - The account test dialog defaults `自动测试` to enabled, starts only after a
   default model has loaded, and persists the operator preference in browser
   storage under `sub2api.account-test.auto-start`.
+- Manual single-account and selected-account batch connection tests submit
+  their outcomes to the shared per-account failure window. A failed test must
+  not call `SetError` directly; only failures reaching the configured
+  `super_priority.failure_threshold` inside the one-minute rolling window may
+  mark the account as error. A successful manual test must not implicitly
+  recover account state; recovery remains an explicit operator confirmation.
+- After a successful direct connection test, accounts that are not active or
+  have scheduling paused show a confirmation dialog. Confirming performs full
+  runtime-state recovery, activates an inactive account when necessary, and
+  enables scheduling. Active, schedulable accounts do not show this prompt.
 - Account names remain inside the fixed-width name cell with single-line
   truncation and overflow clipping. They do not open a teleported hover
   tooltip.
@@ -218,6 +281,26 @@ Both profiles must preserve all of the following:
 - The selection, actions, and name columns stay fixed on the left during
   horizontal scrolling. Their declared `36px`, `220px`, and `176px` widths
   provide cumulative offsets so the fixed cells never overlap.
+- After a successful create-account flow reloads the table, newly visible
+  account rows are pinned above the current server-sorted page and use a
+  distinct red shadow for the first 10 seconds, then an orange shadow for the
+  next 10 seconds. They remain pinned and bold for the full 20 seconds, after
+  which the operator's original sorting is restored. If the active sort omits
+  the new row from page one, the frontend locates it with a newest-first query
+  that preserves the current filters; the operator's chosen sort is not
+  overwritten.
+  Manual creation, standard import, enhanced import, CRS sync, direct account
+  duplication, and Spark shadow creation all enter the same addition-tracking
+  flow before they mutate account data; successful additions must not fall
+  back to a plain table reload that skips pinning and highlighting.
+  Standard and enhanced import responses include each created account's `id`
+  and `name`. Their modals pass those identities to the table, which resolves
+  and validates the exact account by ID before pinning it. When these explicit
+  identities are present, never merge in page-difference or row-position
+  guesses: a newly appeared first row under name sorting is not necessarily the
+  imported account, and account names are not unique.
+  Existing rows must not be highlighted when that reload returns to page one;
+  desktop table rows and mobile account cards share the same marker.
 - Leading columns keep `actions -> name -> schedulable -> usage -> platform/type`. After today
   stats, keep 7d utilization (`7d(%)`) -> 7d reset. After created
   time, keep today cost -> groups (when visible) -> balance -> 5h/7d
@@ -225,13 +308,22 @@ Both profiles must preserve all of the following:
   declared rate -> scheduling rate -> 5h utilization (`5h(%)`) -> 5h reset. The account table
   keeps those three leading columns fixed so account identity remains visible.
 - Filters are hidden by default behind the filters toggle.
+- The account toolbar starts with a compact loop-test runtime summary showing
+  the server-provided liveness countdown in `HH:MM:SS`, a cycle progress bar,
+  and the latest success/failure/skip result. A due-but-not-started probe keeps
+  an explicit `00:00:00` waiting state instead of the ambiguous "starting soon"
+  label.
+  It updates the countdown locally every second and polls the existing
+  scheduling runtime status without reloading the account table.
 - Sidebar width remains `154px` expanded and `67px` collapsed.
 
 ## Main Profile Contract
 
 The `main` profile must preserve:
 
-- client error source `sub2api` without free branding prefixes;
+- client error source `sub2api` without free branding prefixes; generic
+  forward-fallback errors explicitly append `(source: sub2api)` while
+  passthrough and established main-profile messages remain unchanged;
 - OpenAI sticky-session concurrency spillover when a historical bound account
   is full;
 - strict `previous_response_id` affinity;
@@ -327,6 +419,11 @@ writes; they never affect request routing or account status display.
   transaction as the snapshot and scheduler outbox event. Peak/effective
   point-in-time values never drive scheduling. Failed, unsupported, or stale
   probes never overwrite the persisted multiplier.
+- The scheduling-rate dialog treats automatic overwrite and manual editing as
+  mutually exclusive. Selecting `auto_overwrite` disables and dims the manual
+  multiplier input. Editing the manual multiplier, including copying the
+  current upstream value into it, selects `manual_lock` and shows a Toast that
+  automatic overwrite was disabled.
 - Compatibility: absent sync mode defaults to `auto_overwrite`; legacy
   `scheduling_rate_source=upstream` maps to automatic overwrite and
   `scheduling_rate_source=manual` maps to manual lock.
@@ -340,20 +437,62 @@ writes; they never affect request routing or account status display.
   snapshots in the account table; when this option is enabled, a successful
   probe with the same effective upstream rate suppresses its completion Toast.
   Failed and unsupported probes remain visible as error or warning Toasts.
-- While `lowest_cost` is active, the compatibility runner tests every active
-  account at the configured liveness interval with at most four concurrent
-  connection tests. Its diagnostic `extra.scheduling_liveness` snapshot
-  transitions from `alive` to `suspect`, then `dead` after the configured
-  consecutive-failure threshold. A `dead` result changes the account `status`
-  to `error` without changing `schedulable`; the runner continues testing only
-  errors it created and restores `status=active` after a later success. Other
-  error states and manual scheduling pauses are never auto-recovered. Routing
-  and lowest-cost ranking use the account status column, not the diagnostic
-  liveness snapshot.
+- Account balance detection supports a named `nikoapi` algorithm in addition
+  to `auto`; persisted legacy `newapi` values normalize to `nikoapi`. Its
+  balance query reads `/api/usage/token/` and converts raw quota with
+  `/api/status`. Its rate probe reads the newest billed consumption entry from
+  `/api/log/token`, preferring `other.user_group_ratio` over
+  `other.group_ratio`. Automatic rate probing tries the Sub2API declaration
+  contract first and falls back to this NikoAPI algorithm only when that
+  contract is unsupported or has an incompatible response.
+- While `lowest_cost` is active, the compatibility runner tests only
+  schedulable, active `api_key` accounts at the configured liveness interval
+  with at most four concurrent connection tests. OAuth, setup-token, Bedrock,
+  Vertex, and every other non-`api_key` account type are always excluded.
+  Accounts manually paused with
+  `schedulable=false` are excluded by default from both automatic and manual
+  batches. The persisted `super_priority.liveness_include_unschedulable`
+  option explicitly includes those paused accounts and defaults to `false`.
+  Probe observations never change the operator-controlled `schedulable`
+  field. A stable concrete model from
+  the account's explicit model
+  mapping is preferred. The configured `test_model_id` is only an OpenAI
+  fallback and is used only when the account's explicit mapping verifies that
+  model. An OpenAI account with neither a concrete mapped model nor a verified
+  configured model is skipped instead of receiving an unverifiable request and
+  recording a false liveness failure. If the selected account model is later
+  rejected by the upstream with a structured model-not-found/not-allowed/not-
+  supported response, the background probe is also skipped without updating
+  liveness or emitting an account-test error log; authentication, rate-limit,
+  timeout, overload, and other upstream failures remain health observations.
+  Every account-test entry point applies the same explicit-mapping fallback
+  before issuing its request; other platforms otherwise use their own default
+  test model. On upgrade, legacy `status=error` rows are restored only when both
+  the old `status_managed=true` ownership marker and the old
+  `Scheduling liveness probe failed:` error prefix are present; unrelated
+  operator, authentication, and service errors are never cleared. Test failures are
+  observations only and never write an account `status=error` or alter
+  `schedulable`. Its diagnostic
+  `extra.scheduling_liveness` snapshot transitions from `alive` to `suspect`,
+  then `dead` after the configured consecutive-failure threshold. Only a fresh
+  `dead` result is excluded; missing, stale, and `suspect` observations remain
+  fallback candidates. A later success restores eligibility. Liveness never
+  mutates `status` or `schedulable`.
+- The account-management scheduling-rules dialog keeps a `? Help` action
+  immediately beside its title. Hovering it shows the current eligibility,
+  default selection, equal-lowest-rate connection sharing, price-tier fallback,
+  liveness recovery, existing-connection, and strict-response-affinity rules.
+  Preserve the `BaseDialog` title-actions slot and the below-trigger tooltip
+  placement that keep this explanation visible without crowding the form.
+  Its upper-right header also shows the runner-owned connection-liveness state:
+  running status or the countdown to the next expected batch, plus the latest
+  batch time and succeeded/failed/skipped counts. The dialog polls this
+  server-side state while open and uses a local one-second clock only to render
+  the countdown; browser lifetime is never the source of scheduling truth.
 - The account table renders `调度倍率` and `最优` in gold only when an account
-  is currently schedulable and ties for the lowest persisted
-  `rate_multiplier` in at least one of its scheduling groups. Every tied
-  minimum is marked. Ungrouped accounts compare only with
+  is currently schedulable, has a fresh `alive` liveness result, and ties for
+  the lowest persisted `rate_multiplier` in at least one of its scheduling
+  groups. Every tied minimum is marked. Ungrouped accounts compare only with
   ungrouped accounts on the same platform. The backend computes this from the
   full active, non-recycled account pool rather than the visible page, and the
   marker is an administrative pool-level hint rather than a promise that every
@@ -399,8 +538,30 @@ Frontend focused tests must cover:
 - scheduled account action menu visibility, hours/minutes validation, target
   time display, save replacement, and pending-task cancellation;
 - free-only balance-check navigation and route access.
+- dedicated account-policy API/UI loading, atomic policy saves, unsupported
+  section omission, state recovery, and schedulable updates.
 
-Before deployment, run the complete canonical backend suite, full Vitest,
-TypeScript typecheck, frontend production build, `git diff --check`, and a
-conflict-marker scan. A soft browser reload can retain cached version state;
-after deployment use `Ctrl+Shift+R` or `Cmd+Shift+R`.
+For routine scoped changes, run the documented focused regressions before
+queueing `bash scripts/build-unified-release.sh`. Its default `quick` mode
+rechecks the complete backend package set with Go's test cache enabled, skips
+the duplicate full Vitest pass, and always runs TypeScript typecheck, the Vite
+production build, the embedded Go build, `git diff --check`, source-integrity
+checks, and the conflict-marker scan against the frozen deployment snapshot.
+The snapshot lives at the stable
+`/data/cargo-target/sub2api-unified-source` path behind a non-blocking `flock`;
+this keeps Go test-cache paths reusable while preventing concurrent builds from
+sharing the workspace. `rsync --delete` and the before/after source hashes keep
+the retained workspace byte-for-byte aligned with the selected source tree.
+The backend test command must also set `TMPDIR` to the stable, lock-protected
+`/data/cargo-target/sub2api-unified-go-test-tmp` path. webClx assigns a unique
+per-run `TMPDIR`; allowing that value to reach tests changes Go's test-input
+cache key for packages that use temporary directories and silently forces the
+slow suites to rerun on every deployment.
+
+Use `bash scripts/build-unified-release.sh --full` for upstream merges,
+dependency or toolchain changes, migrations, security/auth changes, broad
+cross-module refactors, or when focused regression coverage cannot be
+identified. Full mode forces the complete backend suite with `-count=1` and
+the full Vitest suite before the same typecheck/build/deploy gates. A soft
+browser reload can retain cached version state; after deployment use
+`Ctrl+Shift+R` or `Cmd+Shift+R`.

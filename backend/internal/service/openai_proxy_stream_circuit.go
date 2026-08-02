@@ -201,6 +201,26 @@ func (c *openAIProxyStreamCircuit) activeBlockCount(now time.Time) int {
 	return count
 }
 
+func (c *openAIProxyStreamCircuit) quarantineUntil(proxyID int64, now time.Time) (time.Time, bool) {
+	if c == nil || proxyID <= 0 {
+		return time.Time{}, false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[proxyID]
+	if !ok || entry.blockedUntil.IsZero() {
+		return time.Time{}, false
+	}
+	if !now.Before(entry.blockedUntil) {
+		delete(c.entries, proxyID)
+		return time.Time{}, false
+	}
+	return entry.blockedUntil, true
+}
+
 func (c *openAIProxyStreamCircuit) ensureCapacityLocked(now time.Time) {
 	if len(c.entries) < c.settings.maxEntries {
 		return
@@ -309,4 +329,18 @@ func (s *OpenAIGatewayService) logOpenAIProxyStreamQuarantineFailOpen(requestedM
 		zap.Int("blocked_proxies", blockedProxies),
 		zap.String("model", requestedModel),
 	)
+}
+
+// OpenAIProxyStreamQuarantineUntil returns the active in-memory proxy stream
+// quarantine for a proxy. This state is not persisted, so the admin API uses
+// it to surface the same filter that can silently empty a scheduling pool.
+func (s *OpenAIGatewayService) OpenAIProxyStreamQuarantineUntil(proxyID int64) (time.Time, bool) {
+	if s == nil || proxyID <= 0 {
+		return time.Time{}, false
+	}
+	circuit := s.getOpenAIProxyStreamCircuit()
+	if circuit == nil {
+		return time.Time{}, false
+	}
+	return circuit.quarantineUntil(proxyID, time.Now())
 }

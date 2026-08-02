@@ -947,7 +947,7 @@ export interface TempUnschedulableStatus {
 }
 
 export interface UpstreamBillingData {
-  object: 'sub2api.key_billing'
+  object: 'sub2api.key_billing' | 'nikoapi.observed_billing'
   schema_version: 1
   billing_scope: 'token'
   group_rate_multiplier: number
@@ -961,6 +961,9 @@ export interface UpstreamBillingData {
   effective_rate_multiplier: number
   timezone?: string
   observed_at: string
+  algorithm?: 'nikoapi'
+  group?: string
+  model_rate_multiplier?: number
 }
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'
@@ -992,6 +995,8 @@ export interface UpstreamBillingProbeResult {
 export type AccountBalanceQueryScheme =
   | 'auto'
   | 'sub2api'
+  | 'nikoapi'
+  // Legacy persisted alias; the API normalizes it to nikoapi.
   | 'newapi'
   | 'openai_compatible'
   | 'cpa'
@@ -1119,6 +1124,15 @@ export interface Account {
     utilization: number
     reset_at?: string | null
   } | null
+  runtime_status?: {
+    account_blocked_until?: string
+    account_blocked_reason?: string
+    proxy_quarantined_until?: string
+    model_runtime_blocks?: Array<{
+      model: string
+      blocked_until: string
+    }>
+  }
   scheduler_score?: {
     base_score: number
     sticky_score?: number
@@ -1533,6 +1547,23 @@ export interface AdminDataImportResult {
   proxy_failed: number
   account_created: number
   account_failed: number
+  created_accounts?: AdminDataImportedAccount[]
+  errors?: AdminDataImportError[]
+}
+
+export interface AdminDataImportedAccount {
+  id: number
+  name: string
+}
+
+export interface AdminDataClearResult {
+  account_requested: number
+  account_matched: number
+  account_cleared: number
+  account_not_found: number
+  account_ambiguous: number
+  account_failed: number
+  cleared_accounts?: AdminDataImportedAccount[]
   errors?: AdminDataImportError[]
 }
 

@@ -31,6 +31,7 @@ type RateLimitService struct {
 	settingService          *SettingService
 	tokenCacheInvalidator   TokenCacheInvalidator
 	runtimeBlocker          AccountRuntimeBlocker
+	runtimeStatusProvider   AccountRuntimeStatusProvider
 	usageCacheMu            sync.RWMutex
 	usageCache              map[int64]*geminiUsageCacheEntry
 }
@@ -126,6 +127,7 @@ func (s *RateLimitService) SetTokenCacheInvalidator(invalidator TokenCacheInvali
 
 func (s *RateLimitService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocker) {
 	s.runtimeBlocker = blocker
+	s.runtimeStatusProvider, _ = blocker.(AccountRuntimeStatusProvider)
 }
 
 func (s *RateLimitService) IsOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx context.Context) bool {
@@ -2073,6 +2075,8 @@ const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const openAIModelNotAllowed403Cooldown = 30 * time.Minute
 const openAIModelNotAllowed403Reason = "upstream_403_model_not_allowed"
+const upstreamModelRoutingErrorCooldown = 30 * time.Minute
+const upstreamModelRoutingErrorReason = "upstream_model_routing_error"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
@@ -2102,6 +2106,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
 	case account.Platform == PlatformOpenAI && isOpenAIModelNotAllowed403Error(statusCode, responseBody):
 		cooldown, reason = openAIModelNotAllowed403Cooldown, openAIModelNotAllowed403Reason
+	case isUpstreamModelRoutingError(statusCode, responseBody) &&
+		!(isOpenAICodexPlanGatedModelError(statusCode, responseBody) && !isOpenAIOAuthAccount(account)):
+		cooldown, reason = upstreamModelRoutingErrorCooldown, upstreamModelRoutingErrorReason
 	default:
 		return false
 	}

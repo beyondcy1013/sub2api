@@ -77,4 +77,24 @@ describe('HelpTooltip', () => {
 
     wrapper.unmount()
   })
+
+  it('can open below a trigger for content near the top of a dialog', async () => {
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: {
+        content: 'algorithm details',
+        placement: 'bottom',
+      },
+    })
+
+    await wrapper.get('.group').trigger('mouseenter')
+    await nextTick()
+
+    const tooltip = getTooltipElement()
+    expect(tooltip.style.display).not.toBe('none')
+    expect(tooltip.classList.contains('-translate-y-full')).toBe(false)
+    expect(tooltip.querySelector('.-top-1')).not.toBeNull()
+
+    wrapper.unmount()
+  })
 })

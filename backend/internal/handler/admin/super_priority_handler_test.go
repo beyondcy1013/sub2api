@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -18,12 +19,17 @@ import (
 
 type schedulingRefreshStub struct {
 	result service.SchedulingRefreshResult
+	status service.SchedulingLivenessRuntimeStatus
 	calls  int
 }
 
 func (s *schedulingRefreshStub) RefreshNow(context.Context) (service.SchedulingRefreshResult, error) {
 	s.calls++
 	return s.result, nil
+}
+
+func (s *schedulingRefreshStub) RuntimeStatus() service.SchedulingLivenessRuntimeStatus {
+	return s.status
 }
 
 type upstreamBillingRefreshStub struct {
@@ -74,15 +80,18 @@ func TestSuperPrioritySettingsHandler_ReadsAndUpdatesBaseStrategy(t *testing.T) 
 	getRecorder := httptest.NewRecorder()
 	router.ServeHTTP(getRecorder, httptest.NewRequest(http.MethodGet, "/super-priority", nil))
 	require.Equal(t, http.StatusOK, getRecorder.Code)
-	require.Equal(t, "default", decodeSuperPriorityResponse(t, getRecorder)["base_strategy"])
+	initial := decodeSuperPriorityResponse(t, getRecorder)
+	require.Equal(t, "default", initial["base_strategy"])
+	require.Equal(t, false, initial["liveness_include_unschedulable"])
 
-	body := []byte(`{"base_strategy":"lowest_cost","failure_threshold":3,"check_interval":"@every 2m","test_model_id":"gpt-test","test_prompt":"ping"}`)
+	body := []byte(`{"base_strategy":"lowest_cost","failure_threshold":3,"check_interval":"@every 2m","liveness_include_unschedulable":true,"test_model_id":"gpt-test","test_prompt":"ping"}`)
 	putRecorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/super-priority", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(putRecorder, request)
 	require.Equal(t, http.StatusOK, putRecorder.Code, putRecorder.Body.String())
 	require.Equal(t, service.AccountSchedulingStrategyLowestCost, cfg.SuperPriority.BaseStrategy)
+	require.True(t, cfg.SuperPriority.LivenessIncludeUnschedulable)
 
 	activateRecorder := httptest.NewRecorder()
 	router.ServeHTTP(activateRecorder, httptest.NewRequest(http.MethodPost, "/super-priority/activate", nil))
@@ -92,6 +101,8 @@ func TestSuperPrioritySettingsHandler_ReadsAndUpdatesBaseStrategy(t *testing.T) 
 	written, err := os.ReadFile(filepath.Join(os.Getenv("DATA_DIR"), "config.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(written), "base_strategy: lowest_cost")
+	require.Contains(t, string(written), "liveness_include_unschedulable: true")
+	require.NotContains(t, string(written), "liveness_abnormal_only")
 }
 
 func TestSuperPrioritySettingsHandler_RejectsUnknownBaseStrategy(t *testing.T) {
@@ -123,4 +134,38 @@ func TestSchedulingRulesRefreshRunsLivenessAndBillingRefreshers(t *testing.T) {
 	data := decodeSuperPriorityResponse(t, recorder)
 	require.Equal(t, float64(3), data["liveness"].(map[string]any)["checked"])
 	require.Equal(t, float64(2), data["upstream_billing"].(map[string]any)["checked"])
+}
+
+func TestSuperPrioritySettingsHandlerReturnsLivenessRuntimeStatus(t *testing.T) {
+	startedAt := time.Date(2026, 7, 27, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	nextRunAt := startedAt.Add(5 * time.Minute)
+	liveness := &schedulingRefreshStub{status: service.SchedulingLivenessRuntimeStatus{
+		Enabled:   true,
+		NextRunAt: &nextRunAt,
+		LastRun: &service.SchedulingLivenessRunStatus{
+			Trigger: "scheduled", StartedAt: startedAt, FinishedAt: startedAt.Add(10 * time.Second),
+			Result: service.SchedulingRefreshResult{Checked: 4, Succeeded: 2, Failed: 1, Skipped: 1},
+		},
+	}}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{
+		BaseStrategy: service.AccountSchedulingStrategyLowestCost, LivenessIncludeUnschedulable: true,
+	}}
+	handler := NewSettingHandler(nil, nil, nil, nil, nil, nil, nil)
+	handler.SetSuperPriorityService(service.NewSuperPriorityService(nil, cfg))
+	handler.SetSchedulingRefreshers(liveness, &upstreamBillingRefreshStub{})
+	router := gin.New()
+	router.GET("/super-priority", handler.GetSuperPrioritySettings)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/super-priority", nil))
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	data := decodeSuperPriorityResponse(t, recorder)
+	require.Equal(t, true, data["liveness_include_unschedulable"])
+	runtime := data["liveness_runtime"].(map[string]any)
+	require.Equal(t, true, runtime["enabled"])
+	require.Equal(t, nextRunAt.Format(time.RFC3339), runtime["next_run_at"])
+	lastRun := runtime["last_run"].(map[string]any)
+	require.Equal(t, "scheduled", lastRun["trigger"])
+	require.Equal(t, float64(1), lastRun["result"].(map[string]any)["skipped"])
 }

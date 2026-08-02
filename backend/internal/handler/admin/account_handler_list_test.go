@@ -52,6 +52,29 @@ func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
 	require.Equal(t, 0, offset)
 }
 
+func TestAccountHandlerListPassesDeletedStagingFilter(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&deleted=1", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, adminSvc.lastListAccounts.deleted)
+	require.False(t, adminSvc.lastListAccounts.recycled)
+}
+
+func TestAccountHandlerListRejectsConflictingLifecycleFilters(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&recycled=1&deleted=1", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Zero(t, adminSvc.lastListAccounts.calls)
+}
+
 func TestAccountHandlerListExposesOpenAIQuotaAutoPauseAsRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

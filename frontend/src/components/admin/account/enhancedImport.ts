@@ -145,7 +145,7 @@ const convertCLIAuth = (
     platform: config.platform,
     type: 'oauth',
     credentials: cliCredentials(value, provider, sourceName),
-    concurrency: 4,
+    concurrency: 10,
     priority: 1
   }
 }

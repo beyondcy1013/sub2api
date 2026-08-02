@@ -20,9 +20,10 @@
       <Icon name="inbox" size="md" />
     </button>
     <button
-      @click="$emit('viewTrash')"
-      class="btn btn-secondary px-3"
-      :title="t('admin.accounts.trashBin')"
+      @click="$emit('toggleDeleted')"
+      class="btn px-3"
+      :class="{ 'btn-primary': deleted }"
+      :title="deleted ? t('admin.accounts.viewNormal') : t('admin.accounts.viewDeleted')"
     >
       <Icon name="trash" size="md" />
     </button>
@@ -44,8 +45,8 @@
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 
-defineProps(['loading', 'showFilters', 'recycled'])
-defineEmits(['refresh', 'create', 'toggleFilters', 'toggleRecycled', 'viewTrash', 'scheduling-rules'])
+defineProps(['loading', 'showFilters', 'recycled', 'deleted'])
+defineEmits(['refresh', 'create', 'toggleFilters', 'toggleRecycled', 'toggleDeleted', 'scheduling-rules'])
 
 const { t } = useI18n()
 </script>

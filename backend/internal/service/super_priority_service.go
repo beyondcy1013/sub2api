@@ -97,6 +97,12 @@ func (s *SuperPriorityService) CheckInterval() string {
 	return s.cfg.SuperPriority.CheckInterval
 }
 
+// LivenessIncludeUnschedulable reports whether manually paused accounts are
+// included in connection liveness probes.
+func (s *SuperPriorityService) LivenessIncludeUnschedulable() bool {
+	return s != nil && s.cfg != nil && s.cfg.SuperPriority.LivenessIncludeUnschedulable
+}
+
 // TestModelID 返回探测使用的模型 ID（空表示复用平台默认）。
 func (s *SuperPriorityService) TestModelID() string {
 	if s == nil || s.cfg == nil {
@@ -130,7 +136,7 @@ func (s *SuperPriorityService) DemotedAt() string {
 }
 
 // UpdateRuntimeParams 更新可热更新的运行参数（阈值/间隔/测试模型/prompt）。
-func (s *SuperPriorityService) UpdateRuntimeParams(failureThreshold int, checkInterval, testModelID, testPrompt, baseStrategy string) {
+func (s *SuperPriorityService) UpdateRuntimeParams(failureThreshold int, checkInterval, testModelID, testPrompt, baseStrategy string, livenessIncludeUnschedulable bool) {
 	if s == nil || s.cfg == nil {
 		return
 	}
@@ -145,6 +151,7 @@ func (s *SuperPriorityService) UpdateRuntimeParams(failureThreshold int, checkIn
 	s.cfg.SuperPriority.TestModelID = testModelID
 	s.cfg.SuperPriority.TestPrompt = testPrompt
 	s.cfg.SuperPriority.BaseStrategy = normalizeAccountSchedulingStrategy(baseStrategy)
+	s.cfg.SuperPriority.LivenessIncludeUnschedulable = livenessIncludeUnschedulable
 }
 
 // Activate enables the request-time preference overlay.

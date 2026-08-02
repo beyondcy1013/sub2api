@@ -186,6 +186,23 @@ describe('DataTable', () => {
     expect(cell.classes()).not.toContain('py-0.5')
   })
 
+  it('applies row-derived classes only to matching desktop rows', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [
+          { id: 1, name: 'Existing' },
+          { id: 2, name: 'New' }
+        ],
+        rowKey: 'id',
+        rowClass: (row: { id: number }) => row.id === 2 ? 'recent-row' : ''
+      }
+    })
+
+    expect(wrapper.get('tbody tr[data-row-id="1"]').classes()).not.toContain('recent-row')
+    expect(wrapper.get('tbody tr[data-row-id="2"]').classes()).toContain('recent-row')
+  })
+
   it('renders every row with no virtual padding spacer for small datasets (virtualization off)', async () => {
     const data = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
     const wrapper = mount(DataTable, {
@@ -459,5 +476,19 @@ describe('DataTable', () => {
     await wrapper.get('[data-test="select-all-mobile"]').setValue(true)
 
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 1, 2])
+  })
+
+  it('applies row-derived classes to mobile cards', () => {
+    stubMobileMatchMedia()
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 7, name: 'New mobile account' }],
+        rowKey: 'id',
+        rowClass: () => 'recent-row'
+      }
+    })
+
+    expect(wrapper.get('[data-row-id="7"]').classes()).toContain('recent-row')
   })
 })

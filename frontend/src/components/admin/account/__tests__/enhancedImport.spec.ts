@@ -27,7 +27,7 @@ describe('enhanced account import normalization', () => {
         name: 'codex@example.com',
         platform: 'openai',
         type: 'oauth',
-        concurrency: 4,
+        concurrency: 10,
         priority: 1,
         credentials: expect.objectContaining({
           access_token: 'access-token',
@@ -208,7 +208,7 @@ describe('enhanced account import normalization', () => {
     ].join('\n'), 'pasted JSON')
 
     expect(mergeEnhancedImportPayloads(payloads).accounts).toEqual([
-      expect.objectContaining({ name: 'array@example.com', concurrency: 4 }),
+      expect.objectContaining({ name: 'array@example.com', concurrency: 10 }),
       expect.objectContaining({ name: 'native' })
     ])
   })

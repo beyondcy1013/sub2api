@@ -2510,7 +2510,13 @@ func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, stream
 	if c.Writer.Written() && !imageKeepalivePaddingOnly {
 		streamStarted = true
 	}
-	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
+	h.handleStreamingAwareError(
+		c,
+		http.StatusBadGateway,
+		"upstream_error",
+		clienterror.WithGatewaySource("Upstream request failed"),
+		streamStarted,
+	)
 	return true
 }
 

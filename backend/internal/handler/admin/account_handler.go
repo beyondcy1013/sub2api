@@ -57,6 +57,7 @@ type AccountHandler struct {
 	rateLimitService        *service.RateLimitService
 	accountUsageService     *service.AccountUsageService
 	accountTestService      *service.AccountTestService
+	accountTestRunner       accountTestRunner
 	concurrencyService      *service.ConcurrencyService
 	crsSyncService          *service.CRSSyncService
 	sessionLimitCache       service.SessionLimitCache
@@ -67,6 +68,11 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	superPriorityService    *service.SuperPriorityService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+}
+
+type accountTestRunner interface {
+	TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string) error
+	RunTestBackground(ctx context.Context, accountID int64, modelID string) (*service.ScheduledTestResult, error)
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -111,6 +117,7 @@ func NewAccountHandler(
 		rateLimitService:        rateLimitService,
 		accountUsageService:     accountUsageService,
 		accountTestService:      accountTestService,
+		accountTestRunner:       accountTestService,
 		concurrencyService:      concurrencyService,
 		crsSyncService:          crsSyncService,
 		sessionLimitCache:       sessionLimitCache,
@@ -207,6 +214,7 @@ type AccountWithConcurrency struct {
 	SchedulingRateOptimal    *bool                               `json:"scheduling_rate_optimal,omitempty"`
 	SchedulerScore           *AccountSchedulerScore              `json:"scheduler_score,omitempty"`
 	SchedulerScores          []AccountSchedulerGroupScore        `json:"scheduler_scores,omitempty"`
+	RuntimeStatus            *service.OpenAIRuntimeStatus        `json:"runtime_status,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -356,6 +364,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		return item
 	}
 	setSchedulingRateMetadata(&item, account)
+	item.RuntimeStatus = h.openAIRuntimeStatus(ctx, account)
 
 	if h.concurrencyService != nil {
 		if counts, err := h.concurrencyService.GetAccountConcurrencyBatch(ctx, []int64{account.ID}); err == nil {
@@ -392,6 +401,13 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
 
 	return item
+}
+
+func (h *AccountHandler) openAIRuntimeStatus(ctx context.Context, account *service.Account) *service.OpenAIRuntimeStatus {
+	if h == nil || h.rateLimitService == nil || account == nil {
+		return nil
+	}
+	return h.rateLimitService.OpenAIRuntimeStatus(ctx, account)
 }
 
 func (h *AccountHandler) openAIQuotaRateLimitStatus(ctx context.Context, account *service.Account) *service.OpenAIQuotaRateLimitStatus {
@@ -649,6 +665,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	includeSchedulerScore := parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false)
 	includeSchedulingOptimal := parseBoolQueryWithDefault(c.Query("include_scheduling_optimal"), false)
 	recycled := parseBoolQueryWithDefault(c.Query("recycled"), false)
+	deleted := parseBoolQueryWithDefault(c.Query("deleted"), false)
+	if recycled && deleted {
+		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_ACCOUNT_LIFECYCLE_FILTER", "recycled and deleted filters are mutually exclusive"))
+		return
+	}
 
 	var groupID int64
 	if groupIDStr := c.Query("group"); groupIDStr != "" {
@@ -668,12 +689,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, recycled)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, recycled, deleted)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if h.ollamaCloudUsage != nil && len(accounts) > 0 {
+	if h.ollamaCloudUsage != nil && len(accounts) > 0 && !deleted {
 		accountPointers := make([]*service.Account, len(accounts))
 		for index := range accounts {
 			accountPointers[index] = &accounts[index]
@@ -704,13 +725,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 			break
 		}
 	}
-	if includeSchedulerScore && pageHasOpenAIAccounts {
+	if includeSchedulerScore && pageHasOpenAIAccounts && !deleted {
 		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode, recycled)
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
 
 	var schedulingRateOptimalIDs map[int64]struct{}
-	if includeSchedulingOptimal && !recycled {
+	if includeSchedulingOptimal && !recycled && !deleted {
 		optimalPool, optimalErr := h.adminService.ListAccountsForSchedulerScoreFilter(
 			c.Request.Context(), "", "", service.StatusActive, "", 0, "", false,
 		)
@@ -918,7 +939,7 @@ func (h *AccountHandler) GetByID(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if h.ollamaCloudUsage != nil {
+	if h.ollamaCloudUsage != nil && !account.IsDeletedStaging() {
 		if err := h.ollamaCloudUsage.ResolveAccounts(c.Request.Context(), []*service.Account{account}); err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -1208,10 +1229,10 @@ func (h *AccountHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"message": "Account deleted successfully"})
+	response.Success(c, gin.H{"message": "Account moved to deleted staging"})
 }
 
-// Recycle moves an account to the trash by marking extra.recycled=true
+// Recycle moves an account to staging by marking extra.recycled=true.
 // POST /api/v1/admin/accounts/:id/recycle
 func (h *AccountHandler) Recycle(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -1353,16 +1374,121 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode); err != nil {
+	if err := h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode); err != nil {
+		if c.Request.Context().Err() == nil {
+			if _, submitErr := h.submitAccountTestResult(context.WithoutCancel(c.Request.Context()), accountID, false, err.Error()); submitErr != nil {
+				_ = c.Error(submitErr)
+			}
+		}
 		// Error already sent via SSE, just log
 		return
 	}
 
-	if h.rateLimitService != nil {
-		if _, err := h.rateLimitService.RecoverAccountAfterSuccessfulTest(c.Request.Context(), accountID); err != nil {
-			_ = c.Error(err)
+	if _, err := h.submitAccountTestResult(c.Request.Context(), accountID, true, ""); err != nil {
+		_ = c.Error(err)
+	}
+}
+
+func (h *AccountHandler) submitAccountTestResult(ctx context.Context, accountID int64, succeeded bool, errorMessage string) (bool, error) {
+	if succeeded {
+		return false, nil
+	}
+	if h.superPriorityService == nil {
+		return false, errors.New("account test failure window is unavailable")
+	}
+	if !h.superPriorityService.RecordFailure(accountID) {
+		return false, nil
+	}
+	if err := h.adminService.SetAccountError(ctx, accountID, errorMessage); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+const maxBatchAccountTests = 100
+const batchAccountTestConcurrency = 4
+
+type BatchTestAndMarkRequest struct {
+	AccountIDs []int64 `json:"account_ids" binding:"required,min=1,max=100"`
+}
+
+type BatchTestAndMarkItem struct {
+	AccountID int64  `json:"account_id"`
+	Success   bool   `json:"success"`
+	Marked    bool   `json:"marked,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type BatchTestAndMarkResponse struct {
+	Success int                    `json:"success"`
+	Failed  int                    `json:"failed"`
+	Marked  int                    `json:"marked"`
+	Results []BatchTestAndMarkItem `json:"results"`
+}
+
+// BatchTestAndMark tests selected accounts with bounded concurrency and marks failures as errors.
+// POST /api/v1/admin/accounts/batch-test-and-mark
+func (h *AccountHandler) BatchTestAndMark(c *gin.Context) {
+	var req BatchTestAndMarkRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.AccountIDs) == 0 || len(req.AccountIDs) > maxBatchAccountTests {
+		response.BadRequest(c, "account_ids must contain between 1 and 100 accounts")
+		return
+	}
+
+	ctx := c.Request.Context()
+	results := make([]BatchTestAndMarkItem, len(req.AccountIDs))
+	semaphore := make(chan struct{}, batchAccountTestConcurrency)
+	var wg sync.WaitGroup
+	for index, accountID := range req.AccountIDs {
+		index, accountID := index, accountID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				results[index] = BatchTestAndMarkItem{AccountID: accountID, Error: ctx.Err().Error()}
+				return
+			}
+
+			result, err := h.accountTestRunner.RunTestBackground(ctx, accountID, "")
+			if err == nil && result != nil && result.Status == "success" {
+				if _, submitErr := h.submitAccountTestResult(ctx, accountID, true, ""); submitErr != nil {
+					results[index] = BatchTestAndMarkItem{AccountID: accountID, Error: submitErr.Error()}
+					return
+				}
+				results[index] = BatchTestAndMarkItem{AccountID: accountID, Success: true}
+				return
+			}
+
+			errorMessage := "account test failed"
+			if err != nil {
+				errorMessage = err.Error()
+			} else if result != nil && strings.TrimSpace(result.ErrorMessage) != "" {
+				errorMessage = result.ErrorMessage
+			}
+			marked, submitErr := h.submitAccountTestResult(context.WithoutCancel(ctx), accountID, false, errorMessage)
+			if submitErr != nil {
+				errorMessage = fmt.Sprintf("%s; failed to submit test result: %v", errorMessage, submitErr)
+			}
+			results[index] = BatchTestAndMarkItem{AccountID: accountID, Marked: marked, Error: errorMessage}
+		}()
+	}
+	wg.Wait()
+
+	payload := BatchTestAndMarkResponse{Results: results}
+	for _, result := range results {
+		if result.Success {
+			payload.Success++
+		} else {
+			payload.Failed++
+		}
+		if result.Marked {
+			payload.Marked++
 		}
 	}
+	response.Success(c, payload)
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.
@@ -3149,7 +3275,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc", false)
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc", false, false)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

@@ -19,10 +19,27 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+type accountDeletedStagingLister interface {
+	ListDeletedWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error)
+}
+
 // Account management implementations
-func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled bool) ([]Account, int64, error) {
+func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, recycled, deleted bool) ([]Account, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
-	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, recycled)
+	var (
+		accounts []Account
+		result   *pagination.PaginationResult
+		err      error
+	)
+	if deleted {
+		lister, ok := s.accountRepo.(accountDeletedStagingLister)
+		if !ok {
+			return nil, 0, fmt.Errorf("account repository does not support deleted staging lists")
+		}
+		accounts, result, err = lister.ListDeletedWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
+	} else {
+		accounts, result, err = s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode, recycled)
+	}
 	if err != nil {
 		return nil, 0, err
 	}
@@ -94,6 +111,9 @@ func cloneAccountJSONMap(value map[string]any) (map[string]any, error) {
 var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	// A retry identity belongs to the operation that created one copy, not to later copies.
 	duplicateAccountOperationIDExtraKey: {},
+	// Lifecycle staging belongs to the source row. A duplicate is a new normal account.
+	AccountDeletedStagingExtraKey: {},
+	"recycled":                    {},
 	// External sync identity belongs to one local account only.
 	"crs_account_id": {},
 	"crs_kind":       {},
@@ -684,6 +704,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
+			AccountDeletedStagingExtraKey,
+			"recycled",
 			"quota_used",
 			"quota_daily_used",
 			"quota_daily_start",
@@ -1182,6 +1204,7 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			"",
 			"",
 			false,
+			false,
 		)
 		if err != nil {
 			return nil, err
@@ -1197,7 +1220,8 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
-	// 级联删除 spark 影子账号（先删影子，再删母账号）
+	// Move linked spark shadows into the same recoverable deleted-staging state
+	// before the parent so no live child retains a hidden credential parent.
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
 	if err != nil {
 		return fmt.Errorf("list spark shadows for cascade delete: %w", err)
@@ -1214,12 +1238,11 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 }
 
 func (s *adminServiceImpl) RecycleAccount(ctx context.Context, id int64) error {
-	return s.accountRepo.UpdateExtra(ctx, id, map[string]any{"recycled": true})
+	return s.accountRepo.RecycleAccount(ctx, id)
 }
 
 func (s *adminServiceImpl) RestoreAccount(ctx context.Context, id int64) error {
-	// Set recycled=false to unmark the account (filtered out of recycled list)
-	return s.accountRepo.UpdateExtra(ctx, id, map[string]any{"recycled": false})
+	return s.accountRepo.RestoreAccount(ctx, id)
 }
 
 func (s *adminServiceImpl) ListTrashedAccounts(ctx context.Context, page, pageSize int, platform, accountType, search string) ([]Account, int64, error) {

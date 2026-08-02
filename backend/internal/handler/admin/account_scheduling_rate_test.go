@@ -24,7 +24,7 @@ func (s *schedulingRateAdminService) GetAccount(_ context.Context, _ int64) (*se
 	return s.account, nil
 }
 
-func (s *schedulingRateAdminService) ListAccounts(_ context.Context, _ int, _ int, _ string, _ string, _ string, _ string, _ int64, _ string, _ string, _ string, _ bool) ([]service.Account, int64, error) {
+func (s *schedulingRateAdminService) ListAccounts(_ context.Context, _ int, _ int, _ string, _ string, _ string, _ string, _ int64, _ string, _ string, _ string, _ bool, _ bool) ([]service.Account, int64, error) {
 	return []service.Account{*s.account}, 1, nil
 }
 

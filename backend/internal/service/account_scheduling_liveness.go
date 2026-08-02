@@ -7,20 +7,18 @@ import (
 )
 
 const (
-	SchedulingLivenessExtraKey              = "scheduling_liveness"
-	SchedulingLivenessStatusManagedExtraKey = "status_managed"
-	SchedulingLivenessStatusUnknown         = "unknown"
-	SchedulingLivenessStatusAlive           = "alive"
-	SchedulingLivenessStatusSuspect         = "suspect"
-	SchedulingLivenessStatusDead            = "dead"
-	SchedulingLivenessErrorPrefix           = "Scheduling liveness probe failed: "
+	SchedulingLivenessExtraKey          = "scheduling_liveness"
+	SchedulingLivenessStatusUnknown     = "unknown"
+	SchedulingLivenessStatusAlive       = "alive"
+	SchedulingLivenessStatusSuspect     = "suspect"
+	SchedulingLivenessStatusDead        = "dead"
+	legacySchedulingLivenessErrorPrefix = "Scheduling liveness probe failed:"
 )
 
-// AccountSchedulingLiveness stores probe history. The status_managed marker is
-// only an ownership marker for automatic recovery; it is not a routing signal.
+// AccountSchedulingLiveness is an observation only. It never mutates the
+// operator-controlled status or schedulable fields.
 type AccountSchedulingLiveness struct {
 	Status        string     `json:"status"`
-	StatusManaged bool       `json:"status_managed,omitempty"`
 	FailureCount  int        `json:"failure_count"`
 	LastAttemptAt time.Time  `json:"last_attempt_at"`
 	LastSuccessAt *time.Time `json:"last_success_at,omitempty"`
@@ -28,28 +26,31 @@ type AccountSchedulingLiveness struct {
 	LastError     string     `json:"last_error,omitempty"`
 }
 
-func schedulingLivenessErrorMessage(errorMessage string) string {
-	errorMessage = strings.TrimSpace(errorMessage)
-	if errorMessage == "" {
-		return strings.TrimSpace(SchedulingLivenessErrorPrefix)
-	}
-	return SchedulingLivenessErrorPrefix + errorMessage
+func schedulingLivenessProbeEligible(account *Account, includeUnschedulable bool) bool {
+	return account != nil && !account.IsDeletedStaging() && account.Type == AccountTypeAPIKey && account.Status == StatusActive &&
+		(account.Schedulable || includeUnschedulable)
 }
 
-func schedulingLivenessOwnsAccountStatus(account *Account) bool {
-	if account == nil || account.Status != StatusError {
+// legacySchedulingLivenessOwnsAccountError recognizes only account errors
+// written by the pre-observation liveness implementation. It lets the runner
+// migrate those stale errors without clearing operator or authentication errors.
+func legacySchedulingLivenessOwnsAccountError(account *Account) bool {
+	if account == nil || account.Status != StatusError ||
+		!strings.HasPrefix(strings.TrimSpace(account.ErrorMessage), legacySchedulingLivenessErrorPrefix) {
 		return false
 	}
-	snapshot := decodeSchedulingLiveness(account.Extra)
-	return snapshot != nil && snapshot.StatusManaged &&
-		strings.HasPrefix(strings.TrimSpace(account.ErrorMessage), strings.TrimSpace(SchedulingLivenessErrorPrefix))
-}
-
-func schedulingLivenessProbeEligible(account *Account) bool {
-	if account == nil {
+	value, ok := account.Extra[SchedulingLivenessExtraKey]
+	if !ok || value == nil {
 		return false
 	}
-	return account.Status == StatusActive || schedulingLivenessOwnsAccountStatus(account)
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return false
+	}
+	var ownership struct {
+		StatusManaged bool `json:"status_managed"`
+	}
+	return json.Unmarshal(raw, &ownership) == nil && ownership.StatusManaged
 }
 
 func decodeSchedulingLiveness(extra map[string]any) *AccountSchedulingLiveness {

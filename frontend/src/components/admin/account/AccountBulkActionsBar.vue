@@ -62,7 +62,15 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <template v-if="selectedIds.length > 0">
-        <button @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
+        <button
+          data-test="batch-test-and-mark"
+          class="btn btn-secondary btn-sm"
+          :disabled="testingSelected"
+          @click="$emit('test-and-mark')"
+        >
+          {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
+        </button>
+        <button v-if="showDelete" @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
         <button @click="$emit('reset-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</button>
         <button @click="$emit('refresh-token')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.refreshToken') }}</button>
         <button @click="$emit('probe-upstream-billing')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}</button>
@@ -107,6 +115,8 @@ const props = withDefaults(defineProps<{
   allResultsSelected?: boolean
   quickUpdating?: 'proxy' | 'group' | null
   refreshingUsage?: boolean
+  testingSelected?: boolean
+  showDelete?: boolean
   proxies?: ProxyConfig[]
   groups?: AdminGroup[]
 }>(), {
@@ -115,6 +125,8 @@ const props = withDefaults(defineProps<{
   allResultsSelected: false,
   quickUpdating: null,
   refreshingUsage: false,
+  testingSelected: false,
+  showDelete: true,
   proxies: () => [],
   groups: () => []
 })
@@ -132,6 +144,7 @@ const emit = defineEmits<{
   'refresh-token': []
   'probe-upstream-billing': []
   'refresh-usage': []
+  'test-and-mark': []
 }>()
 
 const { t } = useI18n()

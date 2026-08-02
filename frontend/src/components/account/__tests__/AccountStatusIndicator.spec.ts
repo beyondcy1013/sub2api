@@ -255,4 +255,33 @@ describe('AccountStatusIndicator', () => {
     // AICredits 积分耗尽状态应显示
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
+
+  it('显示内存中隐藏的账号/代理/模型熔断状态', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          id: 10,
+          name: 'hidden-runtime',
+          platform: 'openai',
+          runtime_status: {
+            account_blocked_until: '2099-07-11T13:00:00Z',
+            account_blocked_reason: 'upstream_disable',
+            proxy_quarantined_until: '2099-07-11T14:00:00Z',
+            model_runtime_blocks: [
+              { model: 'gpt-5.6-sol', blocked_until: '2099-07-11T15:00:00Z' }
+            ]
+          }
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.runtimeBlocked')
+    expect(wrapper.text()).toContain('admin.accounts.status.proxyQuarantined')
+    expect(wrapper.text()).toContain('admin.accounts.status.modelRuntimeBlocked')
+  })
 })

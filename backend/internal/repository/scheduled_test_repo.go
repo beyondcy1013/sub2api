@@ -50,10 +50,15 @@ func (r *scheduledTestPlanRepository) ListByAccountID(ctx context.Context, accou
 
 func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time) ([]*service.ScheduledTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, last_run_at, next_run_at, created_at, updated_at
-		FROM scheduled_test_plans
-		WHERE enabled = true AND next_run_at <= $1
-		ORDER BY next_run_at ASC
+		SELECT plan.id, plan.account_id, plan.model_id, plan.cron_expression, plan.enabled,
+			plan.max_results, plan.auto_recover, plan.auto_recover_schedulable,
+			plan.last_run_at, plan.next_run_at, plan.created_at, plan.updated_at
+		FROM scheduled_test_plans AS plan
+		JOIN accounts AS account ON account.id = plan.account_id
+		WHERE plan.enabled = true AND plan.next_run_at <= $1
+		  AND account.deleted_at IS NULL
+		  AND COALESCE(account.extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
+		ORDER BY plan.next_run_at ASC
 	`, now)
 	if err != nil {
 		return nil, err

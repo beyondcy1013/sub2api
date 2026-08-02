@@ -69,6 +69,29 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
 }
 
+func TestRateLimitService_HandleUpstreamModelRouting503UsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	handled := svc.HandleUpstreamModelNotFound(
+		context.Background(),
+		account,
+		"gpt-5.4",
+		http.StatusServiceUnavailable,
+		[]byte(`{"error":{"code":"model_not_found","message":"No available channel for model gpt-5.4 under group codex"}}`),
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "gpt-5.4", call.scope)
+	require.Equal(t, upstreamModelRoutingErrorReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamModelRoutingErrorCooldown), call.resetAt, 5*time.Second)
+}
+
 func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTempUnschedule(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{modelRateLimitErr: errors.New("write failed")}
 	svc := &RateLimitService{accountRepo: repo}

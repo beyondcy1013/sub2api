@@ -6,29 +6,33 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 // superPrioritySettingsResponse 对外暴露的超级优先模式状态。
 type superPrioritySettingsResponse struct {
-	Mode             string `json:"mode"`
-	BaseStrategy     string `json:"base_strategy"`
-	FailureThreshold int    `json:"failure_threshold"`
-	CheckInterval    string `json:"check_interval"`
-	TestModelID      string `json:"test_model_id"`
-	TestPrompt       string `json:"test_prompt"`
-	ActivatedAt      string `json:"activated_at"`
-	DemotedAt        string `json:"demoted_at"`
-	IsActive         bool   `json:"is_active"`
+	Mode                         string                                  `json:"mode"`
+	BaseStrategy                 string                                  `json:"base_strategy"`
+	FailureThreshold             int                                     `json:"failure_threshold"`
+	CheckInterval                string                                  `json:"check_interval"`
+	LivenessIncludeUnschedulable bool                                    `json:"liveness_include_unschedulable"`
+	TestModelID                  string                                  `json:"test_model_id"`
+	TestPrompt                   string                                  `json:"test_prompt"`
+	ActivatedAt                  string                                  `json:"activated_at"`
+	DemotedAt                    string                                  `json:"demoted_at"`
+	IsActive                     bool                                    `json:"is_active"`
+	LivenessRuntime              service.SchedulingLivenessRuntimeStatus `json:"liveness_runtime"`
 }
 
 // superPrioritySettingsRequest 用于更新阈值/间隔等运行参数（不会直接切换模式）。
 type superPrioritySettingsRequest struct {
-	FailureThreshold int    `json:"failure_threshold"`
-	CheckInterval    string `json:"check_interval"`
-	TestModelID      string `json:"test_model_id"`
-	TestPrompt       string `json:"test_prompt"`
-	BaseStrategy     string `json:"base_strategy" binding:"omitempty,oneof=default lowest_cost"`
+	FailureThreshold             int    `json:"failure_threshold"`
+	CheckInterval                string `json:"check_interval"`
+	LivenessIncludeUnschedulable *bool  `json:"liveness_include_unschedulable"`
+	TestModelID                  string `json:"test_model_id"`
+	TestPrompt                   string `json:"test_prompt"`
+	BaseStrategy                 string `json:"base_strategy" binding:"omitempty,oneof=default lowest_cost"`
 }
 
 // GetSuperPrioritySettings 返回当前超级优先模式状态。
@@ -39,16 +43,22 @@ func (h *SettingHandler) GetSuperPrioritySettings(c *gin.Context) {
 		response.Error(c, 503, "super priority service unavailable")
 		return
 	}
+	runtime := service.SchedulingLivenessRuntimeStatus{Enabled: svc.BaseStrategy() == service.AccountSchedulingStrategyLowestCost}
+	if h.schedulingLiveness != nil {
+		runtime = h.schedulingLiveness.RuntimeStatus()
+	}
 	response.Success(c, superPrioritySettingsResponse{
-		Mode:             svc.Mode(),
-		BaseStrategy:     svc.BaseStrategy(),
-		FailureThreshold: svc.FailureThreshold(),
-		CheckInterval:    svc.CheckInterval(),
-		TestModelID:      svc.TestModelID(),
-		TestPrompt:       svc.TestPrompt(),
-		ActivatedAt:      svc.ActivatedAt(),
-		DemotedAt:        svc.DemotedAt(),
-		IsActive:         svc.IsActive(),
+		Mode:                         svc.Mode(),
+		BaseStrategy:                 svc.BaseStrategy(),
+		FailureThreshold:             svc.FailureThreshold(),
+		CheckInterval:                svc.CheckInterval(),
+		LivenessIncludeUnschedulable: svc.LivenessIncludeUnschedulable(),
+		TestModelID:                  svc.TestModelID(),
+		TestPrompt:                   svc.TestPrompt(),
+		ActivatedAt:                  svc.ActivatedAt(),
+		DemotedAt:                    svc.DemotedAt(),
+		IsActive:                     svc.IsActive(),
+		LivenessRuntime:              runtime,
 	})
 }
 
@@ -67,7 +77,11 @@ func (h *SettingHandler) UpdateSuperPrioritySettings(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	svc.UpdateRuntimeParams(req.FailureThreshold, req.CheckInterval, req.TestModelID, req.TestPrompt, req.BaseStrategy)
+	livenessIncludeUnschedulable := svc.LivenessIncludeUnschedulable()
+	if req.LivenessIncludeUnschedulable != nil {
+		livenessIncludeUnschedulable = *req.LivenessIncludeUnschedulable
+	}
+	svc.UpdateRuntimeParams(req.FailureThreshold, req.CheckInterval, req.TestModelID, req.TestPrompt, req.BaseStrategy, livenessIncludeUnschedulable)
 	if err := svc.PersistConfig(); err != nil {
 		response.Error(c, 500, "persist config failed: "+err.Error())
 		return

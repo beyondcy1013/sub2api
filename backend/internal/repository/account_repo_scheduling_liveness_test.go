@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -19,7 +18,7 @@ func (m schedulingLivenessQueryMatcher) Match(_ string, actual string) error {
 	return nil
 }
 
-func TestUpdateSchedulingLivenessOwnsStatusWithoutChangingSchedulable(t *testing.T) {
+func TestUpdateSchedulingLivenessPreservesAccountState(t *testing.T) {
 	var statement string
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(schedulingLivenessQueryMatcher{actual: &statement}))
 	require.NoError(t, err)
@@ -33,15 +32,8 @@ func TestUpdateSchedulingLivenessOwnsStatusWithoutChangingSchedulable(t *testing
 		WithArgs(
 			sqlmock.AnyArg(),
 			int64(17),
-			service.StatusActive,
-			service.StatusError,
-			true,
-			false,
-			strings.TrimSpace(service.SchedulingLivenessErrorPrefix)+"%",
-			service.SchedulingLivenessErrorPrefix+"upstream timeout",
 			service.SchedulerOutboxEventAccountChanged,
 			service.SchedulingLivenessExtraKey,
-			service.SchedulingLivenessStatusManagedExtraKey,
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -49,8 +41,10 @@ func TestUpdateSchedulingLivenessOwnsStatusWithoutChangingSchedulable(t *testing
 	err = repo.UpdateSchedulingLiveness(context.Background(), 17, snapshot)
 
 	require.NoError(t, err)
-	require.Contains(t, statement, "status = CASE")
 	require.Contains(t, statement, "jsonb_build_object")
+	require.Contains(t, statement, "$4::text")
+	require.NotContains(t, statement, "status =")
+	require.NotContains(t, statement, "error_message =")
 	require.NotContains(t, statement, "schedulable =")
 	require.Contains(t, statement, "INSERT INTO scheduler_outbox")
 	require.NoError(t, mock.ExpectationsWereMet())

@@ -82,12 +82,18 @@ type DataImportRequest struct {
 }
 
 type DataImportResult struct {
-	ProxyCreated   int               `json:"proxy_created"`
-	ProxyReused    int               `json:"proxy_reused"`
-	ProxyFailed    int               `json:"proxy_failed"`
-	AccountCreated int               `json:"account_created"`
-	AccountFailed  int               `json:"account_failed"`
-	Errors         []DataImportError `json:"errors,omitempty"`
+	ProxyCreated    int                        `json:"proxy_created"`
+	ProxyReused     int                        `json:"proxy_reused"`
+	ProxyFailed     int                        `json:"proxy_failed"`
+	AccountCreated  int                        `json:"account_created"`
+	AccountFailed   int                        `json:"account_failed"`
+	CreatedAccounts []DataImportCreatedAccount `json:"created_accounts,omitempty"`
+	Errors          []DataImportError          `json:"errors,omitempty"`
+}
+
+type DataImportCreatedAccount struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 type DataImportError struct {
@@ -95,6 +101,21 @@ type DataImportError struct {
 	Name     string `json:"name,omitempty"`
 	ProxyKey string `json:"proxy_key,omitempty"`
 	Message  string `json:"message"`
+}
+
+type DataClearRequest struct {
+	Data DataPayload `json:"data"`
+}
+
+type DataClearResult struct {
+	AccountRequested int                        `json:"account_requested"`
+	AccountMatched   int                        `json:"account_matched"`
+	AccountCleared   int                        `json:"account_cleared"`
+	AccountNotFound  int                        `json:"account_not_found"`
+	AccountAmbiguous int                        `json:"account_ambiguous"`
+	AccountFailed    int                        `json:"account_failed"`
+	ClearedAccounts  []DataImportCreatedAccount `json:"cleared_accounts,omitempty"`
+	Errors           []DataImportError          `json:"errors,omitempty"`
 }
 
 func buildProxyKey(protocol, host string, port int, username, password string) string {
@@ -244,6 +265,181 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 	executeAdminIdempotentJSON(c, "admin.accounts.import_data", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		return h.importData(ctx, req)
 	})
+}
+
+// ClearImportedData finds accounts described by an enhanced-import payload and
+// moves them into recoverable deleted staging. Proxies in the payload are never
+// removed.
+func (h *AccountHandler) ClearImportedData(c *gin.Context) {
+	var req DataClearRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := validateDataHeader(req.Data); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	executeAdminIdempotentJSON(c, "admin.accounts.clear_imported_data", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		return h.clearImportedData(ctx, req.Data)
+	})
+}
+
+func (h *AccountHandler) clearImportedData(ctx context.Context, payload DataPayload) (DataClearResult, error) {
+	result := DataClearResult{AccountRequested: len(payload.Accounts)}
+	candidates, err := h.listAccountsForDataClear(ctx)
+	if err != nil {
+		return result, err
+	}
+
+	targets := make(map[int64]service.Account)
+	for i := range payload.Accounts {
+		item := payload.Accounts[i]
+		if err := validateDataAccount(item); err != nil {
+			result.AccountFailed++
+			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: err.Error()})
+			continue
+		}
+
+		matches, ambiguous := matchImportedDataAccount(item, candidates)
+		if ambiguous {
+			result.AccountAmbiguous++
+			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "multiple same-name accounts matched without a stable credential identity"})
+			continue
+		}
+		if len(matches) == 0 {
+			result.AccountNotFound++
+			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "matching account not found"})
+			continue
+		}
+		for _, account := range matches {
+			targets[account.ID] = account
+		}
+	}
+
+	result.AccountMatched = len(targets)
+	for id, account := range targets {
+		if err := h.adminService.DeleteAccount(ctx, id); err != nil {
+			result.AccountFailed++
+			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: account.Name, Message: err.Error()})
+			continue
+		}
+		result.AccountCleared++
+		result.ClearedAccounts = append(result.ClearedAccounts, DataImportCreatedAccount{ID: id, Name: account.Name})
+	}
+
+	return result, nil
+}
+
+func (h *AccountHandler) listAccountsForDataClear(ctx context.Context) ([]service.Account, error) {
+	byID := make(map[int64]service.Account)
+	for _, recycled := range []bool{false, true} {
+		page := 1
+		for {
+			items, total, err := h.adminService.ListAccounts(ctx, page, dataPageCap, "", "", "", "", 0, "", "id", "asc", recycled, false)
+			if err != nil {
+				return nil, err
+			}
+			for _, account := range items {
+				byID[account.ID] = account
+			}
+			if page*dataPageCap >= int(total) || len(items) == 0 {
+				break
+			}
+			page++
+		}
+	}
+
+	accounts := make([]service.Account, 0, len(byID))
+	for _, account := range byID {
+		accounts = append(accounts, account)
+	}
+	return accounts, nil
+}
+
+func matchImportedDataAccount(item DataAccount, candidates []service.Account) ([]service.Account, bool) {
+	identity := importedCredentialIdentity(item.Credentials)
+	matchingType := make([]service.Account, 0)
+	for _, candidate := range candidates {
+		if !strings.EqualFold(strings.TrimSpace(candidate.Platform), strings.TrimSpace(item.Platform)) ||
+			!strings.EqualFold(strings.TrimSpace(candidate.Type), strings.TrimSpace(item.Type)) {
+			continue
+		}
+		matchingType = append(matchingType, candidate)
+	}
+
+	if len(identity) > 0 {
+		matches := make([]service.Account, 0)
+		for _, candidate := range matchingType {
+			if credentialIdentityMatches(identity, candidate.Credentials) {
+				matches = append(matches, candidate)
+			}
+		}
+		return matches, false
+	}
+
+	name := strings.TrimSpace(item.Name)
+	matches := make([]service.Account, 0, 1)
+	for _, candidate := range matchingType {
+		if strings.TrimSpace(candidate.Name) == name {
+			matches = append(matches, candidate)
+		}
+	}
+	if len(matches) > 1 {
+		return nil, true
+	}
+	return matches, false
+}
+
+func importedCredentialIdentity(credentials map[string]any) map[string]string {
+	value := func(key string) string {
+		raw, ok := credentials[key].(string)
+		if !ok || strings.TrimSpace(raw) == "" {
+			return ""
+		}
+		return raw
+	}
+	identity := func(keys ...string) map[string]string {
+		out := make(map[string]string, len(keys))
+		for _, key := range keys {
+			if v := value(key); v != "" {
+				out[key] = v
+			}
+		}
+		return out
+	}
+
+	if value("api_key") != "" {
+		return identity("api_key", "base_url")
+	}
+	for _, key := range []string{"chatgpt_account_id", "account_id"} {
+		if value(key) != "" {
+			return identity(key)
+		}
+	}
+	if value("client_email") != "" {
+		return identity("client_email", "project_id")
+	}
+	if value("email") != "" {
+		return identity("email", "project_id", "organization_id")
+	}
+	for _, key := range []string{"refresh_token", "access_token", "id_token", "private_key_id"} {
+		if value(key) != "" {
+			return identity(key)
+		}
+	}
+	return nil
+}
+
+func credentialIdentityMatches(identity map[string]string, credentials map[string]any) bool {
+	for key, expected := range identity {
+		actual, ok := credentials[key].(string)
+		if !ok || actual != expected {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
@@ -476,6 +672,10 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		}
 		h.scheduleGrokImportProbe(created)
 		result.AccountCreated++
+		result.CreatedAccounts = append(result.CreatedAccounts, DataImportCreatedAccount{
+			ID:   created.ID,
+			Name: created.Name,
+		})
 	}
 
 	// 异步设置 Antigravity 隐私，避免大量导入时阻塞请求
@@ -521,7 +721,7 @@ func (h *AccountHandler) listAccountsFiltered(ctx context.Context, platform, acc
 	pageSize := dataPageCap
 	var out []service.Account
 	for {
-		items, total, err := h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, false)
+		items, total, err := h.adminService.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, false, false)
 		if err != nil {
 			return nil, err
 		}

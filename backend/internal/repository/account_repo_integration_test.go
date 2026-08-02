@@ -11,6 +11,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -264,8 +265,29 @@ func (s *AccountRepoSuite) TestDelete() {
 	err := s.repo.Delete(s.ctx, account.ID)
 	s.Require().NoError(err, "Delete")
 
-	_, err = s.repo.GetByID(s.ctx, account.ID)
-	s.Require().Error(err, "expected error after delete")
+	deletedAccount, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err, "deleted-staging account remains manageable")
+	s.Require().True(deletedAccount.IsDeletedStaging())
+
+	activeAccounts, activePage, err := s.repo.List(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10})
+	s.Require().NoError(err)
+	s.Require().Empty(activeAccounts)
+	s.Require().Zero(activePage.Total)
+
+	deletedAccounts, deletedPage, err := s.repo.ListDeletedWithFilters(
+		s.ctx,
+		pagination.PaginationParams{Page: 1, PageSize: 10},
+		"", "", "", "", 0, "",
+	)
+	s.Require().NoError(err)
+	s.Require().Len(deletedAccounts, 1)
+	s.Require().Equal(account.ID, deletedAccounts[0].ID)
+	s.Require().Equal(int64(1), deletedPage.Total)
+
+	s.Require().NoError(s.repo.RestoreTrashedAccount(s.ctx, account.ID))
+	restored, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().False(restored.IsDeletedStaging())
 }
 
 func (s *AccountRepoSuite) TestDelete_RemovesSchedulerAccountSnapshot() {
@@ -295,11 +317,23 @@ func (s *AccountRepoSuite) TestDelete_WithGroupBindings() {
 	mustBindAccountToGroup(s.T(), s.client, account.ID, group.ID, 1)
 
 	err := s.repo.Delete(s.ctx, account.ID)
-	s.Require().NoError(err, "Delete should cascade remove bindings")
+	s.Require().NoError(err, "Delete should preserve bindings")
 
 	count, err := s.client.AccountGroup.Query().Where(accountgroup.AccountIDEQ(account.ID)).Count(s.ctx)
 	s.Require().NoError(err)
-	s.Require().Zero(count, "expected bindings to be removed")
+	s.Require().Equal(1, count, "deleted-staging accounts keep their group bindings")
+}
+
+func (s *AccountRepoSuite) TestPermanentDelete_DeletesOnlyDeletedStagingAccount() {
+	active := mustCreateAccount(s.T(), s.client, &service.Account{Name: "active-protected-from-permanent-delete"})
+	s.Require().ErrorIs(s.repo.PermanentDelete(s.ctx, active.ID), service.ErrAccountNotFound)
+
+	deleted := mustCreateAccount(s.T(), s.client, &service.Account{Name: "deleted-staging-permanent-delete"})
+	s.Require().NoError(s.repo.Delete(s.ctx, deleted.ID))
+	s.Require().NoError(s.repo.PermanentDelete(s.ctx, deleted.ID))
+
+	_, err := s.client.Account.Get(mixins.SkipSoftDelete(s.ctx), deleted.ID)
+	s.Require().True(dbent.IsNotFound(err), "account should be physically deleted, got %v", err)
 }
 
 // --- List / ListWithFilters ---

@@ -39,6 +39,18 @@ type RelayFailureBudgetPolicy struct {
 	Cooldown                time.Duration
 }
 
+// OpenAIRelayFailureBudgetSettings is the account-facing persisted policy.
+// Durations use minutes because that is the precision supported by account
+// credentials and the admin UI.
+type OpenAIRelayFailureBudgetSettings struct {
+	Enabled                 bool
+	WindowMinutes           int
+	FailureThresholdPercent int
+	MinRequests             int
+	ConsecutiveFailures     int
+	CooldownMinutes         int
+}
+
 type RelayFailureBudgetOutcome string
 
 const (
@@ -65,50 +77,120 @@ type RelayFailureBudgetCache interface {
 }
 
 func (a *Account) OpenAIRelayFailureBudgetPolicy() (RelayFailureBudgetPolicy, bool) {
-	if !isOpenAICustomRelayAPIKey(a) || a.IsPoolMode() || a.IsCustomErrorCodesEnabled() {
-		return RelayFailureBudgetPolicy{}, false
-	}
-	if enabled, exists := relayFailureBudgetCredentialBool(a.Credentials, relayFailureBudgetEnabledCredentialKey); exists && !enabled {
+	settings, supported := a.OpenAIRelayFailureBudgetSettings()
+	if !supported || !settings.Enabled {
 		return RelayFailureBudgetPolicy{}, false
 	}
 
 	return RelayFailureBudgetPolicy{
-		Window: time.Duration(relayFailureBudgetCredentialInt(
-			a.Credentials,
-			relayFailureBudgetWindowCredentialKey,
-			defaultRelayFailureBudgetWindowMinutes,
-			1,
-			maxRelayFailureBudgetWindowMinutes,
-		)) * time.Minute,
-		FailureThresholdPercent: relayFailureBudgetCredentialInt(
-			a.Credentials,
-			relayFailureBudgetThresholdCredentialKey,
-			defaultRelayFailureBudgetThresholdPercent,
-			1,
-			100,
-		),
-		MinRequests: relayFailureBudgetCredentialInt(
-			a.Credentials,
-			relayFailureBudgetMinRequestsCredentialKey,
-			defaultRelayFailureBudgetMinRequests,
-			1,
-			maxRelayFailureBudgetMinRequests,
-		),
-		ConsecutiveFailures: relayFailureBudgetCredentialInt(
-			a.Credentials,
-			relayFailureBudgetConsecutiveCredentialKey,
-			defaultRelayFailureBudgetConsecutiveFailures,
-			1,
-			maxRelayFailureBudgetConsecutiveFailures,
-		),
-		Cooldown: time.Duration(relayFailureBudgetCredentialInt(
-			a.Credentials,
-			relayFailureBudgetCooldownCredentialKey,
-			defaultRelayFailureBudgetCooldownMinutes,
-			1,
-			maxRelayFailureBudgetCooldownMinutes,
-		)) * time.Minute,
+		Window:                  time.Duration(settings.WindowMinutes) * time.Minute,
+		FailureThresholdPercent: settings.FailureThresholdPercent,
+		MinRequests:             settings.MinRequests,
+		ConsecutiveFailures:     settings.ConsecutiveFailures,
+		Cooldown:                time.Duration(settings.CooldownMinutes) * time.Minute,
 	}, true
+}
+
+// SupportsOpenAIRelayFailureBudget reports whether the relay policy is valid
+// for this account, independently of whether the operator has disabled it.
+func (a *Account) SupportsOpenAIRelayFailureBudget() bool {
+	return isOpenAICustomRelayAPIKey(a) && !a.IsPoolMode() && !a.IsCustomErrorCodesEnabled()
+}
+
+// OpenAIRelayFailureBudgetSettings returns normalized persisted values. The
+// second result distinguishes unsupported accounts from an explicit opt-out.
+func (a *Account) OpenAIRelayFailureBudgetSettings() (OpenAIRelayFailureBudgetSettings, bool) {
+	settings := OpenAIRelayFailureBudgetSettings{
+		Enabled:                 true,
+		WindowMinutes:           defaultRelayFailureBudgetWindowMinutes,
+		FailureThresholdPercent: defaultRelayFailureBudgetThresholdPercent,
+		MinRequests:             defaultRelayFailureBudgetMinRequests,
+		ConsecutiveFailures:     defaultRelayFailureBudgetConsecutiveFailures,
+		CooldownMinutes:         defaultRelayFailureBudgetCooldownMinutes,
+	}
+	if a == nil || !a.SupportsOpenAIRelayFailureBudget() {
+		return settings, false
+	}
+	if enabled, exists := relayFailureBudgetCredentialBool(a.Credentials, relayFailureBudgetEnabledCredentialKey); exists {
+		settings.Enabled = enabled
+	}
+	settings.WindowMinutes = relayFailureBudgetCredentialInt(
+		a.Credentials,
+		relayFailureBudgetWindowCredentialKey,
+		defaultRelayFailureBudgetWindowMinutes,
+		1,
+		maxRelayFailureBudgetWindowMinutes,
+	)
+	settings.FailureThresholdPercent = relayFailureBudgetCredentialInt(
+		a.Credentials,
+		relayFailureBudgetThresholdCredentialKey,
+		defaultRelayFailureBudgetThresholdPercent,
+		1,
+		100,
+	)
+	settings.MinRequests = relayFailureBudgetCredentialInt(
+		a.Credentials,
+		relayFailureBudgetMinRequestsCredentialKey,
+		defaultRelayFailureBudgetMinRequests,
+		1,
+		maxRelayFailureBudgetMinRequests,
+	)
+	settings.ConsecutiveFailures = relayFailureBudgetCredentialInt(
+		a.Credentials,
+		relayFailureBudgetConsecutiveCredentialKey,
+		defaultRelayFailureBudgetConsecutiveFailures,
+		1,
+		maxRelayFailureBudgetConsecutiveFailures,
+	)
+	settings.CooldownMinutes = relayFailureBudgetCredentialInt(
+		a.Credentials,
+		relayFailureBudgetCooldownCredentialKey,
+		defaultRelayFailureBudgetCooldownMinutes,
+		1,
+		maxRelayFailureBudgetCooldownMinutes,
+	)
+	return settings, true
+}
+
+// ApplyOpenAIRelayFailureBudgetSettings returns a shallow credential copy with
+// only the relay-policy keys changed. Other credentials remain untouched.
+func ApplyOpenAIRelayFailureBudgetSettings(credentials map[string]any, settings OpenAIRelayFailureBudgetSettings) (map[string]any, error) {
+	updated := make(map[string]any, len(credentials)+6)
+	for key, value := range credentials {
+		updated[key] = value
+	}
+	updated[relayFailureBudgetEnabledCredentialKey] = settings.Enabled
+	if !settings.Enabled {
+		delete(updated, relayFailureBudgetWindowCredentialKey)
+		delete(updated, relayFailureBudgetThresholdCredentialKey)
+		delete(updated, relayFailureBudgetMinRequestsCredentialKey)
+		delete(updated, relayFailureBudgetConsecutiveCredentialKey)
+		delete(updated, relayFailureBudgetCooldownCredentialKey)
+		return updated, nil
+	}
+
+	if settings.WindowMinutes < 1 || settings.WindowMinutes > maxRelayFailureBudgetWindowMinutes {
+		return nil, fmt.Errorf("relay failure budget window_minutes must be between 1 and %d", maxRelayFailureBudgetWindowMinutes)
+	}
+	if settings.FailureThresholdPercent < 1 || settings.FailureThresholdPercent > 100 {
+		return nil, fmt.Errorf("relay failure budget failure_threshold_percent must be between 1 and 100")
+	}
+	if settings.MinRequests < 1 || settings.MinRequests > maxRelayFailureBudgetMinRequests {
+		return nil, fmt.Errorf("relay failure budget min_requests must be between 1 and %d", maxRelayFailureBudgetMinRequests)
+	}
+	if settings.ConsecutiveFailures < 1 || settings.ConsecutiveFailures > maxRelayFailureBudgetConsecutiveFailures {
+		return nil, fmt.Errorf("relay failure budget consecutive_failures must be between 1 and %d", maxRelayFailureBudgetConsecutiveFailures)
+	}
+	if settings.CooldownMinutes < 1 || settings.CooldownMinutes > maxRelayFailureBudgetCooldownMinutes {
+		return nil, fmt.Errorf("relay failure budget cooldown_minutes must be between 1 and %d", maxRelayFailureBudgetCooldownMinutes)
+	}
+
+	updated[relayFailureBudgetWindowCredentialKey] = settings.WindowMinutes
+	updated[relayFailureBudgetThresholdCredentialKey] = settings.FailureThresholdPercent
+	updated[relayFailureBudgetMinRequestsCredentialKey] = settings.MinRequests
+	updated[relayFailureBudgetConsecutiveCredentialKey] = settings.ConsecutiveFailures
+	updated[relayFailureBudgetCooldownCredentialKey] = settings.CooldownMinutes
+	return updated, nil
 }
 
 func isOpenAICustomRelayAPIKey(account *Account) bool {

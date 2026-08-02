@@ -737,6 +737,36 @@ func (s *GroupRepoSuite) TestGetAccountCount_Empty() {
 	s.Require().Zero(count)
 }
 
+func (s *GroupRepoSuite) TestGetAccountCount_ExcludesDeletedStagingBindings() {
+	group := &service.Group{
+		Name:             "g-deleted-staging",
+		Platform:         service.PlatformAnthropic,
+		RateMultiplier:   1.0,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+
+	var accountID int64
+	s.Require().NoError(scanSingleRow(
+		s.ctx,
+		s.tx,
+		`INSERT INTO accounts (name, platform, type, status, schedulable, extra)
+		 VALUES ($1, $2, $3, $4, $5, '{"deleted": true}'::jsonb) RETURNING id`,
+		[]any{"deleted-staging", service.PlatformAnthropic, service.AccountTypeAPIKey, service.StatusActive, true},
+		&accountID,
+	))
+	_, err := s.tx.ExecContext(s.ctx,
+		"INSERT INTO account_groups (account_id, group_id, priority, created_at) VALUES ($1, $2, $3, NOW())",
+		accountID, group.ID, 1)
+	s.Require().NoError(err)
+
+	total, active, err := s.repo.GetAccountCount(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Zero(total)
+	s.Require().Zero(active)
+}
+
 // TestListWithFilters_ActiveAccountCount_LessThanTotal 验证 ActiveAccountCount 正确区分可用与不可用账号。
 // 当分组内存在 disabled 或 schedulable=false 的账号时，ActiveAccountCount 必须小于 AccountCount，
 // 且与 GetAccountCount 返回的 active 值一致。

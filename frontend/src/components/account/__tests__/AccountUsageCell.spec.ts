@@ -93,6 +93,29 @@ describe('AccountUsageCell', () => {
     wrapper.unmount()
   })
 
+  it('删除态账号即使仍为 active 也不会自动刷新用量', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 12,
+          platform: 'openai',
+          type: 'oauth',
+          status: 'active',
+          extra: { deleted: true }
+        })
+      },
+      global: {
+        stubs: { UsageProgressBar: true, AccountQuotaInfo: true, OpenAIQuotaResetCell: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.activeQuery')
+    wrapper.unmount()
+  })
+
   it('批量查询返回的外部用量会立即更新窗口并通知父表', async () => {
     const wrapper = mount(AccountUsageCell, {
       props: {

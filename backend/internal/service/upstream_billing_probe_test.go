@@ -333,6 +333,90 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 	require.Equal(t, snapshot.Status, persisted.Status)
 }
 
+func TestParseNikoAPIBillingResponseUsesNewestConsumptionUserRate(t *testing.T) {
+	data, err := parseNikoAPIBillingResponse([]byte(`{
+		"success":true,
+		"data":[
+			{"created_at":1785383751,"type":2,"group":"codex-mixed","other":"{\"group_ratio\":0.055,\"user_group_ratio\":0.055,\"model_ratio\":2.5}"},
+			{"created_at":1785411400,"type":5,"group":"codex-mixed","other":"{\"group_ratio\":9}"},
+			{"created_at":1785411429,"type":2,"group":"codex-mixed","other":"{\"group_ratio\":0.055,\"user_group_ratio\":0.065,\"model_ratio\":2.5}"}
+		]
+	}`))
+
+	require.NoError(t, err)
+	require.Equal(t, "nikoapi.observed_billing", data["object"])
+	require.Equal(t, "codex-mixed", data["group"])
+	require.Equal(t, 0.055, data["group_rate_multiplier"])
+	require.Equal(t, 0.065, data["user_rate_multiplier"])
+	require.Equal(t, 0.065, data["resolved_rate_multiplier"])
+	require.Equal(t, 0.065, data["effective_rate_multiplier"])
+	require.Equal(t, time.Unix(1785411429, 0).UTC().Format(time.RFC3339), data["observed_at"])
+}
+
+func TestUpstreamBillingProbeExplicitNikoAPIUsesObservedLogRate(t *testing.T) {
+	account := &Account{
+		ID:          171,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 2,
+		Credentials: map[string]any{"api_key": "sk-sensitive", "base_url": "https://niko.example/v1"},
+		Extra: map[string]any{
+			AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeNikoAPI},
+		},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{
+			"success":true,
+			"data":[{"created_at":1785411429,"type":2,"group":"codex-mixed","other":"{\"group_ratio\":0.055,\"user_group_ratio\":0.065}"}]
+		}`)),
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	fixedNow := time.Date(2026, time.July, 31, 0, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return fixedNow }
+
+	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
+	require.Equal(t, 0.065, snapshot.Data["resolved_rate_multiplier"])
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://niko.example/api/log/token", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer sk-sensitive", upstream.requests[0].Header.Get("Authorization"))
+}
+
+func TestUpstreamBillingProbeAutoFallsBackFromSub2APIToNikoAPI(t *testing.T) {
+	account := &Account{
+		ID:          172,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 2,
+		Credentials: map[string]any{"api_key": "sk-sensitive", "base_url": "https://niko.example/v1"},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusNotFound, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("not found"))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{
+			"success":true,
+			"data":[{"created_at":1785411429,"type":2,"group":"codex-mixed","other":"{\"group_ratio\":0.055}"}]
+		}`))},
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
+	require.Equal(t, 0.055, snapshot.Data["resolved_rate_multiplier"])
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/v1/sub2api/billing", upstream.requests[0].URL.Path)
+	require.Equal(t, "/api/log/token", upstream.requests[1].URL.Path)
+}
+
 func TestUpstreamBillingProbeRejectsMissingRequiredMultiplier(t *testing.T) {
 	_, err := parseUpstreamBillingProbeResponse([]byte(`{
 		"object":"sub2api.key_billing",

@@ -239,4 +239,24 @@ describe('AccountsView bulk usage refresh', () => {
       'admin.accounts.bulkActions.refreshUsageNoEligible'
     )
   })
+
+  it('never includes deleted-staging accounts in a bulk usage refresh', async () => {
+    const deleted = {
+      ...makeAccount(7, 'openai', 'oauth'),
+      extra: { deleted: true }
+    }
+    listAccounts.mockResolvedValueOnce({
+      items: [deleted], total: 1, page: 1, page_size: 20, pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-test="refresh-usage"]').trigger('click')
+    await flushPromises()
+
+    expect(getAccountUsage).not.toHaveBeenCalled()
+    expect(showInfo).toHaveBeenCalledWith(
+      'admin.accounts.bulkActions.refreshUsageNoEligible'
+    )
+  })
 })

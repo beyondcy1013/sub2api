@@ -17,6 +17,7 @@ type superPriorityFakeRepo struct {
 	mu             sync.Mutex
 	accounts       []Account
 	schedulable    map[int64]bool // 记录每次 SetSchedulable 后的状态
+	clearErrorIDs  []int64
 	extraWrites    map[int64]map[string]any
 	livenessWrites map[int64]*AccountSchedulingLiveness
 }
@@ -61,6 +62,13 @@ func (f *superPriorityFakeRepo) SetSchedulable(_ context.Context, id int64, sche
 	return nil
 }
 
+func (f *superPriorityFakeRepo) ClearError(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.clearErrorIDs = append(f.clearErrorIDs, id)
+	return nil
+}
+
 func (f *superPriorityFakeRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -84,7 +92,7 @@ func (f *superPriorityFakeRepo) UpdateSchedulingLiveness(_ context.Context, id i
 }
 
 func makeSuperPriorityTestAccount(id int64, superPriority, schedulable bool) Account {
-	a := Account{ID: id, Status: "active", Schedulable: schedulable, Extra: map[string]any{}}
+	a := Account{ID: id, Type: AccountTypeAPIKey, Status: "active", Schedulable: schedulable, Extra: map[string]any{}}
 	if superPriority {
 		a.Extra[SuperPriorityExtraKey] = true
 	}
@@ -149,12 +157,15 @@ func TestSuperPriority_Deactivate_DoesNotMutateSchedulable(t *testing.T) {
 func TestSuperPriority_UpdateRuntimeParams_NormalizesBaseStrategy(t *testing.T) {
 	svc := newSuperPriorityTestService(newSuperPriorityFakeRepo())
 
-	svc.UpdateRuntimeParams(3, "@every 2m", "model", "prompt", AccountSchedulingStrategyLowestCost)
+	svc.UpdateRuntimeParams(3, "@every 2m", "model", "prompt", AccountSchedulingStrategyLowestCost, true)
 	if got := svc.BaseStrategy(); got != AccountSchedulingStrategyLowestCost {
 		t.Fatalf("expected lowest_cost, got %q", got)
 	}
+	if !svc.LivenessIncludeUnschedulable() {
+		t.Fatal("expected manually paused accounts to be included in liveness probes")
+	}
 
-	svc.UpdateRuntimeParams(3, "@every 2m", "model", "prompt", "unknown")
+	svc.UpdateRuntimeParams(3, "@every 2m", "model", "prompt", "unknown", false)
 	if got := svc.BaseStrategy(); got != AccountSchedulingStrategyDefault {
 		t.Fatalf("unknown strategy should normalize to default, got %q", got)
 	}
