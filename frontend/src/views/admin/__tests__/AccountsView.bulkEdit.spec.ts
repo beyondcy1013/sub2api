@@ -93,12 +93,12 @@ const DataTableStub = {
 }
 
 const AccountBulkActionsBarStub = {
-  props: ['selectedIds', 'selectingAllPages', 'quickUpdating', 'proxies', 'groups'],
-  emits: ['edit-selected', 'edit-filtered', 'probe-upstream-billing', 'select-all-pages', 'quick-set-proxy', 'quick-set-group'],
+  props: ['selectedIds', 'selectingAll', 'quickUpdating', 'proxies', 'groups'],
+  emits: ['edit-selected', 'edit-filtered', 'probe-upstream-billing', 'select-all-results', 'quick-set-proxy', 'quick-set-group'],
   template: `
     <div>
       <span data-test="selected-ids">{{ selectedIds.join(',') }}</span>
-      <button data-test="select-all-pages" @click="$emit('select-all-pages')">select all pages</button>
+      <button data-test="select-all-results" @click="$emit('select-all-results')">select all results</button>
       <button data-test="quick-set-proxy" @click="$emit('quick-set-proxy', 9)">proxy</button>
       <button data-test="quick-set-group" @click="$emit('quick-set-group', 5)">group</button>
       <button data-test="edit-selected" @click="$emit('edit-selected')">edit selected</button>
@@ -212,7 +212,7 @@ describe('admin AccountsView bulk edit scope', () => {
 
     const wrapper = mountView()
     await flushPromises()
-    await wrapper.get('[data-test="select-all-pages"]').trigger('click')
+    await wrapper.get('[data-test="select-all-results"]').trigger('click')
     await flushPromises()
 
     expect(listAccounts).toHaveBeenNthCalledWith(
@@ -336,7 +336,7 @@ describe('admin AccountsView bulk edit scope', () => {
 
     const wrapper = mountView()
     await flushPromises()
-    await wrapper.get('[data-test="select-all-pages"]').trigger('click')
+    await wrapper.get('[data-test="select-all-results"]').trigger('click')
     await flushPromises()
 
     expect(listAccounts).toHaveBeenNthCalledWith(

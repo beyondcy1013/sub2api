@@ -97,6 +97,17 @@ const AccountTableFiltersStub = {
   template: '<button data-test="change-filter" @click="$emit(\'change\')">change filter</button>'
 }
 
+const AccountTableActionsStub = {
+  emits: ['toggle-filters'],
+  template: `
+    <div>
+      <button data-test="toggle-filters" @click="$emit('toggle-filters')">toggle filters</button>
+      <slot name="before" />
+      <slot name="after" />
+    </div>
+  `
+}
+
 const mountView = () => mount(AccountsView, {
   global: {
     stubs: {
@@ -107,7 +118,7 @@ const mountView = () => mount(AccountsView, {
       DataTable: { props: ['data'], template: '<div data-test="data-table"></div>' },
       Pagination: true,
       ConfirmDialog: true,
-      AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+      AccountTableActions: AccountTableActionsStub,
       AccountTableFilters: AccountTableFiltersStub,
       AccountBulkActionsBar: AccountBulkActionsBarStub,
       AccountActionMenu: true,
@@ -191,6 +202,7 @@ describe('admin AccountsView select all filtered results', () => {
       include_scheduler_score: '0'
     }))
 
+    await wrapper.get('[data-test="toggle-filters"]').trigger('click')
     await wrapper.get('[data-test="change-filter"]').trigger('click')
 
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('0')
