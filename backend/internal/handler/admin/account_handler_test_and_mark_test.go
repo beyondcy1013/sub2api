@@ -21,7 +21,7 @@ type accountTestRunnerStub struct {
 	seen    []int64
 }
 
-func (s *accountTestRunnerStub) TestAccountConnection(*gin.Context, int64, string, string, string) error {
+func (s *accountTestRunnerStub) TestAccountConnection(*gin.Context, int64, string, string, string, ...service.AccountTestOptions) error {
 	return errors.New("upstream rejected credentials")
 }
 

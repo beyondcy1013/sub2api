@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,8 +28,9 @@ import (
 
 const (
 	// These values live in accounts.extra so PR2 does not require a schema migration.
-	UpstreamBillingProbeExtraKey        = "upstream_billing_probe"
-	UpstreamBillingProbeEnabledExtraKey = "upstream_billing_probe_enabled"
+	UpstreamBillingProbeExtraKey           = "upstream_billing_probe"
+	UpstreamBillingProbeEnabledExtraKey    = "upstream_billing_probe_enabled"
+	UpstreamBillingRateSyncEnabledExtraKey = "upstream_billing_rate_sync_enabled"
 
 	upstreamBillingProbeDefaultIntervalMinutes = 30
 	upstreamBillingProbeMinIntervalMinutes     = 5
@@ -57,6 +59,14 @@ var (
 	)
 	ErrUpstreamBillingProbeIdentityChanged = infraerrors.Conflict(
 		"UPSTREAM_BILLING_PROBE_IDENTITY_CHANGED", "account identity changed during upstream billing probe; retry the probe",
+	)
+	ErrUpstreamBillingRateSyncBulkConflict = infraerrors.Conflict(
+		"UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT",
+		"account rate multiplier cannot be changed in bulk while upstream billing rate sync is enabled",
+	)
+	ErrUpstreamBillingRateSyncConflict = infraerrors.Conflict(
+		"UPSTREAM_BILLING_RATE_SYNC_CONFLICT",
+		"account rate multiplier cannot be changed while upstream billing rate sync is enabled",
 	)
 )
 
@@ -595,13 +605,17 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "transport_unavailable", 0)
 	}
-	apiKey := account.GetOpenAIApiKey()
+	apiKey := account.GetCredential("api_key")
 	if apiKey == "" {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "missing_api_key", 0)
 	}
-	baseURL := account.GetOpenAIBaseURL()
-	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+	baseURL := account.GetCredential("base_url")
+	if account.Platform == PlatformOpenAI {
+		if baseURL == "" {
+			baseURL = "https://api.openai.com"
+		}
+	} else if upstreamBillingProbeTargetIsOfficialAPI(baseURL) {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "unsupported", 0)
 	}
 	normalizedBaseURL, err := s.accountTestService.validateUpstreamBaseURL(baseURL)
 	if err != nil {
@@ -698,7 +712,11 @@ func (s *UpstreamBillingProbeService) fetchUpstreamBillingProbe(
 	if err != nil {
 		return upstreamBillingProbeFetchResult{FailureReason: "request_build_failed"}
 	}
-	reqCtx := WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI)
+	profile := HTTPUpstreamProfileDefault
+	if account.Platform == PlatformOpenAI {
+		profile = HTTPUpstreamProfileOpenAI
+	}
+	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
 	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -1089,8 +1107,66 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 	return &snapshot
 }
 
+func upstreamBillingProbeEnabled(account *Account) bool {
+	if account == nil || account.Extra == nil {
+		return false
+	}
+	enabled, ok := account.Extra[UpstreamBillingProbeEnabledExtraKey].(bool)
+	return ok && enabled
+}
+
+func upstreamBillingRateSyncEnabled(account *Account) bool {
+	if account == nil || account.Extra == nil {
+		return false
+	}
+	enabled, ok := account.Extra[UpstreamBillingRateSyncEnabledExtraKey].(bool)
+	return ok && enabled && upstreamBillingProbeEnabled(account)
+}
+
+func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
+	if accountType != AccountTypeAPIKey {
+		return false
+	}
+	switch platform {
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok:
+		return true
+	default:
+		return false
+	}
+}
+
+var upstreamBillingProbeOfficialAPIDomains = []string{
+	"anthropic.com",
+	"googleapis.com",
+	"x.ai",
+	"grok.com",
+	"openai.com",
+	"ollama.com",
+}
+
+func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return true
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "" {
+		return true
+	}
+	for _, domain := range upstreamBillingProbeOfficialAPIDomains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
 func isUpstreamBillingProbeAccount(account *Account) bool {
-	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
+	return account != nil && account.Type == AccountTypeAPIKey
 }
 
 func (s *UpstreamBillingProbeService) currentTime() time.Time {
