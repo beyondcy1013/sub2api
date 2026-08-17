@@ -59,6 +59,9 @@ import Icon from '@/components/icons/Icon.vue'
 import type { SchedulingLivenessRuntimeStatus } from '@/api/admin/superPriority'
 import { getSchedulingRuntimeCountdown } from '@/utils/schedulingRuntimeCountdown'
 
+const emit = defineEmits<{
+  (event: 'upstream-billing-completed'): void
+}>()
 const { t, locale } = useI18n()
 const runtime = ref<SchedulingLivenessRuntimeStatus | null>(null)
 const checkInterval = ref<string | undefined>()
@@ -69,6 +72,8 @@ let clockTimer: number | undefined
 let pollTimer: number | undefined
 let requestInFlight = false
 let mounted = false
+let upstreamRuntimeInitialized = false
+let upstreamLastFinishedAt: string | undefined
 
 const busy = computed(() => loading.value || runtime.value?.running === true)
 
@@ -155,10 +160,22 @@ const refresh = async () => {
   if (requestInFlight) return
   requestInFlight = true
   try {
-    const settings = await adminAPI.superPriority.get()
+    const [settings, schedulingRuntime] = await Promise.all([
+      adminAPI.superPriority.get(),
+      adminAPI.superPriority.getRuntime().catch(() => null)
+    ])
     if (!mounted) return
-    runtime.value = settings.liveness_runtime ?? null
+    runtime.value = schedulingRuntime?.liveness ?? settings.liveness_runtime ?? null
     checkInterval.value = settings.check_interval
+    if (schedulingRuntime) {
+      const lastRun = schedulingRuntime.upstream_billing.last_run
+      const finishedAt = lastRun?.finished_at
+      if (upstreamRuntimeInitialized && finishedAt && finishedAt !== upstreamLastFinishedAt && (lastRun.result.checked > 0 || lastRun.result.skipped > 0)) {
+        emit('upstream-billing-completed')
+      }
+      upstreamLastFinishedAt = finishedAt
+      upstreamRuntimeInitialized = true
+    }
     unavailable.value = false
     nowMs.value = Date.now()
   } catch {

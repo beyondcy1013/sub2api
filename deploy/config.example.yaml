@@ -1026,6 +1026,9 @@ jwt:
   # - >0: 按分钟生效（优先于 expire_hour）
   # - =0: 回退使用 expire_hour
   access_token_expire_minutes: 0
+  # Refresh Token validity controls how long login can be restored after the app/browser closes.
+  # Refresh Token 有效期决定关闭 App/浏览器后可恢复登录的时长。
+  refresh_token_expire_days: 30
 
 # =============================================================================
 # TOTP (2FA) Configuration

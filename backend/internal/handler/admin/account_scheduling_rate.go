@@ -3,6 +3,7 @@ package admin
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -58,6 +59,13 @@ func (h *AccountHandler) UpdateSchedulingRate(c *gin.Context) {
 		return
 	}
 	rate := req.RateMultiplier
+	if mode == service.SchedulingRateSyncModeAutoOverwrite {
+		currentRate := account.BillingRateMultiplier()
+		rate = &currentRate
+		if upstreamRate, ok := service.FreshResolvedSchedulingRate(account, time.Now()); ok {
+			rate = &upstreamRate
+		}
+	}
 	if rate == nil {
 		fallback := account.BillingRateMultiplier()
 		rate = &fallback

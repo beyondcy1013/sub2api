@@ -9,6 +9,8 @@ const {
   getBatchTodayStats,
   listAccounts,
   listWithEtag,
+  markAccountFailed,
+  probeUpstreamBilling,
   recoverState,
   setSchedulable,
   showError,
@@ -20,6 +22,8 @@ const {
   getBatchTodayStats: vi.fn(),
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
+  markAccountFailed: vi.fn(),
+  probeUpstreamBilling: vi.fn(),
   recoverState: vi.fn(),
   setSchedulable: vi.fn(),
   showError: vi.fn(),
@@ -34,6 +38,8 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: false }),
+      markAccountFailed,
+      probeUpstreamBilling,
       recoverState,
       setSchedulable,
       toggleStatus
@@ -82,6 +88,7 @@ const DataTableStub = {
     <div>
       <div v-for="row in data" :key="row.id" :data-test="'account-row-' + row.id">
         <slot name="cell-actions" :row="row" />
+        <slot name="cell-upstream_billing_rate" :row="row" />
       </div>
     </div>
   `
@@ -89,13 +96,18 @@ const DataTableStub = {
 
 const AccountTestModalStub = {
   props: ['show', 'account'],
-  emits: ['close', 'test-succeeded'],
+  emits: ['close', 'test-succeeded', 'test-failed'],
   template: `
     <button
       v-if="show && account"
       data-test="complete-account-test"
       @click="$emit('test-succeeded', account)"
     >complete</button>
+    <button
+      v-if="show && account"
+      data-test="fail-account-test"
+      @click="$emit('test-failed', account, 'token_invalidated')"
+    >fail</button>
   `
 }
 
@@ -150,6 +162,10 @@ function mountView() {
         AccountTodayStatsCell: true,
         AccountGroupsCell: true,
         AccountUsageCell: true,
+        UpstreamBillingRateCell: {
+          props: ['account'],
+          template: '<span data-test="upstream-rate-status" :data-rate="account.extra?.upstream_billing_probe?.data?.resolved_rate_multiplier">{{ account.extra?.upstream_billing_probe?.status || "missing" }}</span>'
+        },
         Icon: true
       }
     }
@@ -165,6 +181,8 @@ describe('admin AccountsView successful test recovery prompt', () => {
       getBatchTodayStats,
       listAccounts,
       listWithEtag,
+      markAccountFailed,
+      probeUpstreamBilling,
       recoverState,
       setSchedulable,
       showError,
@@ -178,6 +196,7 @@ describe('admin AccountsView successful test recovery prompt', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    probeUpstreamBilling.mockResolvedValue({})
   })
 
   it('prompts after a successful test and restores both state and scheduling', async () => {
@@ -234,6 +253,65 @@ describe('admin AccountsView successful test recovery prompt', () => {
 
     expect(wrapper.find('[data-test="confirm-dialog"]').exists()).toBe(false)
     expect(recoverState).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('refreshes an expired upstream rate after a successful OpenAI API key connection test', async () => {
+    const stale = {
+      ...account,
+      status: 'active',
+      schedulable: true,
+      extra: {
+        upstream_billing_probe: {
+          status: 'ok',
+          data: { resolved_rate_multiplier: 0.1, effective_rate_multiplier: 0.1 },
+          received_at: '2026-01-01T00:00:00Z',
+          fresh_until: '2026-01-01T00:10:00Z',
+          last_attempt_at: '2026-01-01T00:00:00Z',
+          next_probe_at: '2026-01-01T00:05:00Z'
+        }
+      }
+    }
+    const refreshedAt = new Date().toISOString()
+    const snapshot = {
+      status: 'ok' as const,
+      data: { resolved_rate_multiplier: 0.25, effective_rate_multiplier: 0.25 },
+      received_at: refreshedAt,
+      fresh_until: new Date(Date.now() + 10 * 60_000).toISOString(),
+      last_attempt_at: refreshedAt,
+      next_probe_at: new Date(Date.now() + 5 * 60_000).toISOString()
+    }
+    listAccounts.mockResolvedValue({ items: [stale], total: 1, page: 1, page_size: 20, pages: 1 })
+    probeUpstreamBilling.mockResolvedValue({ account_id: stale.id, snapshot })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="account-test-action"]').trigger('click')
+    await wrapper.get('[data-test="complete-account-test"]').trigger('click')
+    await flushPromises()
+
+    expect(probeUpstreamBilling).toHaveBeenCalledWith(stale.id)
+    expect(wrapper.get('[data-test="upstream-rate-status"]').text()).toBe('ok')
+    expect(wrapper.get('[data-test="upstream-rate-status"]').attributes('data-rate')).toBe('0.25')
+    wrapper.unmount()
+  })
+
+  it('prompts to mark an active account failed after a failed test', async () => {
+    const active = { ...account, status: 'active', schedulable: true }
+    listAccounts.mockResolvedValue({ items: [active], total: 1, page: 1, page_size: 20, pages: 1 })
+    markAccountFailed.mockResolvedValue({ ...active, status: 'error', schedulable: false, error_message: 'token_invalidated' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="account-test-action"]').trigger('click')
+    await wrapper.get('[data-test="fail-account-test"]').trigger('click')
+
+    expect(wrapper.get('[data-test="confirm-dialog"]').text()).toContain('admin.accounts.testFailedTitle')
+    await wrapper.get('[data-test="confirm-recovery"]').trigger('click')
+    await flushPromises()
+
+    expect(markAccountFailed).toHaveBeenCalledWith(account.id, 'token_invalidated')
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.markAsFailedSuccess')
     wrapper.unmount()
   })
 })

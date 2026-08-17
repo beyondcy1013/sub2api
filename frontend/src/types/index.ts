@@ -1642,10 +1642,21 @@ export interface AdminDataClearResult {
   account_requested: number
   account_matched: number
   account_cleared: number
+  account_deleted_staged: number
+  account_permanently_deleted: number
   account_not_found: number
   account_ambiguous: number
   account_failed: number
   cleared_accounts?: AdminDataImportedAccount[]
+  errors?: AdminDataImportError[]
+}
+
+export interface AdminDataClearPreviewResult {
+  account_requested: number
+  account_matched: number
+  account_not_found: number
+  account_ambiguous: number
+  account_failed: number
   errors?: AdminDataImportError[]
 }
 

@@ -295,6 +295,111 @@ func TestAccountBalanceQueryRememberedSignInSchemeRunsFirst(t *testing.T) {
 	require.Equal(t, "signin://32b00162-427c-41d9-8325-faa4dcc0f3a3", candidates[0].apiURL)
 }
 
+func TestAccountBalanceQueryConfigUpdateClearsStaleResultWhenSourceChanges(t *testing.T) {
+	account := balanceQueryAccount(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{
+			"scheme":           AccountBalanceQuerySchemeSub2API,
+			"detected_api_url": "https://relay.example/v1/usage",
+			"last_result": map[string]any{
+				"balance":    12.34,
+				"unit":       "USD",
+				"queried_at": "2026-08-12T10:00:00Z",
+			},
+		},
+	})
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &accountBalanceQueryHTTPStub{}, &upstreamBillingProbeSettingRepo{})
+
+	config, err := svc.UpdateAccountBalanceQueryConfig(context.Background(), account.ID, AccountBalanceQueryConfig{
+		Scheme: AccountBalanceQuerySchemeCPA,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, AccountBalanceQuerySchemeCPA, config.Scheme)
+	require.Nil(t, config.LastResult)
+	require.Empty(t, config.DetectedAPIURL)
+}
+
+func TestAccountBalanceQueryConfigUpdateKeepsResultWhenSourceUnchanged(t *testing.T) {
+	account := balanceQueryAccount(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{
+			"scheme":           AccountBalanceQuerySchemeCPA,
+			"detected_api_url": "https://relay.example/v0/management/api-key-usage",
+			"last_result": map[string]any{
+				"balance":    8.0,
+				"unit":       "quota",
+				"queried_at": "2026-08-12T10:00:00Z",
+			},
+		},
+	})
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	svc := newUpstreamBillingProbeTestService(repo, &accountBalanceQueryHTTPStub{}, &upstreamBillingProbeSettingRepo{})
+
+	config, err := svc.UpdateAccountBalanceQueryConfig(context.Background(), account.ID, AccountBalanceQueryConfig{
+		Scheme: AccountBalanceQuerySchemeCPA,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, AccountBalanceQuerySchemeCPA, config.Scheme)
+	require.NotNil(t, config.LastResult)
+	require.Equal(t, 8.0, config.LastResult.Balance)
+	require.Equal(t, "https://relay.example/v0/management/api-key-usage", config.DetectedAPIURL)
+}
+
+// concurrentBalanceQueryRepo 模拟管理员在余额查询期间切换数据源：第二次读取
+// 账号（查询结果落盘前的重读）时先把新数据源写入存储。
+type concurrentBalanceQueryRepo struct {
+	*upstreamBillingProbeAccountRepo
+	loads int
+}
+
+func (r *concurrentBalanceQueryRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	r.loads++
+	if r.loads == 2 {
+		_ = r.upstreamBillingProbeAccountRepo.UpdateExtra(ctx, id, map[string]any{
+			AccountBalanceQueryExtraKey: AccountBalanceQueryConfig{Scheme: AccountBalanceQuerySchemeCPA},
+		})
+	}
+	return r.upstreamBillingProbeAccountRepo.GetByID(ctx, id)
+}
+
+func TestAccountBalanceQueryDoesNotOverwriteConcurrentConfigChange(t *testing.T) {
+	account := balanceQueryAccount(map[string]any{
+		AccountBalanceQueryExtraKey: map[string]any{"scheme": AccountBalanceQuerySchemeSub2API},
+	})
+	repo := &concurrentBalanceQueryRepo{
+		upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}},
+	}
+	upstream := &accountBalanceQueryHTTPStub{handler: func(req *http.Request) *http.Response {
+		switch req.URL.Path {
+		case "/v1/usage":
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"not found"}`)
+		case "/api/usage/token/":
+			return balanceQueryResponse(http.StatusOK, `{
+				"code":true,
+				"data":{"object":"token_usage","total_available":6250000,"unlimited_quota":false}
+			}`)
+		default:
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"unexpected endpoint"}`)
+		}
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	result, err := svc.QueryAccountBalance(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.True(t, result.Success)
+	require.Equal(t, AccountBalanceQuerySchemeNikoAPI, result.Scheme)
+
+	config := decodeAccountBalanceQueryConfig(account.Extra)
+	// 管理员在查询期间切换到 CPA：旧查询不得把数据源改写成检测到的 nikoapi。
+	require.Equal(t, AccountBalanceQuerySchemeCPA, config.Scheme)
+	require.Empty(t, config.APIURL)
+	require.Empty(t, config.DetectedAPIURL)
+	require.NotNil(t, config.LastResult)
+	require.Equal(t, 6250000.0, config.LastResult.Balance)
+}
+
 func TestAccountBalanceQuerySignInServiceRequiresLoopback(t *testing.T) {
 	_, err := parseAccountBalanceSignInServiceURL("https://signin.example/api")
 	require.ErrorContains(t, err, "loopback")

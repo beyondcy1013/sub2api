@@ -25,7 +25,10 @@
             @scheduling-rules="openSchedulingRulesModal"
           >
             <template #before>
-              <AccountSchedulingRuntimeSummary ref="schedulingRuntimeSummaryRef" />
+              <AccountSchedulingRuntimeSummary
+                ref="schedulingRuntimeSummaryRef"
+                @upstream-billing-completed="handleUpstreamBillingRuntimeCompleted"
+              />
             </template>
             <template #after>
               <!-- Auto Refresh Dropdown -->
@@ -211,12 +214,17 @@
           :refreshing-usage="refreshingUsage"
           :testing-selected="testingSelected"
           :show-delete="!deleted"
+          :show-permanent-delete="deleted"
+          :permanent-deleting="permanentDeleting"
+          :search-query="params.search"
           :proxies="proxies"
           :groups="groups"
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
           :all-results-selected="allResultsSelected"
           @delete="handleBulkDelete"
+          @permanent-delete="handleBulkPermanentDelete"
+          @update:search-query="handleBulkSearchQueryUpdate"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
@@ -270,30 +278,38 @@
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
           </template>
           <template #cell-name="{ row, value }">
-            <div class="inline-flex w-[176px] min-w-0 max-w-[176px] items-center gap-1 overflow-hidden whitespace-nowrap">
-              <a
-                v-if="accountHomepageUrl(row)"
-                :href="accountHomepageUrl(row)"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-test="account-name-value"
-                class="min-w-0 max-w-full shrink truncate whitespace-nowrap border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-gray-600 dark:text-white"
-              >
-                {{ value }}
-              </a>
+            <div
+              class="h-8 w-[212px] min-w-0 max-w-[212px] overflow-hidden"
+            >
               <span
-                v-else
-                data-test="account-name-value"
-                class="min-w-0 max-w-full shrink truncate whitespace-nowrap font-medium text-gray-900 dark:text-white"
+                data-test="account-name-cell"
+                class="account-name-flow line-clamp-2 whitespace-normal leading-4"
               >
-                {{ value }}
-              </span>
-              <span
-                v-if="shouldShowAccountDisplayEmail(row)"
-                class="min-w-0 shrink truncate whitespace-nowrap text-xs text-gray-500 dark:text-gray-400"
-                :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
-              >
-                · {{ accountDisplayEmail(row) }}
+                <a
+                  v-if="accountHomepageUrl(row)"
+                  :href="accountHomepageUrl(row)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-test="account-name-value"
+                  class="font-medium text-gray-900 dark:text-white border-b border-dotted border-gray-300 dark:border-gray-600"
+                >
+                  {{ value }}
+                </a>
+                <span
+                  v-else
+                  data-test="account-name-value"
+                  class="font-medium text-gray-900 dark:text-white"
+                >
+                  {{ value }}
+                </span>
+                <span
+                  v-if="shouldShowAccountDisplayEmail(row)"
+                  data-test="account-display-email"
+                  class="text-xs text-gray-500 dark:text-gray-400"
+                  :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
+                >
+                  · {{ accountDisplayEmail(row) }}
+                </span>
               </span>
             </div>
           </template>
@@ -352,6 +368,9 @@
           </template>
           <template #cell-today_cost="{ row }">
             <AccountTodayCostCell :stats="todayStatsByAccountId[String(row.id)] ?? null" />
+          </template>
+          <template #cell-total_cost="{ row }">
+            <AccountTodayCostCell :stats="totalStatsByAccountId[String(row.id)] ?? null" />
           </template>
           <template #cell-today_stats="{ row }">
             <AccountTodayStatsCell
@@ -629,7 +648,7 @@
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="handleAccountsCreated" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -646,8 +665,10 @@
     />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <ConfirmDialog :show="showPermanentDeleteDialog" :title="t('admin.accounts.permanentDelete')" :message="t('admin.accounts.permanentDeleteConfirm', { name: permanentDeletingAcc?.name })" :confirm-text="t('admin.accounts.permanentDelete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmPermanentDelete" @cancel="showPermanentDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
     <ConfirmDialog :show="showTestRecoveryDialog" :title="t('admin.accounts.testRecoveryTitle')" :message="t('admin.accounts.testRecoveryMessage', { name: testRecoveryAcc?.name })" :confirm-text="t('admin.accounts.recoverState')" :cancel-text="t('common.cancel')" @confirm="confirmTestRecovery" @cancel="cancelTestRecovery" />
+    <ConfirmDialog :show="showTestFailedDialog" :title="t('admin.accounts.testFailedTitle')" :message="t('admin.accounts.testFailedMessage', { name: testFailedAcc?.name })" :confirm-text="t('admin.accounts.markAsFailed')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmTestFailed" @cancel="cancelTestFailed" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
@@ -846,12 +867,14 @@ const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const quickBulkUpdating = ref<'proxy' | 'group' | null>(null)
 const refreshingUsage = ref(false)
 const testingSelected = ref(false)
+const permanentDeleting = ref(false)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showTestRecoveryDialog = ref(false)
+const showTestFailedDialog = ref(false)
 const showSchedulingRules = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
@@ -862,10 +885,14 @@ const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
+const permanentDeletingAcc = ref<Account | null>(null)
+const showPermanentDeleteDialog = ref(false)
 const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const testRecoveryAcc = ref<Account | null>(null)
+const testFailedAcc = ref<Account | null>(null)
+const testFailedErrorMessage = ref('')
 const statsAcc = ref<Account | null>(null)
 const stickySessionsAcc = ref<Account | null>(null)
 const scheduledActionAcc = ref<Account | null>(null)
@@ -965,6 +992,7 @@ const AUTO_REFRESH_SILENT_WINDOW_MS = 15000
 const autoRefreshSilentUntil = ref(0)
 const hasPendingListSync = ref(false)
 const todayStatsByAccountId = ref<Record<string, WindowStats>>({})
+const totalStatsByAccountId = ref<Record<string, WindowStats>>({})
 const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
@@ -1116,11 +1144,11 @@ const buildDefaultTodayStats = (): WindowStats => ({
 
 const refreshTodayStatsBatch = async () => {
   // Why this checks all consumers:
-  // - today_cost shows the compact cost requested in the account list.
+  // - today_cost and total_cost show compact persisted costs in the account list.
   // - today_stats column shows dedicated today's metrics.
   // - usage column also embeds today's stats for Key/Bedrock rows.
   // So we only skip fetching when all consumers are hidden.
-  if (hiddenColumns.has('today_cost') && hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
+  if (hiddenColumns.has('today_cost') && hiddenColumns.has('total_cost') && hiddenColumns.has('today_stats') && hiddenColumns.has('usage')) {
     todayStatsLoading.value = false
     todayStatsError.value = null
     return
@@ -1130,6 +1158,7 @@ const refreshTodayStatsBatch = async () => {
   const reqSeq = ++todayStatsReqSeq.value
   if (accountIDs.length === 0) {
     todayStatsByAccountId.value = {}
+    totalStatsByAccountId.value = {}
     todayStatsError.value = null
     todayStatsLoading.value = false
     return
@@ -1142,12 +1171,16 @@ const refreshTodayStatsBatch = async () => {
     const result = await adminAPI.accounts.getBatchTodayStats(accountIDs)
     if (reqSeq !== todayStatsReqSeq.value) return
     const serverStats = result.stats ?? {}
+    const serverTotalStats = result.total_stats ?? {}
     const nextStats: Record<string, WindowStats> = {}
+    const nextTotalStats: Record<string, WindowStats> = {}
     for (const accountID of accountIDs) {
       const key = String(accountID)
       nextStats[key] = serverStats[key] ?? buildDefaultTodayStats()
+      nextTotalStats[key] = serverTotalStats[key] ?? buildDefaultTodayStats()
     }
     todayStatsByAccountId.value = nextStats
+    totalStatsByAccountId.value = nextTotalStats
   } catch (error) {
     if (reqSeq !== todayStatsReqSeq.value) return
     todayStatsError.value = 'Failed'
@@ -1296,7 +1329,7 @@ const toggleColumn = (key: string) => {
     hiddenColumns.add(key)
   }
   saveColumnsToStorage()
-  if ((key === 'today_cost' || key === 'today_stats' || key === 'usage') && wasHidden) {
+  if ((key === 'today_cost' || key === 'total_cost' || key === 'today_stats' || key === 'usage') && wasHidden) {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
@@ -1571,6 +1604,11 @@ const debouncedReload = () => {
   baseDebouncedReload()
 }
 
+const handleBulkSearchQueryUpdate = (value: string) => {
+  params.search = value
+  debouncedReload()
+}
+
 const handlePageChange = (page: number) => {
   syncAccountListDerivedParams()
   hasPendingListSync.value = false
@@ -1669,6 +1707,9 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.rate_limit_reset_at !== next.rate_limit_reset_at ||
     current.overload_until !== next.overload_until ||
     current.temp_unschedulable_until !== next.temp_unschedulable_until ||
+    JSON.stringify(current.extra?.grok_usage_snapshot ?? null) !== JSON.stringify(next.extra?.grok_usage_snapshot ?? null) ||
+    JSON.stringify(current.extra?.grok_quota_snapshot ?? null) !== JSON.stringify(next.extra?.grok_quota_snapshot ?? null) ||
+    JSON.stringify(current.extra?.grok_billing_snapshot ?? null) !== JSON.stringify(next.extra?.grok_billing_snapshot ?? null) ||
     buildOpenAIUsageRefreshKey(current) !== buildOpenAIUsageRefreshKey(next)
   )
 }
@@ -1873,25 +1914,87 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
-// Fresh billing/quota snapshots are authoritative. Imported credential tiers
-// can be stale, so they remain fallbacks together with legacy plan_type fields.
+const GROK_QUOTA_SIGNAL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const GROK_QUOTA_SIGNAL_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
+
+function firstNonBlankString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  return undefined
+}
+
+function normalizeGrokPlanKey(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : ''
+}
+
+function grokPersistedQuotaSnapshot(extra: Record<string, any>): Record<string, any> | undefined {
+  const usage = extra.grok_usage_snapshot
+  if (usage && typeof usage === 'object' && !Array.isArray(usage)) return usage
+  const legacy = extra.grok_quota_snapshot
+  if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) return legacy
+  return undefined
+}
+
+function isGrokQuotaTimestampFresh(raw: unknown): boolean {
+  const value = String(raw || '').trim()
+  if (!value) return false
+  const observedAt = Date.parse(value)
+  if (!Number.isFinite(observedAt)) return false
+  const age = Date.now() - observedAt
+  return age <= GROK_QUOTA_SIGNAL_MAX_AGE_MS && age >= -GROK_QUOTA_SIGNAL_MAX_FUTURE_SKEW_MS
+}
+
+function isGrok45ResponsesQuotaModel(model: unknown): boolean {
+  const value = String(model || '').trim().toLowerCase().replace(/^(x-ai|xai)\//, '')
+  return value === 'grok-4.5' || value.startsWith('grok-4.5-')
+}
+
+function grokQuotaLooksHeavy(snapshot: Record<string, any> | undefined): boolean {
+  return Number(snapshot?.requests?.limit ?? 0) >= 8300 || Number(snapshot?.tokens?.limit ?? 0) >= 53_000_000
+}
+
+function grok45ResponsesPlanIsHeavy(snapshot: Record<string, any> | undefined): boolean {
+  if (!snapshot) return false
+  if (
+    normalizeGrokPlanKey(snapshot.plan_from_45_responses) === 'supergrokheavy' &&
+    isGrokQuotaTimestampFresh(snapshot.plan_from_45_responses_at)
+  ) return true
+  return isGrok45ResponsesQuotaModel(snapshot.model) &&
+    isGrokQuotaTimestampFresh(snapshot.last_headers_seen_at || snapshot.updated_at) &&
+    grokQuotaLooksHeavy(snapshot)
+}
+
 function getAccountPlanType(row: any): string | undefined {
   if (!row) return undefined
   if (row.platform === 'grok') {
     const extra = (row.extra || {}) as Record<string, any>
     const billing = extra.grok_billing_snapshot as Record<string, any> | undefined
-    const quota = extra.grok_quota_snapshot as Record<string, any> | undefined
-    return (
-      billing?.plan ||
-      quota?.subscription_tier ||
-      row.credentials?.subscription_tier ||
-      extra.subscription_tier ||
-      row.credentials?.plan_type ||
-      row.parent_plan_type ||
-      undefined
+    const usage = extra.grok_usage_snapshot as Record<string, any> | undefined
+    const legacyQuota = extra.grok_quota_snapshot as Record<string, any> | undefined
+    const quota = grokPersistedQuotaSnapshot(extra)
+    const cred = firstNonBlankString(row.credentials?.subscription_tier)
+    const credKey = normalizeGrokPlanKey(cred)
+    if (credKey && credKey !== 'supergrokpro') return cred
+    if (
+      grok45ResponsesPlanIsHeavy(quota) &&
+      (credKey === 'supergrokpro' || ['supergrok', 'supergrokpro'].includes(normalizeGrokPlanKey(billing?.plan)))
+    ) {
+      return 'SuperGrok Heavy'
+    }
+    if (credKey === 'supergrokpro') return firstNonBlankString(billing?.plan) || 'SuperGrok'
+    return firstNonBlankString(
+      billing?.plan,
+      usage?.subscription_tier,
+      legacyQuota?.subscription_tier,
+      extra.subscription_tier,
+      row.credentials?.plan_type,
+      row.parent_plan_type
     )
   }
-  return row.credentials?.plan_type || row.parent_plan_type || undefined
+  return firstNonBlankString(row.credentials?.plan_type, row.parent_plan_type)
 }
 
 function getOpenAIAuthMode(row: any): string | undefined {
@@ -1931,8 +2034,10 @@ function accountDisplayEmail(row: any): string {
 }
 
 function shouldShowAccountDisplayEmail(row: Account): boolean {
-  const email = accountDisplayEmail(row)
-  return email !== '' && email !== row.name
+  const email = accountDisplayEmail(row).trim()
+  if (email === '') return false
+
+  return !row.name.trim().toLocaleLowerCase().endsWith(email.toLocaleLowerCase())
 }
 
 function accountHomepageUrl(row: Account): string {
@@ -2005,7 +2110,7 @@ const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false, width: '36px' },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, width: '220px' },
-    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '176px' },
+    { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '212px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
@@ -2022,7 +2127,8 @@ const allColumns = computed(() => {
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
-    { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false }
+    { key: 'today_cost', label: t('admin.accounts.columns.todayCost'), sortable: false },
+    { key: 'total_cost', label: t('admin.accounts.columns.totalCost'), sortable: false }
   )
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
@@ -2133,6 +2239,47 @@ const handleBulkDelete = async () => {
   } catch (error) {
     console.error('Failed to bulk delete accounts:', error)
     appStore.showError(String(error))
+  }
+}
+const handleBulkPermanentDelete = async () => {
+  const accountIds = [...selIds.value]
+  if (!deleted.value || accountIds.length === 0 || permanentDeleting.value) return
+  if (!confirm(t('admin.accounts.bulkActions.permanentDeleteConfirm', { count: accountIds.length }))) return
+
+  permanentDeleting.value = true
+  const failedIds: number[] = []
+  let success = 0
+  let cursor = 0
+  const workerCount = Math.min(4, accountIds.length)
+  try {
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (cursor < accountIds.length) {
+        const accountId = accountIds[cursor++]
+        try {
+          await adminAPI.accounts.permanentDelete(accountId)
+          success++
+        } catch {
+          failedIds.push(accountId)
+        }
+      }
+    }))
+
+    if (failedIds.length > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.permanentDeletePartial', {
+        success,
+        failed: failedIds.length
+      }))
+      setSelectedIds(failedIds)
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkActions.permanentDeleteSuccess', { count: success }))
+      clearSelection()
+    }
+    await reload()
+  } catch (error) {
+    console.error('Failed to permanently delete accounts in bulk:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.permanentDeleteFailed')))
+  } finally {
+    permanentDeleting.value = false
   }
 }
 const handleBulkResetStatus = async () => {
@@ -2600,7 +2747,18 @@ const accountMatchesCurrentFilters = (account: Account) => {
     }
   }
   const search = String(filters.search || '').trim().toLowerCase()
-  if (search && !account.name.toLowerCase().includes(search)) return false
+  if (search) {
+    const searchableAccountFields = [
+      account.id,
+      account.name,
+      account.notes,
+      account.platform,
+      account.type,
+      account.status,
+      account.error_message
+    ]
+    if (!searchableAccountFields.some(value => String(value ?? '').toLowerCase().includes(search))) return false
+  }
   return true
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
@@ -2838,6 +2996,10 @@ const handleSchedulingRulesRefreshed = (result: SchedulingRulesRefreshResult) =>
   void loadUpstreamBillingProbeGlobalState()
   reload()
 }
+const handleUpstreamBillingRuntimeCompleted = () => {
+  enterAutoRefreshSilentWindow()
+  void reload()
+}
 const handleSchedulingRulesRefreshError = (error: unknown) => {
   appStore.showError(extractApiErrorMessage(error, t('admin.accounts.schedulingRules.refreshFailed')))
 }
@@ -2848,20 +3010,47 @@ const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeStickySessionsModal = () => { showStickySessions.value = false; stickySessionsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
+const refreshUpstreamBillingAfterSuccessfulTest = async (account: Account) => {
+  if (account.platform !== 'openai' || account.type !== 'apikey' || probingUpstreamBilling.has(account.id)) return
+  probingUpstreamBilling.add(account.id)
+  try {
+    const result = await adminAPI.accounts.probeUpstreamBilling(account.id)
+    if (!result.snapshot) return
+    patchUpstreamBillingSnapshot(account.id, result.snapshot)
+    await refreshUpstreamBillingSortedList(true)
+  } catch (error) {
+    console.error('Failed to refresh upstream billing after account test:', error)
+  } finally {
+    probingUpstreamBilling.delete(account.id)
+  }
+}
 const handleTestSucceeded = (testedAccount: Account) => {
   const account = accounts.value.find(item => item.id === testedAccount.id) ?? testedAccount
+  void refreshUpstreamBillingAfterSuccessfulTest(account)
   if (account.status === 'active' && account.schedulable !== false) return
 
   testRecoveryAcc.value = account
   showTestRecoveryDialog.value = true
 }
-const handleTestFailed = async () => {
-  enterAutoRefreshSilentWindow()
-  await reload()
+const handleTestFailed = async (testedAccount: Account, errorMessage: string) => {
+  const account = accounts.value.find(item => item.id === testedAccount.id) ?? testedAccount
+  if (account.status === 'error') {
+    enterAutoRefreshSilentWindow()
+    await reload()
+    return
+  }
+  testFailedAcc.value = account
+  testFailedErrorMessage.value = errorMessage
+  showTestFailedDialog.value = true
 }
 const cancelTestRecovery = () => {
   showTestRecoveryDialog.value = false
   testRecoveryAcc.value = null
+}
+const cancelTestFailed = () => {
+  showTestFailedDialog.value = false
+  testFailedAcc.value = null
+  testFailedErrorMessage.value = ''
 }
 const confirmTestRecovery = async () => {
   const account = testRecoveryAcc.value
@@ -2886,6 +3075,22 @@ const confirmTestRecovery = async () => {
   } catch (error: any) {
     console.error('Failed to recover account after successful test:', error)
     appStore.showError(error?.message || t('admin.accounts.recoverStateFailed'))
+  }
+}
+const confirmTestFailed = async () => {
+  const account = testFailedAcc.value
+  if (!account) return
+
+  const message = testFailedErrorMessage.value.trim() || 'Connection test failed'
+  cancelTestFailed()
+  try {
+    const updated = await adminAPI.accounts.markAccountFailed(account.id, message)
+    patchAccountInList(updated)
+    enterAutoRefreshSilentWindow()
+    appStore.showSuccess(t('admin.accounts.markAsFailedSuccess'))
+  } catch (error) {
+    console.error('Failed to mark account as failed after failed test:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.markAsFailedFailed')))
   }
 }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
@@ -3051,6 +3256,21 @@ const confirmDelete = async () => {
     reload()
   } catch (error) {
     console.error('Failed to delete account:', error)
+  }
+}
+
+const handlePermanentDelete = (a: Account) => { permanentDeletingAcc.value = a; showPermanentDeleteDialog.value = true }
+const confirmPermanentDelete = async () => {
+  if (!permanentDeletingAcc.value) return
+  try {
+    await adminAPI.accounts.permanentDelete(permanentDeletingAcc.value.id)
+    appStore.showSuccess(t('admin.accounts.permanentDeleteSuccess'))
+    showPermanentDeleteDialog.value = false
+    permanentDeletingAcc.value = null
+    reload()
+  } catch (error: any) {
+    console.error('Failed to permanently delete account:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.permanentDeleteFailed')))
   }
 }
 
@@ -3318,5 +3538,10 @@ onUnmounted(() => {
 
 .account-tools-menu-icon {
   @apply inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md;
+}
+
+.account-name-flow {
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 </style>

@@ -848,7 +848,7 @@ func (r *accountRepository) ListTrashedAccounts(ctx context.Context, params pagi
 		q = q.Where(dbaccount.TypeEQ(accountType))
 	}
 	if search != "" {
-		q = q.Where(dbaccount.NameContainsFold(search))
+		q = q.Where(accountSearchPredicate(search))
 	}
 
 	total, err := q.Clone().Count(trashCtx)
@@ -1044,6 +1044,21 @@ func accountNotDeletedStagingPredicate() dbpredicate.Account {
 	return accountDeletedStagingPredicate(false)
 }
 
+func accountSearchPredicate(search string) dbpredicate.Account {
+	predicates := []dbpredicate.Account{
+		dbaccount.NameContainsFold(search),
+		dbaccount.NotesContainsFold(search),
+		dbaccount.PlatformContainsFold(search),
+		dbaccount.TypeContainsFold(search),
+		dbaccount.StatusContainsFold(search),
+		dbaccount.ErrorMessageContainsFold(search),
+	}
+	if id, err := strconv.ParseInt(search, 10, 64); err == nil && id > 0 {
+		predicates = append(predicates, dbaccount.IDEQ(id))
+	}
+	return dbaccount.Or(predicates...)
+}
+
 func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, recycled, deleted bool) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 	q = q.Where(accountDeletedStagingPredicate(deleted))
@@ -1133,7 +1148,7 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 		}
 	}
 	if search != "" {
-		q = q.Where(dbaccount.NameContainsFold(search))
+		q = q.Where(accountSearchPredicate(search))
 	}
 	if groupID == service.AccountListGroupUngrouped {
 		q = q.Where(dbaccount.Not(dbaccount.HasAccountGroups()))

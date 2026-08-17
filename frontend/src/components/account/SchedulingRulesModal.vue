@@ -71,14 +71,33 @@
           <span>{{ t('admin.accounts.schedulingRules.livenessThreshold') }}</span>
           <input v-model.number="livenessFailureThreshold" data-testid="scheduling-rule-liveness-threshold" type="number" min="1" max="10" step="1" class="h-9 w-24 rounded border border-gray-300 px-2 text-sm dark:border-dark-600 dark:bg-dark-700 dark:text-white" />
         </label>
-        <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-          <input v-model="livenessIncludeUnschedulable" data-testid="scheduling-rule-liveness-include-unschedulable" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-          <span>
-            <span class="block font-medium">{{ t('admin.accounts.schedulingRules.livenessIncludeUnschedulable') }}</span>
-            <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRules.livenessIncludeUnschedulableHint') }}</span>
-          </span>
-        </label>
         <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRules.livenessHint') }}</p>
+      </div>
+
+      <div data-testid="scheduling-rules-tasks" class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ t('admin.accounts.schedulingRules.tasksAndLogs') }}</div>
+          <button type="button" class="btn btn-secondary h-7 px-2 text-xs" :disabled="runtimeLoading" @click="loadRuntime">
+            <Icon name="refresh" size="xs" :class="{ 'animate-spin': runtimeLoading }" />
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div v-for="task in runtimeTasks" :key="task.key" class="border border-gray-200 p-2 text-xs dark:border-dark-600">
+            <div class="flex items-center justify-between gap-2 font-medium text-gray-700 dark:text-gray-200">
+              <span>{{ task.label }}</span><span :class="task.status.enabled ? 'text-emerald-600' : 'text-gray-400'">{{ task.status.enabled ? t('admin.accounts.schedulingRules.taskEnabled') : t('admin.accounts.schedulingRules.taskDisabled') }}</span>
+            </div>
+            <div class="mt-1 text-gray-500 dark:text-gray-400">{{ task.status.running ? t('admin.accounts.schedulingRules.taskRunning') : formatNextRun(task.status.next_run_at) }}</div>
+            <div class="mt-1 text-gray-600 dark:text-gray-300">{{ formatLastRun(task.status.last_run) }}</div>
+          </div>
+        </div>
+        <div v-if="runtimeHistory.length" data-testid="scheduling-rules-history" class="max-h-40 space-y-1 overflow-y-auto text-xs">
+          <div v-for="(entry, index) in runtimeHistory" :key="`${entry.started_at}-${index}`" class="flex items-center justify-between gap-2 border-b border-gray-100 py-1 text-gray-600 dark:border-dark-700 dark:text-gray-300">
+            <span>{{ entry.trigger }} · {{ formatHistoryTime(entry.finished_at) }}</span>
+            <span>{{ entry.result.succeeded }}/{{ entry.result.failed }}/{{ entry.result.skipped || 0 }}</span>
+          </div>
+        </div>
+        <p v-else class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRules.noHistory') }}</p>
       </div>
 
       <div class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -120,7 +139,7 @@ import { adminAPI } from '@/api/admin'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { SchedulingLivenessRuntimeStatus, SchedulingRulesRefreshResult, SuperPrioritySettings } from '@/api/admin/superPriority'
+import type { SchedulingLivenessRuntimeStatus, SchedulingRulesRefreshResult, SchedulingRulesRuntimeStatus, SuperPrioritySettings } from '@/api/admin/superPriority'
 import { getSchedulingRuntimeCountdown } from '@/utils/schedulingRuntimeCountdown'
 
 type SchedulingStrategy = 'default' | 'lowest_cost'
@@ -138,14 +157,15 @@ const loading = ref(false)
 const saving = ref(false)
 const refreshing = ref(false)
 const strategy = ref<SchedulingStrategy>('default')
-const probeEnabled = ref(true)
+const probeEnabled = ref(false)
 const intervalMinutes = ref(30)
 const notifyOnChangeOnly = ref(false)
 const livenessIntervalMinutes = ref(1)
 const livenessFailureThreshold = ref(2)
-const livenessIncludeUnschedulable = ref(false)
 const currentSettings = ref<SuperPrioritySettings | null>(null)
 const livenessRuntime = ref<SchedulingLivenessRuntimeStatus | null>(null)
+const schedulingRuntime = ref<SchedulingRulesRuntimeStatus | null>(null)
+const runtimeLoading = ref(false)
 const nowMs = ref(Date.now())
 let runtimeTimer: number | undefined
 let runtimeTicks = 0
@@ -212,10 +232,30 @@ const pollRuntimeStatus = async () => {
   try {
     const settings = await adminAPI.superPriority.get()
     livenessRuntime.value = settings.liveness_runtime ?? null
+    await loadRuntime()
   } catch {
     // Keep the last known status; the primary load/save paths still surface errors.
   }
 }
+
+const loadRuntime = async () => {
+  const getter = adminAPI.superPriority.getRuntime
+  if (!getter) return
+  runtimeLoading.value = true
+  try { schedulingRuntime.value = await getter() } catch { /* keep last snapshot */ } finally { runtimeLoading.value = false }
+}
+
+const runtimeTasks = computed(() => [
+  { key: 'liveness', label: t('admin.accounts.schedulingRules.liveness'), status: schedulingRuntime.value?.liveness ?? livenessRuntime.value ?? { enabled: false, running: false } },
+  { key: 'upstream', label: t('admin.accounts.schedulingRules.upstreamProbe'), status: schedulingRuntime.value?.upstream_billing ?? { enabled: false, running: false } }
+])
+const runtimeHistory = computed(() => [
+  ...(schedulingRuntime.value?.liveness?.history ?? []),
+  ...(schedulingRuntime.value?.upstream_billing?.history ?? [])
+].sort((a, b) => Date.parse(b.finished_at) - Date.parse(a.finished_at)).slice(0, 20))
+const formatNextRun = (value?: string) => value ? `${t('admin.accounts.schedulingRules.nextRun')} ${new Date(value).toLocaleString(locale?.value)}` : t('admin.accounts.schedulingRules.taskWaiting')
+const formatHistoryTime = (value: string) => new Date(value).toLocaleString(locale?.value, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+const formatLastRun = (entry?: { finished_at: string; result: { succeeded: number; failed: number; skipped?: number }; error?: string }) => entry ? (entry.error || `${entry.result.succeeded}/${entry.result.failed}/${entry.result.skipped ?? 0}`) : t('admin.accounts.schedulingRules.runtimeNoResult')
 
 const stopRuntimeTimer = () => {
   if (runtimeTimer !== undefined) {
@@ -248,8 +288,8 @@ const load = async () => {
     notifyOnChangeOnly.value = probe.notify_on_change_only === true
     livenessIntervalMinutes.value = intervalFromExpression(settings.check_interval)
     livenessFailureThreshold.value = settings.failure_threshold
-    livenessIncludeUnschedulable.value = settings.liveness_include_unschedulable === true
     livenessRuntime.value = settings.liveness_runtime ?? null
+    await loadRuntime()
     nowMs.value = Date.now()
   } catch (error) {
     emit('error', error)
@@ -284,7 +324,7 @@ const save = async () => {
       base_strategy: strategy.value,
       failure_threshold: livenessFailureThreshold.value,
       check_interval: `@every ${livenessIntervalMinutes.value}m`,
-      liveness_include_unschedulable: livenessIncludeUnschedulable.value,
+      liveness_include_unschedulable: false,
       test_model_id: current.test_model_id,
       test_prompt: current.test_prompt
     })

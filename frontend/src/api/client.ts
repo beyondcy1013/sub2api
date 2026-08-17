@@ -38,6 +38,18 @@ const getUserTimezone = (): string => {
   }
 }
 
+/**
+ * 会话失效时跳到登录页，并带上当前路径作为 redirect，
+ * 重新登录后回到原页面（例如管理员在账号管理页被踢出后不会落到首页）。
+ */
+function redirectToLogin(): void {
+  if (window.location.pathname.includes('/login')) {
+    return
+  }
+  const currentPath = window.location.pathname + window.location.search
+  window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+}
+
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Attach token from localStorage
@@ -207,9 +219,7 @@ apiClient.interceptors.response.use(
             localStorage.removeItem('token_expires_at')
             sessionStorage.setItem('auth_expired', '1')
 
-            if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login'
-            }
+            redirectToLogin()
 
             return Promise.reject({
               status: 401,
@@ -238,9 +248,7 @@ apiClient.interceptors.response.use(
           sessionStorage.setItem('auth_expired', '1')
         }
         // Only redirect if not already on login page
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login'
-        }
+        redirectToLogin()
       }
 
       // Return structured error

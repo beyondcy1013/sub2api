@@ -135,8 +135,12 @@ func (s *UpstreamBillingProbeService) UpdateAccountBalanceQueryConfig(
 	}
 
 	previous := decodeAccountBalanceQueryConfig(account.Extra)
-	input.DetectedAPIURL = previous.DetectedAPIURL
-	input.LastResult = previous.LastResult
+	if sameBalanceQuerySource(previous, input) {
+		// 数据源未变化时保留已检测端点与最近查询结果。
+		input.DetectedAPIURL = previous.DetectedAPIURL
+		input.LastResult = previous.LastResult
+	}
+	// 数据源变化时不复制旧源的缓存结果，避免界面继续展示旧端点余额。
 	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{AccountBalanceQueryExtraKey: input}); err != nil {
 		return nil, err
 	}
@@ -183,22 +187,34 @@ func (s *UpstreamBillingProbeService) QueryAccountBalance(ctx context.Context, a
 		result.Balance = parsed.Balance
 		result.Unit = parsed.Unit
 		result.Unlimited = parsed.Unlimited
-		if config.Scheme != candidate.scheme {
-			config.APIURL = ""
-		}
-		config.Scheme = candidate.scheme
-		config.DetectedAPIURL = result.APIURL
 		if parsed.SignInSiteID != "" {
 			result.SignInSiteID = parsed.SignInSiteID
-			config.SignInSiteID = parsed.SignInSiteID
 		}
-		config.LastResult = &AccountBalanceQueryLastResult{
+
+		// 查询可能耗时数秒，期间管理员可能已切换数据源。落盘前重新读取当前
+		// 配置，只把本次查询结果合并进最新配置，避免旧查询覆盖新数据源。
+		freshAccount, freshErr := s.accountRepo.GetByID(ctx, account.ID)
+		if freshErr != nil {
+			return nil, freshErr
+		}
+		current := decodeAccountBalanceQueryConfig(freshAccount.Extra)
+		if sameBalanceQuerySource(current, config) {
+			if current.Scheme != candidate.scheme {
+				current.APIURL = ""
+			}
+			current.Scheme = candidate.scheme
+			current.DetectedAPIURL = result.APIURL
+			if parsed.SignInSiteID != "" {
+				current.SignInSiteID = parsed.SignInSiteID
+			}
+		}
+		current.LastResult = &AccountBalanceQueryLastResult{
 			Balance:   parsed.Balance,
 			Unit:      parsed.Unit,
 			Unlimited: parsed.Unlimited,
 			QueriedAt: result.QueriedAt,
 		}
-		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{AccountBalanceQueryExtraKey: config}); err != nil {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{AccountBalanceQueryExtraKey: current}); err != nil {
 			return nil, err
 		}
 		return result, nil
@@ -654,6 +670,15 @@ func normalizeAccountBalanceQueryScheme(scheme AccountBalanceQueryScheme) Accoun
 	default:
 		return AccountBalanceQuerySchemeAuto
 	}
+}
+
+// sameBalanceQuerySource reports whether two configs point at the same effective
+// balance data source (scheme + endpoint). Detected metadata and cached query
+// results are not part of the source identity.
+func sameBalanceQuerySource(left, right AccountBalanceQueryConfig) bool {
+	return normalizeAccountBalanceQueryScheme(left.Scheme) == normalizeAccountBalanceQueryScheme(right.Scheme) &&
+		strings.TrimSpace(left.APIURL) == strings.TrimSpace(right.APIURL) &&
+		strings.TrimSpace(left.SignInSiteID) == strings.TrimSpace(right.SignInSiteID)
 }
 
 func isSupportedAccountBalanceQueryScheme(scheme AccountBalanceQueryScheme) bool {

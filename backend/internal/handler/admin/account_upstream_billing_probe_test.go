@@ -34,7 +34,7 @@ func TestAccountHandlerGetUpstreamBillingProbeSettingsReturnsDefaults(t *testing
 		Data service.UpstreamBillingProbeSettings `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Data.Enabled)
+	require.False(t, response.Data.Enabled)
 	require.Equal(t, 30, response.Data.IntervalMinutes)
 	require.False(t, response.Data.NotifyOnChangeOnly)
 }

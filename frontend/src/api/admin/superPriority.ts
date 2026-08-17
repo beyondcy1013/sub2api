@@ -53,6 +53,12 @@ export interface SchedulingLivenessRuntimeStatus {
   running: boolean
   next_run_at?: string
   last_run?: SchedulingLivenessRunStatus
+  history?: SchedulingLivenessRunStatus[]
+}
+
+export interface SchedulingRulesRuntimeStatus {
+  liveness: SchedulingLivenessRuntimeStatus
+  upstream_billing: SchedulingLivenessRuntimeStatus
 }
 
 export interface SchedulingRulesRefreshResult {
@@ -93,6 +99,11 @@ const superPriorityAPI = {
       {},
       { timeout: 130000 },
     )
+    return data
+  },
+
+  async getRuntime(): Promise<SchedulingRulesRuntimeStatus> {
+    const { data } = await apiClient.get<SchedulingRulesRuntimeStatus>('/admin/settings/scheduling-rules/runtime')
     return data
   },
 }

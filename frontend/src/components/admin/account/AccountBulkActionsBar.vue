@@ -41,6 +41,14 @@
           {{ t('admin.accounts.bulkActions.clear') }}
         </button>
       </template>
+      <input
+        data-test="bulk-account-filter"
+        type="search"
+        class="input h-8 w-52 text-sm"
+        :value="searchQuery"
+        :placeholder="t('admin.accounts.bulkActions.filterPlaceholder')"
+        @input="$emit('update:search-query', ($event.target as HTMLInputElement).value)"
+      />
       <Select
         v-model="quickProxyId"
         data-test="quick-proxy-select"
@@ -70,7 +78,16 @@
         >
           {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
         </button>
-        <button v-if="showDelete" @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
+        <button v-if="showDelete" data-test="bulk-delete" @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
+        <button
+          v-if="showPermanentDelete"
+          data-test="bulk-permanent-delete"
+          class="btn btn-danger btn-sm"
+          :disabled="permanentDeleting"
+          @click="$emit('permanent-delete')"
+        >
+          {{ permanentDeleting ? t('admin.accounts.bulkActions.permanentlyDeleting') : t('admin.accounts.bulkActions.permanentDelete') }}
+        </button>
         <button @click="$emit('reset-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</button>
         <button @click="$emit('refresh-token')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.refreshToken') }}</button>
         <button @click="$emit('probe-upstream-billing')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}</button>
@@ -117,6 +134,9 @@ const props = withDefaults(defineProps<{
   refreshingUsage?: boolean
   testingSelected?: boolean
   showDelete?: boolean
+  showPermanentDelete?: boolean
+  permanentDeleting?: boolean
+  searchQuery?: string
   proxies?: ProxyConfig[]
   groups?: AdminGroup[]
 }>(), {
@@ -127,11 +147,16 @@ const props = withDefaults(defineProps<{
   refreshingUsage: false,
   testingSelected: false,
   showDelete: true,
+  showPermanentDelete: false,
+  permanentDeleting: false,
+  searchQuery: '',
   proxies: () => [],
   groups: () => []
 })
 const emit = defineEmits<{
   delete: []
+  'permanent-delete': []
+  'update:search-query': [value: string]
   'edit-selected': []
   'edit-filtered': []
   clear: []

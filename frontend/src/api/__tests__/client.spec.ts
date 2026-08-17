@@ -310,14 +310,14 @@ describe('API Client', () => {
   // --- 401 Token 刷新 ---
 
   describe('401 Token 刷新', () => {
-    it('无 refresh_token 时 401 清除 localStorage', async () => {
+    it('无 refresh_token 时 401 清除 localStorage 并带 redirect 跳转登录页', async () => {
       localStorage.setItem('auth_token', 'expired-token')
       // 不设置 refresh_token
 
       // Mock window.location
       const originalLocation = window.location
       Object.defineProperty(window, 'location', {
-        value: { ...originalLocation, pathname: '/dashboard', href: '/dashboard' },
+        value: { ...originalLocation, pathname: '/admin/accounts', href: '/admin/accounts' },
         writable: true,
       })
 
@@ -337,6 +337,9 @@ describe('API Client', () => {
       await expect(apiClient.get('/test')).rejects.toBeDefined()
 
       expect(localStorage.getItem('auth_token')).toBeNull()
+      expect((window.location as unknown as { href: string }).href).toBe(
+        '/login?redirect=%2Fadmin%2Faccounts'
+      )
 
       // 恢复 location
       Object.defineProperty(window, 'location', {

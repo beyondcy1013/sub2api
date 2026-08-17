@@ -26,6 +26,10 @@ type schedulingLivenessRefresher interface {
 	RuntimeStatus() service.SchedulingLivenessRuntimeStatus
 }
 
+type schedulingRuntimeProvider interface {
+	RuntimeStatus() service.SchedulingTaskRuntimeStatus
+}
+
 // semverPattern 预编译 semver 格式校验正则
 var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 

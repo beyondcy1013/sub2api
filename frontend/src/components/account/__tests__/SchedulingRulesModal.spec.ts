@@ -73,12 +73,11 @@ describe('SchedulingRulesModal', () => {
     await flush()
     await flush()
     expect(wrapper.get('[data-testid="scheduling-rule-strategy-group"]').attributes('aria-label')).toBe('admin.accounts.schedulingRules.strategy')
-    expect(wrapper.get('[data-testid="scheduling-rule-liveness-include-unschedulable"]').element).toHaveProperty('checked', false)
+    expect(wrapper.find('[data-testid="scheduling-rule-liveness-include-unschedulable"]').exists()).toBe(false)
     await wrapper.get('[data-testid="scheduling-rule-lowest-cost"]').trigger('click')
     await wrapper.get('[data-testid="scheduling-rule-liveness-interval"]').setValue(3)
     await wrapper.get('[data-testid="scheduling-rule-liveness-threshold"]').setValue(4)
     expect(wrapper.find('[data-testid="scheduling-rule-liveness-abnormal-only"]').exists()).toBe(false)
-    await wrapper.get('[data-testid="scheduling-rule-liveness-include-unschedulable"]').setValue(true)
     await wrapper.get('[data-testid="scheduling-rule-interval"]').setValue(5)
     await wrapper.get('[data-testid="scheduling-rule-notify-on-change-only"]').setValue(true)
     await wrapper.get('[data-testid="scheduling-rule-save"]').trigger('click')
@@ -90,7 +89,7 @@ describe('SchedulingRulesModal', () => {
       base_strategy: 'lowest_cost',
       check_interval: '@every 3m',
       failure_threshold: 4,
-      liveness_include_unschedulable: true
+      liveness_include_unschedulable: false
     }))
     expect(api.updateProbeSettings).toHaveBeenCalledWith({ enabled: true, interval_minutes: 5, notify_on_change_only: true })
     expect(wrapper.emitted('saved')).toHaveLength(1)
@@ -155,7 +154,7 @@ describe('SchedulingRulesModal', () => {
     expect(runtime.text()).toContain('admin.accounts.schedulingRules.runtimeCountdown')
     expect(runtime.text()).toContain('"duration":"00:01:30"')
     expect(runtime.text()).toContain('admin.accounts.schedulingRules.runtimeLastResult')
-    expect(wrapper.get('[data-testid="scheduling-rule-liveness-include-unschedulable"]').element).toHaveProperty('checked', false)
+    expect(wrapper.find('[data-testid="scheduling-rule-liveness-include-unschedulable"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

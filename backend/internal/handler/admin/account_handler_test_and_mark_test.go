@@ -78,6 +78,23 @@ func TestAccountHandlerTestOnlyMarksAfterFailureWindowThreshold(t *testing.T) {
 	require.Equal(t, "upstream rejected credentials", adminSvc.marked[42])
 }
 
+func TestAccountHandlerMarkFailedSetsAccountErrorDirectly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adminSvc := &accountTestMarkingAdminService{stubAdminService: newStubAdminService(), marked: map[int64]string{}}
+	handler := &AccountHandler{adminService: adminSvc}
+	router := gin.New()
+	router.POST("/accounts/:id/mark-failed", handler.MarkAccountFailed)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/accounts/42/mark-failed", strings.NewReader(`{"message":"API returned 401: token_invalidated"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, "API returned 401: token_invalidated", adminSvc.marked[42])
+	require.Contains(t, recorder.Body.String(), `"code":0`)
+}
+
 func TestAccountHandlerBatchTestAndMarkContinuesAndSummarizes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adminSvc := &accountTestMarkingAdminService{stubAdminService: newStubAdminService(), marked: map[int64]string{}}

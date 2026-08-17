@@ -1626,8 +1626,8 @@ type SuperPriorityConfig struct {
 	FailureThreshold int `mapstructure:"failure_threshold" yaml:"failure_threshold"`
 	// CheckInterval 定时探测 cron 表达式，默认 "@every 1m"。
 	CheckInterval string `mapstructure:"check_interval" yaml:"check_interval"`
-	// LivenessIncludeUnschedulable controls whether manually paused accounts
-	// (schedulable=false) participate in connection liveness probes.
+	// LivenessIncludeUnschedulable is retained for configuration compatibility.
+	// Recovery probes now target only error-state API-key accounts.
 	LivenessIncludeUnschedulable bool `mapstructure:"liveness_include_unschedulable" yaml:"liveness_include_unschedulable"`
 	// TestModelID 探测对话使用的模型；空则复用各平台 DefaultTestModel。
 	TestModelID string `mapstructure:"test_model_id" yaml:"test_model_id"`

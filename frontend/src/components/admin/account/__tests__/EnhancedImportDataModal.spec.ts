@@ -4,6 +4,7 @@ import EnhancedImportDataModal from '../EnhancedImportDataModal.vue'
 
 const showError = vi.fn()
 const showSuccess = vi.fn()
+const translate = vi.hoisted(() => vi.fn((key: string) => key))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({ showError, showSuccess, showWarning: vi.fn() })
@@ -11,14 +12,14 @@ vi.mock('@/stores/app', () => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    accounts: { importData: vi.fn(), clearImportedData: vi.fn() },
+    accounts: { importData: vi.fn(), previewClearImportedData: vi.fn(), clearImportedData: vi.fn() },
     proxies: { getAll: vi.fn() },
     groups: { getAll: vi.fn() }
   }
 }))
 
 vi.mock('vue-i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key })
+  useI18n: () => ({ t: translate })
 }))
 
 const mountModal = (operation: 'import' | 'clear' = 'import') => mount(EnhancedImportDataModal, {
@@ -49,8 +50,10 @@ describe('EnhancedImportDataModal', () => {
   beforeEach(async () => {
     showError.mockReset()
     showSuccess.mockReset()
+    translate.mockClear()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
+    vi.mocked(adminAPI.accounts.previewClearImportedData).mockReset()
     vi.mocked(adminAPI.accounts.clearImportedData).mockReset()
     vi.mocked(adminAPI.proxies.getAll).mockReset()
     vi.mocked(adminAPI.groups.getAll).mockReset()
@@ -74,10 +77,19 @@ describe('EnhancedImportDataModal', () => {
       account_requested: 1,
       account_matched: 1,
       account_cleared: 1,
+      account_deleted_staged: 1,
+      account_permanently_deleted: 0,
       account_not_found: 0,
       account_ambiguous: 0,
       account_failed: 0,
       cleared_accounts: [{ id: 300, name: 'brake-imported' }]
+    })
+    vi.mocked(adminAPI.accounts.previewClearImportedData).mockResolvedValue({
+      account_requested: 1,
+      account_matched: 1,
+      account_not_found: 0,
+      account_ambiguous: 0,
+      account_failed: 0
     })
   })
 
@@ -93,6 +105,7 @@ describe('EnhancedImportDataModal', () => {
 
     expect(wrapper.get('[data-test="enhanced-import-clear"]').text()).toBe('admin.accounts.enhancedImportClearButton')
     expect(wrapper.find('[data-test="import-apply-default-proxy"]').exists()).toBe(false)
+    expect((wrapper.get('[data-test="enhanced-import-permanent-delete"]').element as HTMLInputElement).checked).toBe(false)
   })
 
   it('imports pasted native sub2api JSON text', async () => {
@@ -402,13 +415,22 @@ describe('EnhancedImportDataModal', () => {
     await flushPromises()
 
     expect(confirm).toHaveBeenCalledWith('admin.accounts.enhancedImportClearConfirm')
+    expect(translate).toHaveBeenCalledWith('admin.accounts.enhancedImportClearConfirm', {
+      count: 2,
+      matched: 1
+    })
+    expect(adminAPI.accounts.previewClearImportedData).toHaveBeenCalledWith({
+      data: expect.objectContaining({ accounts: expect.any(Array) }),
+      permanent_delete: false
+    })
     expect(adminAPI.accounts.clearImportedData).toHaveBeenCalledWith({
       data: expect.objectContaining({
         accounts: [
           expect.objectContaining({ name: 'one@example.com', platform: 'openai' }),
           expect.objectContaining({ name: 'two@example.com', platform: 'anthropic' })
         ]
-      })
+      }),
+      permanent_delete: false
     })
     expect(adminAPI.accounts.importData).not.toHaveBeenCalled()
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.enhancedImportClearSuccess', 8000)
@@ -429,7 +451,56 @@ describe('EnhancedImportDataModal', () => {
     await wrapper.get('[data-test="enhanced-import-clear"]').trigger('click')
     await flushPromises()
 
+    expect(adminAPI.accounts.previewClearImportedData).toHaveBeenCalled()
     expect(adminAPI.accounts.clearImportedData).not.toHaveBeenCalled()
+  })
+
+  it('scans deleted staging and permanently deletes every match only when selected', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.accounts.previewClearImportedData).mockResolvedValueOnce({
+      account_requested: 1,
+      account_matched: 2,
+      account_not_found: 0,
+      account_ambiguous: 0,
+      account_failed: 0
+    })
+    vi.mocked(adminAPI.accounts.clearImportedData).mockResolvedValueOnce({
+      account_requested: 1,
+      account_matched: 2,
+      account_cleared: 2,
+      account_deleted_staged: 0,
+      account_permanently_deleted: 2,
+      account_not_found: 0,
+      account_ambiguous: 0,
+      account_failed: 0
+    })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    const wrapper = mountModal('clear')
+
+    await wrapper.get('[data-test="enhanced-import-mode-text"]').trigger('click')
+    await wrapper.find('textarea').setValue(JSON.stringify({
+      type: 'codex',
+      email: 'codex@example.com',
+      refresh_token: 'refresh-token'
+    }))
+    await wrapper.get('[data-test="enhanced-import-permanent-delete"]').setValue(true)
+    await wrapper.get('[data-test="enhanced-import-clear"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('admin.accounts.enhancedImportPermanentClearConfirm')
+    expect(translate).toHaveBeenCalledWith('admin.accounts.enhancedImportPermanentClearConfirm', {
+      count: 1,
+      matched: 2
+    })
+    expect(adminAPI.accounts.previewClearImportedData).toHaveBeenCalledWith({
+      data: expect.any(Object),
+      permanent_delete: true
+    })
+    expect(adminAPI.accounts.clearImportedData).toHaveBeenCalledWith({
+      data: expect.any(Object),
+      permanent_delete: true
+    })
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.enhancedImportPermanentClearSuccess', 8000)
   })
 
   it('does not call the clear API when a native payload contains no accounts', async () => {

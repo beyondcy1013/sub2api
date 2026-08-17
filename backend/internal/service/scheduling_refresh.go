@@ -24,8 +24,25 @@ type SchedulingLivenessRunStatus struct {
 // SchedulingLivenessRuntimeStatus is the server-side source of truth for the
 // scheduling-rules dialog countdown and latest-result summary.
 type SchedulingLivenessRuntimeStatus struct {
-	Enabled   bool                         `json:"enabled"`
-	Running   bool                         `json:"running"`
-	NextRunAt *time.Time                   `json:"next_run_at,omitempty"`
-	LastRun   *SchedulingLivenessRunStatus `json:"last_run,omitempty"`
+	Enabled   bool                          `json:"enabled"`
+	Running   bool                          `json:"running"`
+	NextRunAt *time.Time                    `json:"next_run_at,omitempty"`
+	LastRun   *SchedulingLivenessRunStatus  `json:"last_run,omitempty"`
+	History   []SchedulingLivenessRunStatus `json:"history,omitempty"`
+}
+
+// SchedulingTaskRuntimeStatus is the common runtime shape exposed by the
+// scheduling-rules management endpoint. History is intentionally bounded by
+// each worker and contains sanitized counters only.
+type SchedulingTaskRuntimeStatus struct {
+	Enabled   bool                          `json:"enabled"`
+	Running   bool                          `json:"running"`
+	NextRunAt *time.Time                    `json:"next_run_at,omitempty"`
+	LastRun   *SchedulingLivenessRunStatus  `json:"last_run,omitempty"`
+	History   []SchedulingLivenessRunStatus `json:"history,omitempty"`
+}
+
+type SchedulingRulesRuntimeStatus struct {
+	Liveness        SchedulingTaskRuntimeStatus `json:"liveness"`
+	UpstreamBilling SchedulingTaskRuntimeStatus `json:"upstream_billing"`
 }

@@ -40,7 +40,7 @@
               :searchable="modelOptions.length > 5"
             />
           </div>
-          <div>
+          <div class="sm:col-span-2">
             <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
               {{ t('admin.scheduledTests.cronExpression') }}
               <HelpTooltip>
@@ -65,6 +65,7 @@
               :placeholder="'*/30 * * * *'"
               :hint="t('admin.scheduledTests.cronHelp')"
             />
+            <CronScheduleBuilder v-model="newPlan.cron_expression" />
           </div>
           <div>
             <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -261,7 +262,7 @@
                   :searchable="modelOptions.length > 5"
                 />
               </div>
-              <div>
+              <div class="sm:col-span-2">
                 <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
                   {{ t('admin.scheduledTests.cronExpression') }}
                   <HelpTooltip>
@@ -286,6 +287,7 @@
                   :placeholder="'*/30 * * * *'"
                   :hint="t('admin.scheduledTests.cronHelp')"
                 />
+                <CronScheduleBuilder v-model="editForm.cron_expression" />
               </div>
               <div>
                 <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -493,6 +495,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Input from '@/components/common/Input.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import CronScheduleBuilder from './CronScheduleBuilder.vue'
 import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
@@ -536,7 +539,7 @@ const editForm = reactive({
 
 const newPlan = reactive({
   model_id: '' as string,
-  cron_expression: '' as string,
+  cron_expression: '*/30 * * * *' as string,
   max_results: '100' as string,
   enabled: true,
   auto_recover: false,
@@ -545,7 +548,7 @@ const newPlan = reactive({
 
 const resetNewPlan = () => {
   newPlan.model_id = ''
-  newPlan.cron_expression = ''
+  newPlan.cron_expression = '*/30 * * * *'
   newPlan.max_results = '100'
   newPlan.enabled = true
   newPlan.auto_recover = false

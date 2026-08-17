@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -288,6 +289,45 @@ func (s *AccountRepoSuite) TestDelete() {
 	restored, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().False(restored.IsDeletedStaging())
+}
+
+func (s *AccountRepoSuite) TestListAccountSearchCoversVisibleFieldsAcrossLifecycle() {
+	notes := "notes-search-needle"
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:         "name-search-needle",
+		Notes:        &notes,
+		Platform:     "platform-search-needle",
+		Type:         "type-search-needle",
+		Status:       service.StatusDisabled,
+		ErrorMessage: "error-search-needle",
+	})
+
+	for _, search := range []string{
+		strconv.FormatInt(account.ID, 10),
+		"name-search-needle",
+		"notes-search-needle",
+		"platform-search-needle",
+		"type-search-needle",
+		service.StatusDisabled,
+		"error-search-needle",
+	} {
+		accounts, _, err := s.repo.ListWithFilters(
+			s.ctx,
+			pagination.PaginationParams{Page: 1, PageSize: 100},
+			"", "", "", search, 0, "", false,
+		)
+		s.Require().NoError(err)
+		s.Require().Contains(accountIDs(accounts), account.ID, "search=%q", search)
+	}
+
+	s.Require().NoError(s.repo.Delete(s.ctx, account.ID))
+	deletedAccounts, _, err := s.repo.ListDeletedWithFilters(
+		s.ctx,
+		pagination.PaginationParams{Page: 1, PageSize: 100},
+		"", "", "", notes, 0, "",
+	)
+	s.Require().NoError(err)
+	s.Require().Contains(accountIDs(deletedAccounts), account.ID)
 }
 
 func (s *AccountRepoSuite) TestDelete_RemovesSchedulerAccountSnapshot() {

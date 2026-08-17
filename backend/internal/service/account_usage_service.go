@@ -84,6 +84,10 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+type accountLifetimeStatsBatchReader interface {
+	GetAccountLifetimeStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*usagestats.AccountStats, error)
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {
@@ -1399,6 +1403,28 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
 func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
 	return s.GetStatsBatchSince(ctx, accountIDs, timezone.Today())
+}
+
+// GetLifetimeStatsBatch returns totals from the durable account usage ledger.
+func (s *AccountUsageService) GetLifetimeStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
+	reader, ok := s.usageLogRepo.(accountLifetimeStatsBatchReader)
+	if !ok {
+		return nil, fmt.Errorf("account lifetime stats are not supported by the usage repository")
+	}
+
+	statsByAccount, err := reader.GetAccountLifetimeStatsBatch(ctx, accountIDs)
+	if err != nil {
+		return nil, fmt.Errorf("get account lifetime stats failed: %w", err)
+	}
+
+	result := make(map[int64]*WindowStats, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if accountID <= 0 {
+			continue
+		}
+		result[accountID] = windowStatsFromAccountStats(statsByAccount[accountID])
+	}
+	return result, nil
 }
 
 // GetStatsBatchSince returns local usage aggregates for multiple accounts

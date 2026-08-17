@@ -178,7 +178,7 @@ func (s *SettingService) SetUpstreamBillingProbeSettings(ctx context.Context, se
 }
 
 func defaultUpstreamBillingProbeSettings() *UpstreamBillingProbeSettings {
-	return &UpstreamBillingProbeSettings{Enabled: true, IntervalMinutes: upstreamBillingProbeDefaultIntervalMinutes}
+	return &UpstreamBillingProbeSettings{Enabled: false, IntervalMinutes: upstreamBillingProbeDefaultIntervalMinutes}
 }
 
 func normalizeUpstreamBillingProbeSettings(settings *UpstreamBillingProbeSettings) {
@@ -204,6 +204,8 @@ type UpstreamBillingProbeService struct {
 	started      bool
 	stopped      bool
 	cycleMu      sync.Mutex
+	statusMu     sync.RWMutex
+	runtime      SchedulingTaskRuntimeStatus
 	probeGroup   singleflight.Group
 	probeSlots   chan struct{}
 	now          func() time.Time
@@ -308,8 +310,61 @@ func (s *UpstreamBillingProbeService) runLoop() {
 	}
 }
 
+// RuntimeStatus returns the server-side status used by scheduling-rules UI.
+func (s *UpstreamBillingProbeService) RuntimeStatus() SchedulingTaskRuntimeStatus {
+	if s == nil {
+		return SchedulingTaskRuntimeStatus{}
+	}
+	s.statusMu.RLock()
+	status := s.runtime
+	status.NextRunAt = cloneUpstreamBillingProbeTimePtr(status.NextRunAt)
+	if status.LastRun != nil {
+		last := *status.LastRun
+		status.LastRun = &last
+	}
+	status.History = append([]SchedulingLivenessRunStatus(nil), status.History...)
+	s.statusMu.RUnlock()
+	return status
+}
+
+func cloneUpstreamBillingProbeTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func (s *UpstreamBillingProbeService) beginRuntime(settings *UpstreamBillingProbeSettings) time.Time {
+	started := s.currentTime()
+	s.statusMu.Lock()
+	s.runtime.Enabled = settings != nil && settings.Enabled
+	s.runtime.Running = true
+	s.runtime.NextRunAt = nil
+	s.statusMu.Unlock()
+	return started
+}
+
+func (s *UpstreamBillingProbeService) finishRuntime(started time.Time, result SchedulingRefreshResult, runErr error, interval int) {
+	finished := s.currentTime()
+	last := SchedulingLivenessRunStatus{Trigger: "scheduled", StartedAt: started, FinishedAt: finished, Result: result}
+	if runErr != nil {
+		last.Error = runErr.Error()
+	}
+	next := finished.Add(time.Duration(interval) * time.Minute)
+	s.statusMu.Lock()
+	s.runtime.Running = false
+	s.runtime.NextRunAt = &next
+	s.runtime.LastRun = &last
+	s.runtime.History = append([]SchedulingLivenessRunStatus{last}, s.runtime.History...)
+	if len(s.runtime.History) > schedulingRuntimeHistoryLimit {
+		s.runtime.History = s.runtime.History[:schedulingRuntimeHistoryLimit]
+	}
+	s.statusMu.Unlock()
+}
+
 // RunDue executes at most one bounded batch of due accounts.
-func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
+func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) (runErr error) {
 	if s == nil || s.accountRepo == nil {
 		return nil
 	}
@@ -321,8 +376,16 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
 		return err
 	}
 	if !settings.Enabled {
+		s.statusMu.Lock()
+		s.runtime.Enabled = false
+		s.runtime.Running = false
+		s.runtime.NextRunAt = nil
+		s.statusMu.Unlock()
 		return nil
 	}
+	started := s.beginRuntime(settings)
+	var refreshResult SchedulingRefreshResult
+	defer func() { s.finishRuntime(started, refreshResult, runErr, settings.IntervalMinutes) }()
 	runRelease, acquired, lockErr := s.tryAcquireLeaderLock(ctx, upstreamBillingProbeLeaderLockKey)
 	if lockErr != nil {
 		return fmt.Errorf("acquire upstream billing probe leader lock: %w", lockErr)
@@ -380,16 +443,26 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) error {
 	}
 
 	var group errgroup.Group
+	var resultMu sync.Mutex
 	for i := range due {
 		accountID := due[i].ID
 		group.Go(func() error {
 			if _, probeErr := s.probeScheduledAccount(ctx, accountID, settings.IntervalMinutes); probeErr != nil {
 				logger.LegacyPrintf("service.upstream_billing_probe", "probe_due_failed: account_id=%d err=%v", accountID, probeErr)
+				resultMu.Lock()
+				refreshResult.Failed++
+				resultMu.Unlock()
+			} else {
+				resultMu.Lock()
+				refreshResult.Succeeded++
+				resultMu.Unlock()
 			}
 			return nil
 		})
 	}
-	return group.Wait()
+	err = group.Wait()
+	refreshResult.Checked = len(due)
+	return err
 }
 
 func (s *UpstreamBillingProbeService) listDueAccounts(ctx context.Context, now time.Time) ([]Account, error) {
@@ -416,7 +489,20 @@ func (s *UpstreamBillingProbeService) UpdateSettings(ctx context.Context, settin
 	if s == nil || s.settingService == nil {
 		return ErrUpstreamBillingProbeUnavailable
 	}
-	return s.settingService.SetUpstreamBillingProbeSettings(ctx, settings)
+	if err := s.settingService.SetUpstreamBillingProbeSettings(ctx, settings); err != nil {
+		return err
+	}
+	s.statusMu.Lock()
+	s.runtime.Enabled = settings.Enabled
+	if !settings.Enabled {
+		s.runtime.Running = false
+		s.runtime.NextRunAt = nil
+	} else if s.runtime.NextRunAt == nil {
+		next := s.currentTime().Add(time.Duration(settings.IntervalMinutes) * time.Minute)
+		s.runtime.NextRunAt = &next
+	}
+	s.statusMu.Unlock()
+	return nil
 }
 
 // ProbeAccount performs one manual or scheduled probe. Manual calls ignore both switches.
@@ -523,6 +609,27 @@ func (s *UpstreamBillingProbeService) RefreshNow(ctx context.Context) (Schedulin
 	if s == nil || s.accountRepo == nil {
 		return refreshResult, ErrUpstreamBillingProbeUnavailable
 	}
+	s.cycleMu.Lock()
+	defer s.cycleMu.Unlock()
+	settings, settingsErr := s.getSettings(ctx)
+	if settingsErr != nil {
+		return refreshResult, settingsErr
+	}
+	started := s.beginRuntime(settings)
+	defer func() {
+		finished := s.currentTime()
+		last := SchedulingLivenessRunStatus{Trigger: "manual", StartedAt: started, FinishedAt: finished, Result: refreshResult}
+		next := finished.Add(time.Duration(settings.IntervalMinutes) * time.Minute)
+		s.statusMu.Lock()
+		s.runtime.Running = false
+		s.runtime.NextRunAt = &next
+		s.runtime.LastRun = &last
+		s.runtime.History = append([]SchedulingLivenessRunStatus{last}, s.runtime.History...)
+		if len(s.runtime.History) > schedulingRuntimeHistoryLimit {
+			s.runtime.History = s.runtime.History[:schedulingRuntimeHistoryLimit]
+		}
+		s.statusMu.Unlock()
+	}()
 	accounts, err := s.accountRepo.ListActive(ctx)
 	if err != nil {
 		return refreshResult, fmt.Errorf("list accounts for upstream billing refresh: %w", err)
@@ -1063,6 +1170,20 @@ func ResolvedSchedulingRateFromProbeSnapshot(snapshot *UpstreamBillingProbeSnaps
 		return 0, false
 	}
 	return math.Round(value*10000) / 10000, true
+}
+
+// FreshResolvedSchedulingRate returns the latest successful declared base rate
+// only while the persisted probe snapshot is still fresh.
+func FreshResolvedSchedulingRate(account *Account, now time.Time) (float64, bool) {
+	if account == nil {
+		return 0, false
+	}
+	snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
+	if snapshot == nil || snapshot.ReceivedAt == nil || snapshot.FreshUntil == nil ||
+		!snapshot.FreshUntil.After(*snapshot.ReceivedAt) || now.Before(*snapshot.ReceivedAt) || !now.Before(*snapshot.FreshUntil) {
+		return 0, false
+	}
+	return ResolvedSchedulingRateFromProbeSnapshot(snapshot)
 }
 
 func numericBillingValue(value any) (float64, bool) {

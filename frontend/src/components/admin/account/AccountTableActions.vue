@@ -17,7 +17,7 @@
       :class="{ 'btn-primary': recycled }"
       :title="recycled ? t('admin.accounts.viewNormal') : t('admin.accounts.viewRecycled')"
     >
-      <Icon name="inbox" size="md" />
+      <Icon name="archive" size="md" />
     </button>
     <button
       @click="$emit('toggleDeleted')"

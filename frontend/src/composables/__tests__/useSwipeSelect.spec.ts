@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { findRowIndexByDomPosition } from '../useSwipeSelect'
+import { findRowIndexByDomPosition, shouldPreferNativeTextSelection } from '../useSwipeSelect'
 
 /**
  * Build a fake scroll element whose `tbody tr[data-index]` rows expose stubbed
@@ -70,5 +70,28 @@ describe('findRowIndexByDomPosition (swipe-select full-render fallback)', () => 
     ])
     expect(findRowIndexByDomPosition(remapped, 150)).toBe(5)
     expect(findRowIndexByDomPosition(remapped, 250)).toBe(9)
+  })
+})
+
+describe('shouldPreferNativeTextSelection', () => {
+  function makeRow(content: string) {
+    const tbody = document.createElement('tbody')
+    const row = document.createElement('tr')
+    row.setAttribute('data-row-id', '7')
+    const cell = document.createElement('td')
+    cell.textContent = content
+    row.appendChild(cell)
+    tbody.appendChild(row)
+    return { row, cell }
+  }
+
+  it('keeps native text selection when a table cell contains direct text', () => {
+    const { cell } = makeRow('account-name@example.com')
+    expect(shouldPreferNativeTextSelection(cell)).toBe(true)
+  })
+
+  it('keeps swipe selection when a table cell has no text content', () => {
+    const { cell } = makeRow('')
+    expect(shouldPreferNativeTextSelection(cell)).toBe(false)
   })
 })

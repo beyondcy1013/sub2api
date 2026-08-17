@@ -26,6 +26,9 @@ type stubAdminService struct {
 	createdAccounts                     []*service.CreateAccountInput
 	deletedAccountIDs                   []int64
 	deleteAccountErrors                 map[int64]error
+	permanentlyDeletedAccountIDs        []int64
+	permanentDeleteAccountErrors        map[int64]error
+	filterAccountLifecycle              bool
 	createdProxies                      []*service.CreateProxyInput
 	updatedProxyIDs                     []int64
 	updatedProxies                      []*service.UpdateProxyInput
@@ -416,6 +419,19 @@ func (s *stubAdminService) ListAccounts(ctx context.Context, page, pageSize int,
 	s.lastListAccounts.deleted = deleted
 	s.lastListAccounts.calls++
 	accounts := s.accounts
+	if s.filterAccountLifecycle {
+		filtered := make([]service.Account, 0, len(accounts))
+		for _, account := range accounts {
+			isDeleted := account.IsDeletedStaging()
+			isRecycled, _ := account.Extra["recycled"].(bool)
+			if (deleted && isDeleted) ||
+				(!deleted && recycled && isRecycled && !isDeleted) ||
+				(!deleted && !recycled && !isRecycled && !isDeleted) {
+				filtered = append(filtered, account)
+			}
+		}
+		accounts = filtered
+	}
 	total := len(accounts)
 	if page < 1 {
 		page = 1
@@ -452,7 +468,13 @@ func (s *stubAdminService) ListTrashedAccounts(context.Context, int, int, string
 
 func (s *stubAdminService) RestoreFromTrash(context.Context, int64) error { return nil }
 
-func (s *stubAdminService) PermanentDeleteAccount(context.Context, int64) error { return nil }
+func (s *stubAdminService) PermanentDeleteAccount(_ context.Context, id int64) error {
+	s.permanentlyDeletedAccountIDs = append(s.permanentlyDeletedAccountIDs, id)
+	if err := s.permanentDeleteAccountErrors[id]; err != nil {
+		return err
+	}
+	return nil
+}
 
 func (s *stubAdminService) ListOpenAISchedulableAccountsForSchedulerScore(_ context.Context, groupID *int64) ([]service.Account, error) {
 	s.openAISchedulerScorePoolCalls++

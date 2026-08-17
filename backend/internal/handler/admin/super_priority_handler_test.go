@@ -37,6 +37,10 @@ type upstreamBillingRefreshStub struct {
 	calls  int
 }
 
+func (s *upstreamBillingRefreshStub) RuntimeStatus() service.SchedulingTaskRuntimeStatus {
+	return service.SchedulingTaskRuntimeStatus{Enabled: true, LastRun: &service.SchedulingLivenessRunStatus{Trigger: "scheduled", Result: s.result}}
+}
+
 func (s *upstreamBillingRefreshStub) RefreshNow(context.Context) (service.SchedulingRefreshResult, error) {
 	s.calls++
 	return s.result, nil
@@ -168,4 +172,20 @@ func TestSuperPrioritySettingsHandlerReturnsLivenessRuntimeStatus(t *testing.T) 
 	lastRun := runtime["last_run"].(map[string]any)
 	require.Equal(t, "scheduled", lastRun["trigger"])
 	require.Equal(t, float64(1), lastRun["result"].(map[string]any)["skipped"])
+}
+
+func TestSchedulingRulesRuntimeReturnsBothTaskStatuses(t *testing.T) {
+	started := time.Date(2026, 7, 27, 20, 30, 0, 0, time.FixedZone("CST", 8*60*60))
+	liveness := &schedulingRefreshStub{status: service.SchedulingLivenessRuntimeStatus{Enabled: true, LastRun: &service.SchedulingLivenessRunStatus{Trigger: "scheduled", StartedAt: started}}}
+	billing := &upstreamBillingRefreshStub{result: service.SchedulingRefreshResult{Checked: 2, Succeeded: 1, Failed: 1}}
+	handler := NewSettingHandler(nil, nil, nil, nil, nil, nil, nil)
+	handler.SetSchedulingRefreshers(liveness, billing)
+	router := gin.New()
+	router.GET("/scheduling-rules/runtime", handler.GetSchedulingRulesRuntime)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/scheduling-rules/runtime", nil))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	data := decodeSuperPriorityResponse(t, recorder)
+	require.True(t, data["liveness"].(map[string]any)["enabled"].(bool))
+	require.True(t, data["upstream_billing"].(map[string]any)["enabled"].(bool))
 }

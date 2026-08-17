@@ -134,16 +134,21 @@ Both profiles must preserve all of the following:
   Import. It opens the enhanced parser in a dedicated clear mode without import
   routing controls; the normal import mode does not expose the destructive
   action. Clear mode reuses the exact same file/text normalization, ignores
-  proxies, and asks the backend to match
-  ordinary or staged accounts by platform/type plus stable credential identity.
-  Name-only fallback is allowed only for a unique match. Matching accounts move
-  through the normal recoverable deleted-staging service; missing and ambiguous
-  inputs are reported without guessing or exposing credential values.
+  proxies, and asks a read-only backend preview to report both parsed and
+  database-matched account counts before confirmation. The default action
+  matches only ordinary or staged accounts and moves them through the normal
+  recoverable deleted-staging service. An unchecked-by-default `彻底删除`
+  checkbox additionally scans deleted staging and permanently deletes every
+  match, including matches still in the ordinary or staged lifecycle. Its
+  confirmation explicitly warns that recovery is impossible. Matching uses
+  platform/type plus stable credential identity; name-only fallback is allowed
+  only for a unique match. Missing and ambiguous inputs are reported without
+  guessing or exposing credential values.
 - Clone mode preserves the source proxy/group assignments, including explicit
   unassigned values, and never applies new-account routing defaults.
 - Account **staging** (formerly "recycle") uses `extra.recycled`; it does not use soft delete.
 - Standard and enhanced file imports tag every imported account with the source file's name part in `extra.import_filename`. The label is derived by stripping the file extension and splitting the stem at its **last** underscore, returning the part before that underscore (e.g. `chatgpt_pro_us_001.json` -> `chatgpt_pro_us`; a name with no underscore keeps the whole stem). It is shown in a dedicated `文件名` (`import_filename`) account-management table column placed after `备注` (notes); accounts with no value show `-`. Pasted-text enhanced import (no source file) leaves the field unset. The helper lives in `frontend/src/utils/importFilename.ts`.
-  The filter is labeled "暂存" (Staging) with an `inbox` icon. It acts as an extra
+  The filter is labeled "归档" (Archive) with an `archive` icon. It acts as an extra
   filter, not a deletion mechanism.
 - Normal account lists exclude staged rows; staged lists include only
   recycled rows.
@@ -157,9 +162,19 @@ Both profiles must preserve all of the following:
     rows; `deleted=1` and `recycled=1` are mutually exclusive.
   - Deleted-staging rows keep the normal manual-management surface, including
     edit, direct connection test, recovery/state actions, statistics, and
-    restore. Deleting again from this view permanently deletes the account;
-    this applies to both a single row and all-page batch selections and uses an
-    explicit irreversible-action confirmation.
+    restore. The `更多` menu exposes a per-row `彻底删除` action (via the
+    `permanent-delete` event on `AccountActionMenu.vue`) that opens an explicit
+    irreversible-action confirmation. Batch `彻底删除` in the toolbar applies to
+    both selected rows and all-page selections.
+  - The deleted-staging bulk toolbar shows `彻底删除` only after accounts are
+    selected. It processes selected IDs through the protected per-account
+    permanent-delete API with bounded concurrency, retains failed IDs selected,
+    and reports partial completion without retrying successful IDs.
+  - A compact filter input stays beside the page/all-results selection controls
+    in every lifecycle view. Server-side search covers account ID, name, notes,
+    platform, type, status, and error message. Credential and token values are
+    intentionally excluded from the GET query to keep secrets out of URLs,
+    browser history, and access logs.
   - `POST /admin/accounts/:id/restore-from-trash` clears the new marker and
     republishes the scheduler snapshot. The same endpoint retains compatibility
     with legacy soft-deleted rows.
@@ -175,11 +190,11 @@ Both profiles must preserve all of the following:
     converts every legacy soft-deleted account to `extra.deleted=true`.
   - The permanent-delete route accepts only deleted-staging or legacy
     soft-deleted rows; normal and first-level staged rows remain protected.
-- Active rows expose `编辑`, `测试连接`, `暂存`, and `更多` directly in that order.
+- Active rows expose `编辑`, `测试连接`, `归档`, and `更多` directly in that order.
   The more menu does not duplicate `测试连接`.
 - Staging (`recycled`) rows expose the same direct `编辑`, `测试连接`, and `更多`
   actions as active rows, with only the toggle action differing: staging rows show
-  `取消暂存` (`恢复`) where active rows show `暂存`. Edit and test-connection must
+  `取消归档` (`恢复`) where active rows show `归档`. Edit and test-connection must
   stay reachable in staging mode because staged accounts keep full credentials and
   config; the backend does not gate test/edit on `extra.recycled`.
 - API-key accounts expose `查询余额` in `更多`. Each account stores its balance
@@ -208,19 +223,35 @@ Both profiles must preserve all of the following:
 - The account test dialog defaults `自动测试` to enabled, starts only after a
   default model has loaded, and persists the operator preference in browser
   storage under `sub2api.account-test.auto-start`.
-- Manual single-account and selected-account batch connection tests submit
-  their outcomes to the shared per-account failure window. A failed test must
-  not call `SetError` directly; only failures reaching the configured
-  `super_priority.failure_threshold` inside the one-minute rolling window may
-  mark the account as error. A successful manual test must not implicitly
-  recover account state; recovery remains an explicit operator confirmation.
+- Automatic connection tests and unconfirmed manual-test outcomes submit their
+  observations to the shared per-account failure window and never call
+  `SetError` directly before the configured
+  `super_priority.failure_threshold` is reached. A definite failed manual test
+  may ask the operator whether to mark the account as failed; confirming calls
+  `POST /admin/accounts/:id/mark-failed`, which sets `status=error`,
+  `error_message`, and `schedulable=false`. This operator-confirmed path is
+  distinct from the automatic failure window and is never triggered by a
+  background probe or an unconfirmed failure. A successful manual test must
+  not implicitly recover account state; recovery remains an explicit operator
+  confirmation.
 - After a successful direct connection test, accounts that are not active or
   have scheduling paused show a confirmation dialog. Confirming performs full
   runtime-state recovery, activates an inactive account when necessary, and
   enables scheduling. Active, schedulable accounts do not show this prompt.
-- Account names remain inside the fixed-width name cell with single-line
-  truncation and overflow clipping. They do not open a teleported hover
-  tooltip.
+- After a definite failed direct connection test, an account that is not
+  already in `error` status shows a confirmation dialog asking whether to mark
+  it as failed. Confirming calls the dedicated `mark-failed` API to set
+  `status=error`, store the test error message, and disable scheduling;
+  accounts already in `error` status only refresh without prompting.
+- Account names remain inside a fixed `212px × 32px` name cell. The name and
+  supplemental email use one left-to-right text flow with the name first, so a
+  long email cannot squeeze out or hide the name prefix. Combined text wraps
+  naturally across at most two 16px lines and truncates only at the second-line
+  end, so it does not grow the table row or escape through overflow. Names do
+  not open a teleported hover tooltip.
+- When the account name already ends with the same supplemental email, the
+  email is not appended again. This suffix comparison trims surrounding
+  whitespace and ignores case.
 - Status, groups, and capacity cells use plain text rather than badge/card
   styling.
 - Usage auto-load runs only for active accounts; manual refresh remains
@@ -248,6 +279,11 @@ Both profiles must preserve all of the following:
 - Scheduled account actions survive browser/service restarts in
   `scheduled_account_actions`. Due work is lease-claimed; failures retain their
   error and retry after one minute, while stale leases are reclaimable.
+- The scheduled-test add and edit forms retain the raw 5-field Cron input and
+  its help, plus a mouse-driven visual builder for minute intervals, hourly,
+  daily, and weekly schedules. Unsupported or advanced expressions stay intact
+  in custom mode; the builder changes only `cron_expression` and does not alter
+  the backend scheduled-test contract.
 - `enable_and_recover` reuses full `RecoverAccountState(...InvalidateToken:true)`
   semantics before enabling scheduling. `pause` only sets schedulable false; it
   must not rewrite account status or reuse temp-unschedulable/scheduled-test state.
@@ -255,7 +291,8 @@ Both profiles must preserve all of the following:
 ## Shared Account Table Contract
 
 - Selection column minimum: `36px`.
-- Name column and its inner content: fixed at `176px`; long names truncate.
+- Name column and its inner content: fixed at `212px`; long names preserve their
+  beginning and truncate only at the end of the second line.
 - Status column minimum: `80px`.
 - Account ID column minimum: `130px`.
 - Platform/type column minimum: `170px`.
@@ -266,7 +303,7 @@ Both profiles must preserve all of the following:
 - In dynamic mode, declared widths apply only as `minWidth` at the table-cell
   level. Other content may expand columns and the table uses horizontal
   scrolling when it exceeds the viewport, while the name slot keeps an inner
-  `176px` cap and truncates overflow. Other `DataTable` consumers retain fixed
+  `212px` cap and truncates overflow. Other `DataTable` consumers retain fixed
   `width`/`minWidth`/`maxWidth` behavior.
 - Headers, labels, and sort indicators remain single-line and non-shrinking.
 - Custom header slots do not suppress sortable-column indicators.
@@ -279,7 +316,7 @@ Both profiles must preserve all of the following:
   minimum so 编辑 -> 测试连接 -> 回收 -> 更多 stays visible without relying
   on tooltips or icon recognition.
 - The selection, actions, and name columns stay fixed on the left during
-  horizontal scrolling. Their declared `36px`, `220px`, and `176px` widths
+  horizontal scrolling. Their declared `36px`, `220px`, and `212px` widths
   provide cumulative offsets so the fixed cells never overlap.
 - After a successful create-account flow reloads the table, newly visible
   account rows are pinned above the current server-sorted page and use a
@@ -303,10 +340,15 @@ Both profiles must preserve all of the following:
   desktop table rows and mobile account cards share the same marker.
 - Leading columns keep `actions -> name -> schedulable -> usage -> platform/type`. After today
   stats, keep 7d utilization (`7d(%)`) -> 7d reset. After created
-  time, keep today cost -> groups (when visible) -> balance -> 5h/7d
+  time, keep today cost -> lifetime cost -> groups (when visible) -> balance -> 5h/7d
   request/token -> window cost. The ending order is account ID -> upstream
   declared rate -> scheduling rate -> 5h utilization (`5h(%)`) -> 5h reset. The account table
   keeps those three leading columns fixed so account identity remains visible.
+- The lifetime-cost column is backed by `account_usage_totals`, not by an
+  in-memory counter or a direct sum over retention-limited `usage_logs`.
+  Migration `192_add_account_usage_totals.sql` seeds surviving history and an
+  insert trigger atomically accumulates account, standard, and user costs plus
+  request/token totals. Usage-log cleanup must never decrement this ledger.
 - Filters are hidden by default behind the filters toggle.
 - The account toolbar starts with a compact loop-test runtime summary showing
   the server-provided liveness countdown in `HH:MM:SS`, a cycle progress bar,
@@ -445,17 +487,14 @@ writes; they never affect request routing or account status display.
   `other.group_ratio`. Automatic rate probing tries the Sub2API declaration
   contract first and falls back to this NikoAPI algorithm only when that
   contract is unsupported or has an incompatible response.
-- While `lowest_cost` is active, the compatibility runner tests only
-  schedulable, active `api_key` accounts at the configured liveness interval
-  with at most four concurrent connection tests. OAuth, setup-token, Bedrock,
-  Vertex, and every other non-`api_key` account type are always excluded.
-  Accounts manually paused with
-  `schedulable=false` are excluded by default from both automatic and manual
-  batches. The persisted `super_priority.liveness_include_unschedulable`
-  option explicitly includes those paused accounts and defaults to `false`.
-  Probe observations never change the operator-controlled `schedulable`
-  field. A stable concrete model from
-  the account's explicit model
+- While `lowest_cost` is active, the compatibility runner performs recovery
+  probes only for `status=error` `api_key` accounts at the configured interval,
+  with at most four concurrent connection tests. Healthy active accounts and
+  manually paused accounts are never tested. OAuth, setup-token, Bedrock,
+  Vertex, and every other non-`api_key` account type are always excluded. The
+  persisted `super_priority.liveness_include_unschedulable` field remains
+  accepted for compatibility but no longer expands the probe scope. A stable
+  concrete model from the account's explicit model
   mapping is preferred. The configured `test_model_id` is only an OpenAI
   fallback and is used only when the account's explicit mapping verifies that
   model. An OpenAI account with neither a concrete mapped model nor a verified
@@ -467,17 +506,21 @@ writes; they never affect request routing or account status display.
   timeout, overload, and other upstream failures remain health observations.
   Every account-test entry point applies the same explicit-mapping fallback
   before issuing its request; other platforms otherwise use their own default
-  test model. On upgrade, legacy `status=error` rows are restored only when both
-  the old `status_managed=true` ownership marker and the old
-  `Scheduling liveness probe failed:` error prefix are present; unrelated
-  operator, authentication, and service errors are never cleared. Test failures are
-  observations only and never write an account `status=error` or alter
-  `schedulable`. Its diagnostic
+  test model. A failed recovery request leaves the account stopped. A real
+  successful upstream request invokes the existing successful-test recovery
+  path to clear recoverable error, rate-limit, overload, temporary-
+  unschedulable, model-rate-limit, and runtime-block state, then restores
+  `schedulable=true`. No legacy marker may clear an error without a successful
+  upstream request. Its diagnostic
   `extra.scheduling_liveness` snapshot transitions from `alive` to `suspect`,
   then `dead` after the configured consecutive-failure threshold. Only a fresh
   `dead` result is excluded; missing, stale, and `suspect` observations remain
-  fallback candidates. A later success restores eligibility. Liveness never
-  mutates `status` or `schedulable`.
+  fallback candidates. Normal active accounts do not depend on a fresh
+  liveness snapshot because they are no longer periodically tested.
+- Automatic upstream billing/rate probing defaults to disabled so healthy API
+  Key accounts receive no background rate-query traffic. The scheduling-rules
+  dialog retains an explicit opt-in switch for installations that require
+  automatic rate synchronization.
 - The account-management scheduling-rules dialog keeps a `? Help` action
   immediately beside its title. Hovering it shows the current eligibility,
   default selection, equal-lowest-rate connection sharing, price-tier fallback,
@@ -490,8 +533,8 @@ writes; they never affect request routing or account status display.
   server-side state while open and uses a local one-second clock only to render
   the countdown; browser lifetime is never the source of scheduling truth.
 - The account table renders `调度倍率` and `最优` in gold only when an account
-  is currently schedulable, has a fresh `alive` liveness result, and ties for
-  the lowest persisted `rate_multiplier` in at least one of its scheduling
+  is currently schedulable and ties for the lowest persisted
+  `rate_multiplier` in at least one of its scheduling
   groups. Every tied minimum is marked. Ungrouped accounts compare only with
   ungrouped accounts on the same platform. The backend computes this from the
   full active, non-recycled account pool rather than the visible page, and the

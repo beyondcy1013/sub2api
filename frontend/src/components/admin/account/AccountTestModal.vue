@@ -288,7 +288,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'test-succeeded', account: Account): void
-  (e: 'test-failed', account: Account): void
+  (e: 'test-failed', account: Account, error: string): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -563,7 +563,7 @@ const startTest = async () => {
     if (testSucceeded && props.account) {
       emit('test-succeeded', props.account)
     } else if (testFailed && props.account) {
-      emit('test-failed', props.account)
+      emit('test-failed', props.account, errorMessage.value || 'Test failed')
     }
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -574,6 +574,9 @@ const startTest = async () => {
     const msg = error instanceof Error ? error.message : 'Unknown error'
     errorMessage.value = msg
     addLine(`Error: ${msg}`, 'text-red-400')
+    if (props.account) {
+      emit('test-failed', props.account, msg)
+    }
   }
 }
 

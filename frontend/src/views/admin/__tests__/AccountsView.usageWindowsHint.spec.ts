@@ -291,7 +291,7 @@ describe('admin AccountsView usage windows hint', () => {
     expect(table.props('dynamicColumnWidths')).toBe(true)
     expect(table.props('stickyLeftColumnKeys')).toEqual(['select', 'actions', 'name'])
     expect(columns.find(column => column.key === 'actions')?.width).toBe('220px')
-    expect(columns.find(column => column.key === 'name')?.width).toBe('176px')
+    expect(columns.find(column => column.key === 'name')?.width).toBe('212px')
     expect(columns.slice(0, 3).map(column => column.key)).toEqual(['select', 'actions', 'name'])
     expect(columns.slice(-4).map(column => column.key)).toEqual([
       'upstream_billing_rate',
@@ -368,7 +368,7 @@ describe('admin AccountsView usage windows hint', () => {
     expect(keys.indexOf('five_hour_utilization')).toBe(keys.indexOf('scheduling_rate') + 1)
   })
 
-  it('places today cost, groups, and balance directly after created time', async () => {
+  it('places today cost, lifetime cost, groups, and balance directly after created time', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -376,9 +376,10 @@ describe('admin AccountsView usage windows hint', () => {
       .map(node => node.attributes('data-column-key'))
     const createdAtIndex = keys.indexOf('created_at')
 
-    expect(keys.slice(createdAtIndex, createdAtIndex + 4)).toEqual([
+    expect(keys.slice(createdAtIndex, createdAtIndex + 5)).toEqual([
       'created_at',
       'today_cost',
+      'total_cost',
       'groups',
       'balance'
     ])

@@ -233,7 +233,7 @@ func TestUpstreamBillingProbeSettingsDefaultsAndValidation(t *testing.T) {
 
 	settings, err := settingsService.GetUpstreamBillingProbeSettings(context.Background())
 	require.NoError(t, err)
-	require.True(t, settings.Enabled)
+	require.False(t, settings.Enabled)
 	require.Equal(t, 30, settings.IntervalMinutes)
 	require.False(t, settings.NotifyOnChangeOnly)
 
@@ -259,7 +259,7 @@ func TestUpstreamBillingProbeSettingsDefaultsAndValidation(t *testing.T) {
 	repo.values[SettingKeyUpstreamBillingProbeSettings] = `{"interval_minutes":45}`
 	settings, err = settingsService.GetUpstreamBillingProbeSettings(context.Background())
 	require.NoError(t, err)
-	require.True(t, settings.Enabled)
+	require.False(t, settings.Enabled)
 	require.Equal(t, 45, settings.IntervalMinutes)
 	require.False(t, settings.NotifyOnChangeOnly)
 	repo.values[SettingKeyUpstreamBillingProbeSettings] = `{"enabled":false}`
@@ -804,13 +804,16 @@ func TestUpstreamBillingProbeRunnerOnlyScansOnLeader(t *testing.T) {
 	upstream := &upstreamBillingProbeHTTPStub{}
 	cache := &fakeLeaderLockCache{}
 	lockKey := upstreamBillingProbeLeaderLockKeyAt(time.Now())
-	peer := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	settingsRepo := &upstreamBillingProbeSettingRepo{values: map[string]string{
+		SettingKeyUpstreamBillingProbeSettings: `{"enabled":true,"interval_minutes":30}`,
+	}}
+	peer := newUpstreamBillingProbeTestService(repo, upstream, settingsRepo)
 	peer.instanceID = "peer"
 	peer.SetLeaderLock(cache, nil)
 	_, acquired, err := peer.tryAcquireLeaderLock(context.Background(), lockKey)
 	require.NoError(t, err)
 	require.True(t, acquired)
-	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	svc := newUpstreamBillingProbeTestService(repo, upstream, settingsRepo)
 	svc.SetLeaderLock(cache, nil)
 
 	require.NoError(t, svc.RunDue(context.Background()))

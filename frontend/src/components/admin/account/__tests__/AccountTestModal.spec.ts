@@ -160,6 +160,7 @@ describe('AccountTestModal', () => {
 
     expect(wrapper.emitted('test-succeeded')).toBeUndefined()
     expect(wrapper.emitted('test-failed')?.[0]?.[0]).toMatchObject({ id: 42 })
+    expect(wrapper.emitted('test-failed')?.[0]?.[1]).toBe('upstream failed')
   })
 
   it('切换自动测试后立即保存，并在下次打开时使用该配置', async () => {

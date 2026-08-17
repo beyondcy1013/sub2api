@@ -86,6 +86,7 @@ const DataTableStub = {
         <div data-test="select-row"><slot name="cell-select" :row="row" /></div>
         <slot name="cell-name" :value="row.name" :row="row" />
         <slot name="cell-today_cost" :value="row.today_cost" :row="row" />
+        <slot name="cell-total_cost" :value="row.total_cost" :row="row" />
         <slot name="cell-created_at" :value="row.created_at" :row="row" />
       </div>
     </div>
@@ -415,7 +416,10 @@ describe('admin AccountsView bulk edit scope', () => {
       page_size: 20,
       pages: 1
     })
-    getBatchTodayStats.mockResolvedValue({ stats: { '7': { requests: 3, tokens: 1200, cost: 1.23, standard_cost: 1.23, user_cost: 1.5 } } })
+    getBatchTodayStats.mockResolvedValue({
+      stats: { '7': { requests: 3, tokens: 1200, cost: 1.23, standard_cost: 1.23, user_cost: 1.5 } },
+      total_stats: { '7': { requests: 30, tokens: 12000, cost: 12.34, standard_cost: 10, user_cost: 15 } }
+    })
     const wrapper = mountView({
       AccountTodayCostCell: { props: ['stats'], template: '<span data-test="today-cost">{{ stats?.cost }}</span>' }
     })
@@ -424,9 +428,10 @@ describe('admin AccountsView bulk edit scope', () => {
 
     const columns = wrapper.getComponent(DataTableStub).props('columns') as Array<{ key: string; label: string; sortable: boolean; width?: string }>
     expect(columns.find(column => column.key === 'today_cost')).toMatchObject({ label: 'admin.accounts.columns.todayCost', sortable: false })
+    expect(columns.find(column => column.key === 'total_cost')).toMatchObject({ label: 'admin.accounts.columns.totalCost', sortable: false })
     expect(columns.find(column => column.key === 'status')).toMatchObject({ width: '80px' })
     expect(getBatchTodayStats).toHaveBeenCalledWith([7])
-    expect(wrapper.get('[data-test="today-cost"]').text()).toBe('1.23')
+    expect(wrapper.findAll('[data-test="today-cost"]').map(node => node.text())).toEqual(['1.23', '12.34'])
   })
 
   it('passes the loaded global probe state to every upstream billing cell', async () => {

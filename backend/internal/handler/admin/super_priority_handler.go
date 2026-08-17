@@ -145,6 +145,27 @@ func (h *SettingHandler) RefreshSchedulingRules(c *gin.Context) {
 	})
 }
 
+// GetSchedulingRulesRuntime returns the two periodic scheduling workers and
+// their bounded, sanitized run histories.
+// GET /api/v1/admin/settings/scheduling-rules/runtime
+func (h *SettingHandler) GetSchedulingRulesRuntime(c *gin.Context) {
+	if h.schedulingLiveness == nil || h.upstreamBilling == nil {
+		response.Error(c, 503, "scheduling runtime service unavailable")
+		return
+	}
+	liveness := h.schedulingLiveness.RuntimeStatus()
+	runtime := service.SchedulingRulesRuntimeStatus{
+		Liveness: service.SchedulingTaskRuntimeStatus{
+			Enabled: liveness.Enabled, Running: liveness.Running, NextRunAt: liveness.NextRunAt,
+			LastRun: liveness.LastRun, History: liveness.History,
+		},
+	}
+	if provider, ok := h.upstreamBilling.(schedulingRuntimeProvider); ok {
+		runtime.UpstreamBilling = provider.RuntimeStatus()
+	}
+	response.Success(c, runtime)
+}
+
 // SetAccountSuperPriorityRequest per-account 超级优先标记请求体。
 type SetAccountSuperPriorityRequest struct {
 	Enabled bool `json:"enabled"`

@@ -334,13 +334,20 @@ describe('admin AccountsView — 账号行展示', () => {
       rel: 'noopener noreferrer',
       'data-test': 'account-name-value',
     })
+    expect(Array.from(link.element.parentElement?.classList ?? [])).toEqual(expect.arrayContaining([
+      'line-clamp-2',
+      'whitespace-normal',
+      'account-name-flow',
+      'leading-4',
+    ]))
     expect(link.classes()).toEqual(expect.arrayContaining([
       'border-dotted',
-      'max-w-full',
-      'truncate',
       'text-gray-900',
       'dark:text-white',
     ]))
+    expect(link.classes()).not.toContain('flex-1')
+    expect(link.classes()).not.toContain('line-clamp-2')
+    expect(link.classes()).not.toContain('break-all')
     expect(link.classes()).not.toContain('text-primary-600')
     expect(wrapper.findAll('[data-test="account-name-value"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('oauth-account')

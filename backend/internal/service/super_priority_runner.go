@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ var superPriorityCronParser = cron.NewParser(
 )
 
 const schedulingLivenessMaxWorkers = 4
+const schedulingRuntimeHistoryLimit = 20
 
 type accountBackgroundTester interface {
 	RunTestBackground(context.Context, int64, string) (*ScheduledTestResult, error)
@@ -25,15 +27,20 @@ type schedulingLivenessPersistence interface {
 	UpdateSchedulingLiveness(context.Context, int64, *AccountSchedulingLiveness) error
 }
 
+type successfulTestAccountRecoverer interface {
+	RecoverAccountAfterSuccessfulTest(context.Context, int64) (*SuccessfulTestRecoveryResult, error)
+}
+
 // SuperPriorityRunner is retained as a compatibility type name. It probes
-// schedulable active API-key accounts while lowest-cost scheduling is enabled.
-// OAuth and other credential types are always excluded. Manual pauses are
-// included only when explicitly configured.
+// error-state API-key accounts while lowest-cost scheduling is enabled. Healthy
+// and manually paused accounts are never probed. OAuth and other credential
+// types remain excluded.
 type SuperPriorityRunner struct {
 	state          *SuperPriorityService
 	accountTestSvc accountBackgroundTester
 	accountRepo    AccountRepository
 	livenessRepo   schedulingLivenessPersistence
+	recoverer      successfulTestAccountRecoverer
 
 	cron        *cron.Cron
 	scanEntryID cron.EntryID
@@ -45,13 +52,19 @@ type SuperPriorityRunner struct {
 }
 
 // NewSuperPriorityRunner 创建探测运行器。
-func NewSuperPriorityRunner(state *SuperPriorityService, accountTestSvc accountBackgroundTester, accountRepo AccountRepository) *SuperPriorityRunner {
+func NewSuperPriorityRunner(
+	state *SuperPriorityService,
+	accountTestSvc accountBackgroundTester,
+	accountRepo AccountRepository,
+	recoverer successfulTestAccountRecoverer,
+) *SuperPriorityRunner {
 	livenessRepo, _ := accountRepo.(schedulingLivenessPersistence)
 	return &SuperPriorityRunner{
 		state:          state,
 		accountTestSvc: accountTestSvc,
 		accountRepo:    accountRepo,
 		livenessRepo:   livenessRepo,
+		recoverer:      recoverer,
 	}
 }
 
@@ -126,6 +139,7 @@ func (r *SuperPriorityRunner) RuntimeStatus() SchedulingLivenessRuntimeStatus {
 		last := *r.runtime.LastRun
 		status.LastRun = &last
 	}
+	status.History = append([]SchedulingLivenessRunStatus(nil), r.runtime.History...)
 	r.statusMu.RUnlock()
 	status.Enabled = r.state != nil && r.state.BaseStrategy() == AccountSchedulingStrategyLowestCost
 	if !status.Enabled {
@@ -168,7 +182,6 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool, trigg
 
 	now := time.Now()
 	expr := r.state.CheckInterval()
-	includeUnschedulable := r.state.LivenessIncludeUnschedulable()
 	due := make([]Account, 0, len(accounts))
 	var nextRunAt time.Time
 	updateNextRunAt := func(candidate time.Time) {
@@ -180,24 +193,7 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool, trigg
 		}
 	}
 	for _, account := range accounts {
-		if legacySchedulingLivenessOwnsAccountError(&account) {
-			if err := r.accountRepo.ClearError(ctx, account.ID); err != nil {
-				logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] clear legacy managed error account=%d failed: %v", account.ID, err)
-				continue
-			}
-			if snapshot := decodeSchedulingLiveness(account.Extra); snapshot != nil {
-				snapshot.FailureCount = 0
-				snapshot.LastError = ""
-				if snapshot.FreshUntil.IsZero() || now.Before(snapshot.FreshUntil) {
-					snapshot.FreshUntil = now.Add(-time.Nanosecond)
-				}
-				if err := r.livenessRepo.UpdateSchedulingLiveness(ctx, account.ID, snapshot); err != nil {
-					logger.LegacyPrintf("service.super_priority_runner", "[SchedulingLivenessRunner] clear legacy liveness marker account=%d failed: %v", account.ID, err)
-				}
-			}
-			continue
-		}
-		if !schedulingLivenessProbeEligible(&account, includeUnschedulable) {
+		if !schedulingLivenessProbeEligible(&account) {
 			continue
 		}
 		snapshot := decodeSchedulingLiveness(account.Extra)
@@ -258,6 +254,12 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool, trigg
 			} else if result != nil {
 				errorMessage = result.ErrorMessage
 			}
+			if succeeded {
+				if recoveryErr := r.recoverSuccessfulProbe(ctx, account.ID); recoveryErr != nil {
+					succeeded = false
+					errorMessage = recoveryErr.Error()
+				}
+			}
 			previous := decodeSchedulingLiveness(account.Extra)
 			snapshot := nextSchedulingLiveness(
 				previous,
@@ -293,6 +295,19 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool, trigg
 	return refreshResult, nil
 }
 
+func (r *SuperPriorityRunner) recoverSuccessfulProbe(ctx context.Context, accountID int64) error {
+	if r.recoverer == nil {
+		return fmt.Errorf("account recovery service is unavailable")
+	}
+	if _, err := r.recoverer.RecoverAccountAfterSuccessfulTest(ctx, accountID); err != nil {
+		return fmt.Errorf("recover account state: %w", err)
+	}
+	if err := r.accountRepo.SetSchedulable(ctx, accountID, true); err != nil {
+		return fmt.Errorf("enable account scheduling: %w", err)
+	}
+	return nil
+}
+
 func (r *SuperPriorityRunner) startRun() {
 	r.statusMu.Lock()
 	r.runtime.Enabled = true
@@ -318,6 +333,10 @@ func (r *SuperPriorityRunner) finishRun(trigger string, startedAt time.Time, res
 	r.runtime.Running = false
 	r.runtime.NextRunAt = nextRunAt
 	r.runtime.LastRun = last
+	r.runtime.History = append([]SchedulingLivenessRunStatus{*last}, r.runtime.History...)
+	if len(r.runtime.History) > schedulingRuntimeHistoryLimit {
+		r.runtime.History = r.runtime.History[:schedulingRuntimeHistoryLimit]
+	}
 	r.statusMu.Unlock()
 }
 

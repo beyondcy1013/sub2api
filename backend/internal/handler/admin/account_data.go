@@ -104,18 +104,35 @@ type DataImportError struct {
 }
 
 type DataClearRequest struct {
-	Data DataPayload `json:"data"`
+	Data            DataPayload `json:"data"`
+	PermanentDelete bool        `json:"permanent_delete"`
+}
+
+type DataClearPreviewResult struct {
+	AccountRequested int               `json:"account_requested"`
+	AccountMatched   int               `json:"account_matched"`
+	AccountNotFound  int               `json:"account_not_found"`
+	AccountAmbiguous int               `json:"account_ambiguous"`
+	AccountFailed    int               `json:"account_failed"`
+	Errors           []DataImportError `json:"errors,omitempty"`
 }
 
 type DataClearResult struct {
-	AccountRequested int                        `json:"account_requested"`
-	AccountMatched   int                        `json:"account_matched"`
-	AccountCleared   int                        `json:"account_cleared"`
-	AccountNotFound  int                        `json:"account_not_found"`
-	AccountAmbiguous int                        `json:"account_ambiguous"`
-	AccountFailed    int                        `json:"account_failed"`
-	ClearedAccounts  []DataImportCreatedAccount `json:"cleared_accounts,omitempty"`
-	Errors           []DataImportError          `json:"errors,omitempty"`
+	AccountRequested          int                        `json:"account_requested"`
+	AccountMatched            int                        `json:"account_matched"`
+	AccountCleared            int                        `json:"account_cleared"`
+	AccountDeletedStaged      int                        `json:"account_deleted_staged"`
+	AccountPermanentlyDeleted int                        `json:"account_permanently_deleted"`
+	AccountNotFound           int                        `json:"account_not_found"`
+	AccountAmbiguous          int                        `json:"account_ambiguous"`
+	AccountFailed             int                        `json:"account_failed"`
+	ClearedAccounts           []DataImportCreatedAccount `json:"cleared_accounts,omitempty"`
+	Errors                    []DataImportError          `json:"errors,omitempty"`
+}
+
+type dataClearPlan struct {
+	preview DataClearPreviewResult
+	targets map[int64]service.Account
 }
 
 func buildProxyKey(protocol, host string, port int, username, password string) string {
@@ -267,9 +284,10 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 	})
 }
 
-// ClearImportedData finds accounts described by an enhanced-import payload and
-// moves them into recoverable deleted staging. Proxies in the payload are never
-// removed.
+// ClearImportedData finds accounts described by an enhanced-import payload.
+// The default action moves matches into recoverable deleted staging. An
+// explicit permanent-delete request also scans deleted staging and permanently
+// deletes every match. Proxies in the payload are never removed.
 func (h *AccountHandler) ClearImportedData(c *gin.Context) {
 	var req DataClearRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -282,48 +300,68 @@ func (h *AccountHandler) ClearImportedData(c *gin.Context) {
 	}
 
 	executeAdminIdempotentJSON(c, "admin.accounts.clear_imported_data", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		return h.clearImportedData(ctx, req.Data)
+		return h.clearImportedData(ctx, req)
 	})
 }
 
-func (h *AccountHandler) clearImportedData(ctx context.Context, payload DataPayload) (DataClearResult, error) {
-	result := DataClearResult{AccountRequested: len(payload.Accounts)}
-	candidates, err := h.listAccountsForDataClear(ctx)
+// PreviewImportedDataClear performs the same database matching as clear without
+// changing account state. Deleted staging is included only for an explicitly
+// irreversible clear.
+func (h *AccountHandler) PreviewImportedDataClear(c *gin.Context) {
+	var req DataClearRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := validateDataHeader(req.Data); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	plan, err := h.planImportedDataClear(c.Request.Context(), req.Data, req.PermanentDelete)
 	if err != nil {
-		return result, err
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, plan.preview)
+}
+
+func (h *AccountHandler) clearImportedData(ctx context.Context, req DataClearRequest) (DataClearResult, error) {
+	plan, err := h.planImportedDataClear(ctx, req.Data, req.PermanentDelete)
+	if err != nil {
+		return DataClearResult{}, err
+	}
+	result := DataClearResult{
+		AccountRequested: plan.preview.AccountRequested,
+		AccountMatched:   plan.preview.AccountMatched,
+		AccountNotFound:  plan.preview.AccountNotFound,
+		AccountAmbiguous: plan.preview.AccountAmbiguous,
+		AccountFailed:    plan.preview.AccountFailed,
+		Errors:           append([]DataImportError(nil), plan.preview.Errors...),
 	}
 
-	targets := make(map[int64]service.Account)
-	for i := range payload.Accounts {
-		item := payload.Accounts[i]
-		if err := validateDataAccount(item); err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: err.Error()})
-			continue
-		}
-
-		matches, ambiguous := matchImportedDataAccount(item, candidates)
-		if ambiguous {
-			result.AccountAmbiguous++
-			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "multiple same-name accounts matched without a stable credential identity"})
-			continue
-		}
-		if len(matches) == 0 {
-			result.AccountNotFound++
-			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "matching account not found"})
-			continue
-		}
-		for _, account := range matches {
-			targets[account.ID] = account
-		}
-	}
-
-	result.AccountMatched = len(targets)
-	for id, account := range targets {
-		if err := h.adminService.DeleteAccount(ctx, id); err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: account.Name, Message: err.Error()})
-			continue
+	for id, account := range plan.targets {
+		if req.PermanentDelete {
+			if !account.IsDeletedStaging() {
+				if err := h.adminService.DeleteAccount(ctx, id); err != nil {
+					result.AccountFailed++
+					result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: account.Name, Message: err.Error()})
+					continue
+				}
+			}
+			if err := h.adminService.PermanentDeleteAccount(ctx, id); err != nil {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: account.Name, Message: err.Error()})
+				continue
+			}
+			result.AccountPermanentlyDeleted++
+		} else {
+			if err := h.adminService.DeleteAccount(ctx, id); err != nil {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: account.Name, Message: err.Error()})
+				continue
+			}
+			result.AccountDeletedStaged++
 		}
 		result.AccountCleared++
 		result.ClearedAccounts = append(result.ClearedAccounts, DataImportCreatedAccount{ID: id, Name: account.Name})
@@ -332,12 +370,54 @@ func (h *AccountHandler) clearImportedData(ctx context.Context, payload DataPayl
 	return result, nil
 }
 
-func (h *AccountHandler) listAccountsForDataClear(ctx context.Context) ([]service.Account, error) {
+func (h *AccountHandler) planImportedDataClear(ctx context.Context, payload DataPayload, includeDeleted bool) (dataClearPlan, error) {
+	plan := dataClearPlan{
+		preview: DataClearPreviewResult{AccountRequested: len(payload.Accounts)},
+		targets: make(map[int64]service.Account),
+	}
+	candidates, err := h.listAccountsForDataClear(ctx, includeDeleted)
+	if err != nil {
+		return plan, err
+	}
+
+	for i := range payload.Accounts {
+		item := payload.Accounts[i]
+		if err := validateDataAccount(item); err != nil {
+			plan.preview.AccountFailed++
+			plan.preview.Errors = append(plan.preview.Errors, DataImportError{Kind: "account", Name: item.Name, Message: err.Error()})
+			continue
+		}
+
+		matches, ambiguous := matchImportedDataAccount(item, candidates)
+		if ambiguous {
+			plan.preview.AccountAmbiguous++
+			plan.preview.Errors = append(plan.preview.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "multiple same-name accounts matched without a stable credential identity"})
+			continue
+		}
+		if len(matches) == 0 {
+			plan.preview.AccountNotFound++
+			plan.preview.Errors = append(plan.preview.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "matching account not found"})
+			continue
+		}
+		for _, account := range matches {
+			plan.targets[account.ID] = account
+		}
+	}
+
+	plan.preview.AccountMatched = len(plan.targets)
+	return plan, nil
+}
+
+func (h *AccountHandler) listAccountsForDataClear(ctx context.Context, includeDeleted bool) ([]service.Account, error) {
 	byID := make(map[int64]service.Account)
-	for _, recycled := range []bool{false, true} {
+	modes := [][2]bool{{false, false}, {true, false}}
+	if includeDeleted {
+		modes = append(modes, [2]bool{false, true})
+	}
+	for _, mode := range modes {
 		page := 1
 		for {
-			items, total, err := h.adminService.ListAccounts(ctx, page, dataPageCap, "", "", "", "", 0, "", "id", "asc", recycled, false)
+			items, total, err := h.adminService.ListAccounts(ctx, page, dataPageCap, "", "", "", "", 0, "", "id", "asc", mode[0], mode[1])
 			if err != nil {
 				return nil, err
 			}

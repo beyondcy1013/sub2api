@@ -38,6 +38,22 @@ export interface SwipeSelectVirtualContext {
   getRowId: (row: any, index: number) => number
 }
 
+function hasDirectTextContent(target: HTMLElement): boolean {
+  return Array.from(target.childNodes).some(
+    (node) => node.nodeType === Node.TEXT_NODE && (node.textContent?.trim().length ?? 0) > 0
+  )
+}
+
+export function shouldPreferNativeTextSelection(target: HTMLElement): boolean {
+  const row = target.closest('tbody tr[data-row-id]')
+  if (!row) return false
+
+  const cell = target.closest<HTMLElement>('td, th')
+  if (!cell) return false
+
+  return (target !== cell || hasDirectTextContent(cell)) && !target.closest('[data-swipe-select-handle]')
+}
+
 /**
  * Locate a row index from a viewport Y coordinate using the real DOM rows
  * (`tbody tr[data-index]`). Used when the virtualizer window is empty because the
@@ -317,26 +333,6 @@ export function useSwipeSelect(
     const docEl = document.documentElement
     if (e.clientX >= docEl.clientWidth || e.clientY >= docEl.clientHeight) return true
     return false
-  }
-
-  /**
-   * If the mousedown starts on inner cell content rather than cell padding,
-   * prefer the browser's native text selection so users can copy text normally.
-   */
-  function shouldPreferNativeTextSelection(target: HTMLElement): boolean {
-    const row = target.closest('tbody tr[data-row-id]')
-    if (!row) return false
-
-    const cell = target.closest('td, th')
-    if (!cell) return false
-
-    return target !== cell && !target.closest('[data-swipe-select-handle]')
-  }
-
-  function hasDirectTextContent(target: HTMLElement): boolean {
-    return Array.from(target.childNodes).some(
-      (node) => node.nodeType === Node.TEXT_NODE && (node.textContent?.trim().length ?? 0) > 0
-    )
   }
 
   function shouldPreferNativeSelectionOutsideRows(target: HTMLElement): boolean {

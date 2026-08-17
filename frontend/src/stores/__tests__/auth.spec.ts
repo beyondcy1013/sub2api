@@ -103,6 +103,29 @@ describe('useAuthStore', () => {
       expect(store.token).toBeNull()
       expect(store.isAuthenticated).toBe(false)
     })
+
+    it('主动刷新后持久化轮换后的 token，保持长期登录会话', async () => {
+      mockLogin.mockResolvedValue({
+        ...fakeAuthResponse,
+        expires_in: 180,
+      })
+      mockRefreshToken.mockResolvedValue({
+        access_token: 'rotated-access-token',
+        refresh_token: 'rotated-refresh-token',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      })
+      mockGetCurrentUser.mockResolvedValue({ data: fakeUser })
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(mockRefreshToken).toHaveBeenCalledTimes(1)
+      expect(store.token).toBe('rotated-access-token')
+      expect(localStorage.getItem('auth_token')).toBe('rotated-access-token')
+      expect(localStorage.getItem('refresh_token')).toBe('rotated-refresh-token')
+    })
   })
 
   // --- login2FA ---

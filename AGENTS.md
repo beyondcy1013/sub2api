@@ -113,15 +113,16 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   custom 401 error-code policy.
 - **Account management table column layout** (`frontend/src/views/admin/AccountsView.vue` `allColumns`):
   - The leading order is `选择` -> `操作` -> `名称` -> `容量` -> `状态` -> `调度` -> `用量窗口` -> `平台/类型`.
-  - After `创建时间`, keep `今日费用` -> `分组` (when visible) -> `余额` -> `5h请求` -> `5h Token` -> `7d请求` -> `7d Token` -> `窗口总费用`.
+  - After `创建时间`, keep `今日费用` -> `累计费用` -> `分组` (when visible) -> `余额` -> `5h请求` -> `5h Token` -> `7d请求` -> `7d Token` -> `窗口总费用`.
   - After `今日统计`, keep `7d(%)` -> `7d`; the ending order is `过期时间` -> `备注` -> `账号ID` -> `上游声明费率` -> `调度倍率` -> `5h(%)` -> `5h`.
   - The utilization headers use the compact labels `5h(%)` and `7d(%)`.
-  - `名称` (name) column has explicit `width: '176px'`; its inner content is capped at `176px` and long names truncate without wrapping or escaping the cell.
+  - `名称` (name) column has explicit `width: '212px'` (20% wider than the former 176px); its inner content is capped at `212px × 32px`. The account name and supplemental email share one left-to-right text flow with the name first, so a long email can never squeeze out the name prefix. The combined text wraps naturally to at most two 16px lines and truncates only at the end of the second line without growing the table row or escaping the cell.
+  - Do not append the supplemental email when the account name already ends with that same email, comparing case-insensitively after trimming surrounding whitespace.
   - The selection column has explicit `width: '36px'`, and `DataTable.vue` keeps `--select-col-width` at `36px`.
   - `状态` (status) has explicit `width: '80px'` as its minimum width on the account table.
   - Table headers, labels, sort indicators, and desktop cell content remain single-line and non-shrinking.
-  - `AccountsView.vue` enables `DataTable`'s `single-line-cells` and `dynamic-column-widths` modes. In this opt-in mode, declared `column.width` values are minimum widths and other content may expand columns, while the name cell keeps its explicit `176px` cap; the table scrolls horizontally when necessary.
-  - The selection, operation, and name columns stay fixed on the left while the account table scrolls horizontally, using their declared `36px`, `220px`, and `176px` widths for cumulative offsets.
+  - `AccountsView.vue` enables `DataTable`'s `single-line-cells` and `dynamic-column-widths` modes. In this opt-in mode, declared `column.width` values are minimum widths and other content may expand columns, while the name cell keeps its explicit `212px` cap; the table scrolls horizontally when necessary.
+  - The selection, operation, and name columns stay fixed on the left while the account table scrolls horizontally, using their declared `36px`, `220px`, and `212px` widths for cumulative offsets.
   - Other `DataTable` consumers retain the default fixed-width behavior where declared widths apply `width`, `minWidth`, and `maxWidth`.
   - The first and last table cells use `4px` outer padding so the table has no unnecessary edge whitespace.
   - Non-final columns retain 1px vertical separators in light and dark mode.
@@ -143,10 +144,11 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   - Global scheduling has only `default` and `lowest_cost`; legacy `extra.super_priority` and mode values never affect routing or status display.
   - `accounts.rate_multiplier` is the sole lowest-cost ranking value. Successful automatic probes copy only `resolved_rate_multiplier` into it; peak/effective snapshots do not rank requests.
   - `extra.scheduling_rate_sync_mode` is `auto_overwrite` (default) or `manual_lock`. Legacy upstream/manual source values map to those modes only when the new field is absent.
-  - In `lowest_cost`, a periodic bounded-concurrency connection test records `extra.scheduling_liveness`. Fresh `dead` accounts are excluded, while missing/stale/suspect states remain fallback candidates; later success restores eligibility without changing `status` or `schedulable`.
-  - `super_priority.liveness_abnormal_only` optionally limits automatic and manual liveness batches to active accounts whose liveness is missing, stale, `suspect`, or `dead`. Fresh `alive` accounts are skipped only until their snapshot expires, so they re-enter the probe scope instead of remaining trusted forever.
+  - In `lowest_cost`, the bounded-concurrency recovery probe never tests healthy active accounts or manually paused accounts. It retries only `status=error` API Key accounts; a real successful upstream request clears recoverable error/rate-limit/runtime state and restores `schedulable=true`. OAuth and other account types remain excluded.
+  - Legacy `super_priority.liveness_include_unschedulable` remains accepted for configuration compatibility but does not expand the recovery probe to healthy or manually paused accounts.
+  - Periodic upstream billing/rate probing defaults to disabled so healthy accounts do not receive background upstream requests. Administrators may explicitly opt in through the scheduling-rules dialog when automatic rate synchronization is required.
   - The scheduling-rules dialog shows server-owned liveness runtime state in its upper-right header: running state, next expected batch time, and the latest checked/succeeded/failed/skipped result. Keep this sourced from the backend runner rather than a browser-only schedule.
-  - The account table marks the current optimal scheduling rate in gold only for accounts that are schedulable, have a fresh `alive` liveness result, and tie for the lowest `rate_multiplier` in at least one scheduling group. All tied minima are marked; ungrouped accounts compare only with ungrouped accounts on the same platform. The calculation uses the full active account pool, not the current page, and is an administrative hint rather than a guarantee for every model-specific request.
+  - The account table marks the current optimal scheduling rate in gold only for accounts that are schedulable and tie for the lowest `rate_multiplier` in at least one scheduling group. All tied minima are marked; ungrouped accounts compare only with ungrouped accounts on the same platform. The calculation uses the full active account pool, not the current page, and is an administrative hint rather than a guarantee for every model-specific request.
 - After upstream upgrades, verify with:
 
 ```bash
@@ -222,11 +224,17 @@ pnpm vitest run \
   It opens the enhanced parser in a dedicated clear mode without import routing
   controls; the normal enhanced-import modal does not show the destructive
   action. Clear mode reuses the same file/text parser, sends only normalized
-  account data to the clear endpoint, and never removes imported proxies. The
-  backend matches platform/type plus a
+  account data to a read-only database match preview before confirmation, and
+  never removes imported proxies. The confirmation reports both parsed and
+  matched account counts. By default, matching scans ordinary and staged
+  accounts and moves matches to recoverable deleted staging. An unchecked-by-
+  default `彻底删除` checkbox expands matching to the deleted-staging repository
+  and permanently deletes every match regardless of its current lifecycle
+  level. The irreversible confirmation must state that those accounts cannot
+  be recovered. The backend matches platform/type plus a
   stable credential identity, permits a name-only fallback only when unique,
-  and moves every match into recoverable deleted staging through the normal
-  account delete service. Missing or ambiguous matches must not be guessed.
+  and uses the protected permanent-delete service for irreversible clears.
+  Missing or ambiguous matches must not be guessed.
 - Focused regression verification:
 
 ```bash
@@ -242,23 +250,25 @@ pnpm vitest run \
   - Value controls in `BulkEditAccountModal.vue` remain usable before their field checkbox is selected.
   - Changing a value automatically selects only that field for submission; untouched field defaults must not enter the bulk-update payload.
   - Field checkboxes remain available for explicit operations whose desired value equals the form default, including clearing a proxy, groups, mappings, or other existing account values.
-- **Account staging** (formerly "recycle") is an extra filter via `extra.recycled = true`. It does NOT use soft-delete (`deleted_at`). The filter toggle is labeled "暂存" (Staging) with an `inbox` icon in `AccountTableActions.vue`.
+- **Account staging** (formerly "recycle") is an extra filter via `extra.recycled = true`. It does NOT use soft-delete (`deleted_at`). The filter toggle is labeled "归档" (Archive) with an `archive` icon in `AccountTableActions.vue`.
 - `accountListFilteredQuery` in `account_repo.go` accepts separate `recycled` and `deleted` modes. They are mutually exclusive; ordinary lists exclude both lifecycle states.
 - All callers of `ListAccounts` must pass both lifecycle booleans. `ListWithFilters` and `ListAllWithFilters` continue to accept `recycled` and always exclude deleted-staging rows.
 - Backend staging routes: `POST /api/v1/admin/accounts/:id/recycle` and `POST /api/v1/admin/accounts/:id/restore`.
-- Frontend: `AccountTableActions.vue` has a staging toggle button (inbox icon); `AccountsView.vue` shows 暂存/取消暂存 buttons in the action column depending on mode.
-- Active account rows keep the direct action order `编辑` -> `测试连接` -> `暂存` -> `更多`; `测试连接` is not duplicated inside `AccountActionMenu.vue`.
+- Frontend: `AccountTableActions.vue` has an archive toggle button (archive icon); `AccountsView.vue` shows 归档/取消归档 buttons in the action column depending on mode.
+- Active account rows keep the direct action order `编辑` -> `测试连接` -> `归档` -> `更多`; `测试连接` is not duplicated inside `AccountActionMenu.vue`.
 - **Recoverable deleted staging** is the second lifecycle level via `extra.deleted = true`; new deletes must not set `deleted_at`:
   - `DELETE /api/v1/admin/accounts/:id` moves the row into deleted staging, removes `extra.recycled`, and preserves credentials, groups, usage/history, and scheduled configuration.
   - Ordinary and recycled lists exclude deleted-staging rows. `GET /api/v1/admin/accounts?deleted=1` lists only deleted-staging rows; `deleted=1` and `recycled=1` together are rejected.
   - The trash icon in `AccountTableActions.vue` toggles the deleted-staging table. Rows retain `编辑`, `测试连接`, `恢复`, and `更多`; restore uses `POST /api/v1/admin/accounts/:id/restore-from-trash`.
+  - The bulk-selection controls keep a compact filter input beside `本页全选` / `全选所有结果` / `清除选择`. It binds to the server-side account search and remains available in ordinary, staged, and deleted-staging views. Search covers account ID, name, notes, platform, type, status, and error message; credentials and tokens must not be placed in the GET search query.
   - Deleted-staging rows are never request-routing candidates and must be excluded from OAuth refresh, scheduled tests, liveness, upstream-rate/billing probes, automatic usage/balance refresh, expiration auto-pause, scheduler-score pools, and model-availability scans. Explicit operator management remains available.
   - Ordinary edits must preserve the server-owned `deleted` marker. Duplicating a deleted/staged row must not copy either lifecycle marker to the new account.
   - Migration `191_convert_account_soft_delete_to_deleted_staging.sql` restores legacy soft-deleted rows and saved group bindings, clears `deleted_at`, and marks them `extra.deleted=true`.
-  - Legacy soft-delete list/permanent-delete repository, service, and API methods remain compatibility-only for pre-migration callers. The current account-management UI must not expose irreversible permanent deletion.
+  - The permanent-delete repository, service, and API remain protected so they accept only deleted-staging or legacy soft-deleted rows. The deleted-staging (回收站) account-management view exposes `彻底删除` both as an explicitly confirmed per-row action inside `AccountActionMenu.vue` (via the `permanent-delete` event) and as a batch action for selected rows including all-result selections; ordinary and first-level archived views must not expose it.
 - `AccountTestModal.vue` defaults `自动测试` to enabled, waits for the default model to load before starting, and persists checkbox changes in browser storage under `sub2api.account-test.auto-start`.
 - After a successful direct connection test, an account whose status is not `active` or whose scheduling is paused prompts the operator before recovery. Confirmation performs full runtime-state recovery, activates an inactive account when needed, and enables scheduling; already active and schedulable accounts do not prompt.
-- Account names stay inside the fixed-width name cell with single-line truncation and overflow clipping. Do not restore the name-triggered hover tooltip that teleports content outside the cell.
+- After a definite failed direct connection test, an account that is not already `error` prompts the operator whether to mark it as failed. Confirming uses the dedicated `mark-failed` API to set `status=error`, save the test error message, and disable scheduling; already-error accounts only refresh. Automatic failure-window observations remain unchanged and do not write `status=error` before their configured threshold.
+- Account names stay inside the fixed-width, fixed-height name cell with two-line truncation and overflow clipping. Do not restore the name-triggered hover tooltip that teleports content outside the cell.
 - sub2freeApi has an additional `clone` function in `accounts.ts` that sub2api does not — re-add it when syncing files.
 - Status/Groups/Capacity table cells use plain text (text-color classes only), NOT badge/card styling. See `references/account-table-column-layout.md`.
 - **Usage auto-load skips non-active accounts**: `AccountUsageCell.vue` `shouldAutoLoadUsageOnMount` must gate on `props.account.status === 'active'`. Accounts with status `inactive` or `error` do NOT auto-fetch `/usage` on page mount, avoiding useless upstream queries against known-unavailable accounts. Manual refresh (via `usageManualRefreshToken`) remains unaffected for all statuses.
@@ -314,6 +324,10 @@ pnpm vitest run \
   and only calls `SetSchedulable(true)` when currently paused.
 - Frontend `ScheduledTestsPanel.vue` exposes the toggle in both the add-plan and
   edit-plan forms with the label `自动启用调度`.
+- The add-plan and edit-plan forms keep the raw 5-field Cron input and help,
+  and also expose a mouse-driven visual scheduler for minute intervals,
+  hourly, daily, and weekly plans. Advanced expressions remain editable in
+  custom mode without being rewritten.
 - Preserve migration `186_add_scheduled_test_auto_recover_schedulable.sql`,
   the `AutoRecoverSchedulable` field in the `ScheduledTestPlan` struct, the
   handler create/update request structs, and the frontend toggle.

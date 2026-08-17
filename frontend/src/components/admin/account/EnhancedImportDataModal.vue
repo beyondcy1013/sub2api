@@ -102,6 +102,23 @@
 
       <ImportRoutingOptions v-if="operation === 'import'" ref="routingOptionsRef" />
 
+      <label
+        v-else
+        class="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100"
+      >
+        <input
+          v-model="permanentDelete"
+          type="checkbox"
+          class="mt-0.5 h-4 w-4 rounded border-red-300 text-red-600 focus:ring-red-500"
+          data-test="enhanced-import-permanent-delete"
+          :disabled="busy"
+        />
+        <span>
+          <span class="font-medium">{{ t('admin.accounts.enhancedImportPermanentDelete') }}</span>
+          <span class="mt-0.5 block text-xs">{{ t('admin.accounts.enhancedImportPermanentDeleteHint') }}</span>
+        </span>
+      </label>
+
       <div
         v-if="operation === 'import' && result"
         class="space-y-2 rounded-lg border border-gray-200 p-4 dark:border-dark-700"
@@ -192,6 +209,7 @@ const appStore = useAppStore()
 const sourceMode = ref<'file' | 'text'>('file')
 const importing = ref(false)
 const clearing = ref(false)
+const permanentDelete = ref(false)
 const files = ref<File[]>([])
 const jsonText = ref('')
 const dragDepth = ref(0)
@@ -250,6 +268,7 @@ watch(
     files.value = []
     jsonText.value = ''
     dragDepth.value = 0
+    permanentDelete.value = false
     hasCreatedData.value = false
     result.value = null
     if (fileInput.value) fileInput.value.value = ''
@@ -406,14 +425,29 @@ const handleClear = async () => {
       appStore.showError(t('admin.accounts.enhancedImportClearNoAccounts'))
       return
     }
-    if (!window.confirm(t('admin.accounts.enhancedImportClearConfirm', { count: data.accounts.length }))) {
+    const preview = await adminAPI.accounts.previewClearImportedData({
+      data,
+      permanent_delete: permanentDelete.value
+    })
+    const confirmKey = permanentDelete.value
+      ? 'admin.accounts.enhancedImportPermanentClearConfirm'
+      : 'admin.accounts.enhancedImportClearConfirm'
+    if (!window.confirm(t(confirmKey, {
+      count: data.accounts.length,
+      matched: preview.account_matched
+    }))) {
       return
     }
 
     result.value = null
-    const response = await adminAPI.accounts.clearImportedData({ data })
+    const response = await adminAPI.accounts.clearImportedData({
+      data,
+      permanent_delete: permanentDelete.value
+    })
     const messageParams = {
       account_cleared: response.account_cleared,
+      account_deleted_staged: response.account_deleted_staged,
+      account_permanently_deleted: response.account_permanently_deleted,
       account_not_found: response.account_not_found,
       account_ambiguous: response.account_ambiguous,
       account_failed: response.account_failed
@@ -422,7 +456,12 @@ const handleClear = async () => {
     if (hasIssues) {
       appStore.showError(t('admin.accounts.enhancedImportClearCompletedWithErrors', messageParams))
     } else {
-      appStore.showSuccess(t('admin.accounts.enhancedImportClearSuccess', messageParams), 8000)
+      appStore.showSuccess(t(
+        permanentDelete.value
+          ? 'admin.accounts.enhancedImportPermanentClearSuccess'
+          : 'admin.accounts.enhancedImportClearSuccess',
+        messageParams
+      ), 8000)
     }
     if (response.account_cleared > 0) {
       emit('imported', [])

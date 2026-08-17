@@ -221,7 +221,7 @@ func TestAccountHandlerUpdateSchedulingRateStoresManualRate(t *testing.T) {
 	require.InDelta(t, 0.35, *payload.Data.SchedulingRateMultiplier, 1e-9)
 }
 
-func TestAccountHandlerUpdateSchedulingRateEnablesAutomaticOverwriteWhileKeepingCurrentRate(t *testing.T) {
+func TestAccountHandlerUpdateSchedulingRateEnablesAutomaticOverwriteUsingFreshUpstreamRate(t *testing.T) {
 	now := time.Now()
 	manual := 0.9
 	adminSvc := &schedulingRateAdminService{
@@ -251,8 +251,36 @@ func TestAccountHandlerUpdateSchedulingRateEnablesAutomaticOverwriteWhileKeeping
 	require.NotNil(t, adminSvc.input.SchedulingRateSyncMode)
 	require.Equal(t, service.SchedulingRateSyncModeAutoOverwrite, *adminSvc.input.SchedulingRateSyncMode)
 	require.NotNil(t, adminSvc.input.RateMultiplier)
+	require.InDelta(t, 0.2, *adminSvc.input.RateMultiplier, 1e-9)
+	require.InDelta(t, 0.2, adminSvc.account.BillingRateMultiplier(), 1e-9)
+}
+
+func TestAccountHandlerUpdateSchedulingRateKeepsCurrentRateWhenUpstreamSnapshotIsStale(t *testing.T) {
+	now := time.Now()
+	current := 0.9
+	adminSvc := &schedulingRateAdminService{
+		stubAdminService: newStubAdminService(),
+		account: &service.Account{
+			ID:             42,
+			RateMultiplier: &current,
+			Extra: map[string]any{
+				service.UpstreamBillingProbeExtraKey: map[string]any{
+					"status":      service.UpstreamBillingProbeStatusOK,
+					"received_at": now.Add(-2 * time.Hour),
+					"fresh_until": now.Add(-time.Hour),
+					"data": map[string]any{
+						"resolved_rate_multiplier": 0.2,
+					},
+				},
+			},
+		},
+	}
+
+	recorder := schedulingRateRequest(t, setupSchedulingRateRouter(adminSvc), `{"sync_mode":"auto_overwrite","rate_multiplier":0.1}`)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.NotNil(t, adminSvc.input.RateMultiplier)
 	require.InDelta(t, 0.9, *adminSvc.input.RateMultiplier, 1e-9)
-	require.InDelta(t, 0.9, adminSvc.account.BillingRateMultiplier(), 1e-9)
 }
 
 func TestAccountHandlerUpdateSchedulingRateValidatesRequest(t *testing.T) {

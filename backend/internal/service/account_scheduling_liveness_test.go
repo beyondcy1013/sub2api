@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,22 @@ type schedulingLivenessTester struct {
 	results map[int64]*ScheduledTestResult
 	calls   []int64
 	models  map[int64]string
+}
+
+type schedulingLivenessRecoverer struct {
+	mu    sync.Mutex
+	calls []int64
+	err   error
+}
+
+func (r *schedulingLivenessRecoverer) RecoverAccountAfterSuccessfulTest(_ context.Context, accountID int64) (*SuccessfulTestRecoveryResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, accountID)
+	if r.err != nil {
+		return nil, r.err
+	}
+	return &SuccessfulTestRecoveryResult{ClearedError: true}, nil
 }
 
 func TestSchedulingLivenessNextScheduledScanAtUsesRunnerTick(t *testing.T) {
@@ -81,7 +98,7 @@ func TestSchedulingLivenessUnknownAndSuspectRemainEligibleFallbacks(t *testing.T
 	}}, now))
 }
 
-func TestSchedulingLivenessRunnerSkipsManuallyPausedAccountsByDefault(t *testing.T) {
+func TestSchedulingLivenessRunnerSkipsHealthyAndManuallyPausedAccounts(t *testing.T) {
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{
 		makeSuperPriorityTestAccount(1, true, true),
@@ -98,21 +115,17 @@ func TestSchedulingLivenessRunnerSkipsManuallyPausedAccountsByDefault(t *testing
 		FailureThreshold: 2,
 		CheckInterval:    "@every 5m",
 	}})
-	runner := NewSuperPriorityRunner(state, tester, repo)
+	recoverer := &schedulingLivenessRecoverer{}
+	runner := NewSuperPriorityRunner(state, tester, repo, recoverer)
 
 	runner.RunOnce(context.Background())
 
-	require.ElementsMatch(t, []int64{1, 2}, tester.calls)
-	alive, ok := repo.livenessWrites[1]
-	require.True(t, ok)
-	require.Equal(t, SchedulingLivenessStatusAlive, alive.Status)
-	suspect, ok := repo.livenessWrites[2]
-	require.True(t, ok)
-	require.Equal(t, SchedulingLivenessStatusSuspect, suspect.Status)
-	require.NotContains(t, repo.livenessWrites, int64(3))
+	require.Empty(t, tester.calls)
+	require.Empty(t, recoverer.calls)
+	require.Empty(t, repo.livenessWrites)
 }
 
-func TestSchedulingLivenessRunnerIncludesManuallyPausedAccountsWhenEnabled(t *testing.T) {
+func TestSchedulingLivenessRunnerIgnoresLegacyIncludePausedSetting(t *testing.T) {
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{makeSuperPriorityTestAccount(1, false, false)}
 	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{
@@ -121,17 +134,18 @@ func TestSchedulingLivenessRunnerIncludesManuallyPausedAccountsWhenEnabled(t *te
 	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
 		BaseStrategy: AccountSchedulingStrategyLowestCost, CheckInterval: "@every 5m", LivenessIncludeUnschedulable: true,
 	}})
-	runner := NewSuperPriorityRunner(state, tester, repo)
+	recoverer := &schedulingLivenessRecoverer{}
+	runner := NewSuperPriorityRunner(state, tester, repo, recoverer)
 
 	result, err := runner.RefreshNow(context.Background())
 
 	require.NoError(t, err)
-	require.Equal(t, []int64{1}, tester.calls)
-	require.Equal(t, SchedulingRefreshResult{Checked: 1, Succeeded: 1}, result)
+	require.Empty(t, tester.calls)
+	require.Empty(t, recoverer.calls)
+	require.Zero(t, result.Checked)
 	status := runner.RuntimeStatus()
 	require.True(t, status.Enabled)
 	require.False(t, status.Running)
-	require.NotNil(t, status.NextRunAt)
 	require.NotNil(t, status.LastRun)
 	require.Equal(t, "manual", status.LastRun.Trigger)
 	require.Equal(t, result, status.LastRun.Result)
@@ -139,10 +153,13 @@ func TestSchedulingLivenessRunnerIncludesManuallyPausedAccountsWhenEnabled(t *te
 
 func TestSchedulingLivenessRunnerOnlyProbesAPIKeyAccounts(t *testing.T) {
 	apiKey := makeSuperPriorityTestAccount(1, false, false)
+	apiKey.Status = StatusError
 	oauth := makeSuperPriorityTestAccount(2, false, true)
 	oauth.Type = AccountTypeOAuth
+	oauth.Status = StatusError
 	setupToken := makeSuperPriorityTestAccount(3, false, true)
 	setupToken.Type = AccountTypeSetupToken
+	setupToken.Status = StatusError
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{apiKey, oauth, setupToken}
 	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{
@@ -154,10 +171,13 @@ func TestSchedulingLivenessRunnerOnlyProbesAPIKeyAccounts(t *testing.T) {
 		BaseStrategy: AccountSchedulingStrategyLowestCost, LivenessIncludeUnschedulable: true,
 	}})
 
-	result, err := NewSuperPriorityRunner(state, tester, repo).RefreshNow(context.Background())
+	recoverer := &schedulingLivenessRecoverer{}
+	result, err := NewSuperPriorityRunner(state, tester, repo, recoverer).RefreshNow(context.Background())
 
 	require.NoError(t, err)
 	require.Equal(t, []int64{1}, tester.calls)
+	require.Equal(t, []int64{1}, recoverer.calls)
+	require.True(t, repo.schedulable[1])
 	require.Equal(t, SchedulingRefreshResult{Checked: 1, Succeeded: 1}, result)
 	require.NotContains(t, repo.livenessWrites, int64(2))
 	require.NotContains(t, repo.livenessWrites, int64(3))
@@ -170,8 +190,8 @@ func TestSchedulingLivenessRunnerUsesAnAccountSupportedModelForOpenAI(t *testing
 			ID:          1,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
-			Status:      StatusActive,
-			Schedulable: true,
+			Status:      StatusError,
+			Schedulable: false,
 			Credentials: map[string]any{"model_mapping": map[string]any{
 				"gpt-5.6-sol": "gpt-5.6-sol",
 			}},
@@ -180,15 +200,15 @@ func TestSchedulingLivenessRunnerUsesAnAccountSupportedModelForOpenAI(t *testing
 			ID:          2,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
-			Status:      StatusActive,
-			Schedulable: true,
+			Status:      StatusError,
+			Schedulable: false,
 			Credentials: map[string]any{"model_mapping": map[string]any{
 				"gpt-5.6-terra": "gpt-5.6-terra",
 			}},
 		},
-		{ID: 3, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true},
-		{ID: 4, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true},
-		{ID: 5, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true},
+		{ID: 3, Platform: PlatformGrok, Type: AccountTypeAPIKey, Status: StatusError, Schedulable: false},
+		{ID: 4, Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Status: StatusError, Schedulable: false},
+		{ID: 5, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusError, Schedulable: false},
 	}
 	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{
 		1: {Status: "success"},
@@ -202,7 +222,7 @@ func TestSchedulingLivenessRunnerUsesAnAccountSupportedModelForOpenAI(t *testing
 		TestModelID:  "gpt-5.6-sol",
 	}})
 
-	NewSuperPriorityRunner(state, tester, repo).RunOnce(context.Background())
+	NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{}).RunOnce(context.Background())
 
 	require.Equal(t, "gpt-5.6-sol", tester.models[1])
 	require.Equal(t, "gpt-5.6-terra", tester.models[2])
@@ -242,8 +262,8 @@ func TestSchedulingLivenessSkipsOpenAIAccountWithoutVerifiedModel(t *testing.T) 
 		ID:          1,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
-		Schedulable: true,
+		Status:      StatusError,
+		Schedulable: false,
 	}}
 	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{
 		1: {Status: "success"},
@@ -253,7 +273,7 @@ func TestSchedulingLivenessSkipsOpenAIAccountWithoutVerifiedModel(t *testing.T) 
 		TestModelID:  "gpt-5.6-sol",
 	}})
 
-	NewSuperPriorityRunner(state, tester, repo).RunOnce(context.Background())
+	NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{}).RunOnce(context.Background())
 
 	require.Empty(t, tester.calls)
 	require.Empty(t, repo.livenessWrites)
@@ -265,8 +285,8 @@ func TestSchedulingLivenessSkipsUnsupportedAccountModelFailure(t *testing.T) {
 		ID:          83,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
-		Schedulable: true,
+		Status:      StatusError,
+		Schedulable: false,
 		Credentials: map[string]any{"model_mapping": map[string]any{
 			"gpt-5.6-luna": "gpt-5.6-luna",
 		}},
@@ -283,7 +303,7 @@ func TestSchedulingLivenessSkipsUnsupportedAccountModelFailure(t *testing.T) {
 		TestModelID:  "gpt-5.6-sol",
 	}})
 
-	result, err := NewSuperPriorityRunner(state, tester, repo).RefreshNow(context.Background())
+	result, err := NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{}).RefreshNow(context.Background())
 
 	require.NoError(t, err)
 	require.Equal(t, []int64{83}, tester.calls)
@@ -298,7 +318,7 @@ func TestSchedulingLivenessRefreshNowSkipsManuallyPausedAccountsByDefault(t *tes
 	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
 		BaseStrategy: AccountSchedulingStrategyLowestCost, CheckInterval: "@every 5m",
 	}})
-	runner := NewSuperPriorityRunner(state, tester, repo)
+	runner := NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{})
 
 	result, err := runner.RefreshNow(context.Background())
 
@@ -315,7 +335,7 @@ func TestSchedulingLivenessEmptyScheduledScanKeepsLatestRealResult(t *testing.T)
 	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
 		BaseStrategy: AccountSchedulingStrategyLowestCost, CheckInterval: "@every 5m",
 	}})
-	runner := NewSuperPriorityRunner(state, tester, repo)
+	runner := NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{})
 
 	_, err := runner.RefreshNow(context.Background())
 	require.NoError(t, err)
@@ -335,6 +355,8 @@ func TestSchedulingLivenessRefreshNowIgnoresTheConfiguredInterval(t *testing.T) 
 	now := time.Now()
 	repo := newSuperPriorityFakeRepo()
 	account := makeSuperPriorityTestAccount(1, false, true)
+	account.Status = StatusError
+	account.Schedulable = false
 	account.Extra[SchedulingLivenessExtraKey] = map[string]any{
 		"status":          SchedulingLivenessStatusAlive,
 		"last_attempt_at": now,
@@ -347,10 +369,13 @@ func TestSchedulingLivenessRefreshNowIgnoresTheConfiguredInterval(t *testing.T) 
 		CheckInterval: "@every 5m",
 	}})
 
-	result, err := NewSuperPriorityRunner(state, tester, repo).RefreshNow(context.Background())
+	recoverer := &schedulingLivenessRecoverer{}
+	result, err := NewSuperPriorityRunner(state, tester, repo, recoverer).RefreshNow(context.Background())
 
 	require.NoError(t, err)
 	require.Equal(t, []int64{1}, tester.calls)
+	require.Equal(t, []int64{1}, recoverer.calls)
+	require.True(t, repo.schedulable[1])
 	require.Equal(t, SchedulingRefreshResult{Checked: 1, Succeeded: 1}, result)
 }
 
@@ -362,17 +387,18 @@ func TestSchedulingLivenessRunnerDoesNotProbeInDefaultMode(t *testing.T) {
 		BaseStrategy: AccountSchedulingStrategyDefault,
 	}})
 
-	NewSuperPriorityRunner(state, tester, repo).RunOnce(context.Background())
+	NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{}).RunOnce(context.Background())
 
 	require.Empty(t, tester.calls)
 }
 
-func TestSchedulingLivenessRunnerClearsLegacyManagedErrorWithoutProbing(t *testing.T) {
+func TestSchedulingLivenessRunnerRequiresSuccessfulProbeBeforeRecoveringLegacyError(t *testing.T) {
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{{
 		ID:           1,
+		Type:         AccountTypeAPIKey,
 		Status:       StatusError,
-		Schedulable:  true,
+		Schedulable:  false,
 		ErrorMessage: "Scheduling liveness probe failed: previous connection failure",
 		Extra: map[string]any{SchedulingLivenessExtraKey: map[string]any{
 			"status":         SchedulingLivenessStatusDead,
@@ -385,32 +411,61 @@ func TestSchedulingLivenessRunnerClearsLegacyManagedErrorWithoutProbing(t *testi
 		CheckInterval: "@every 5m",
 	}})
 
-	NewSuperPriorityRunner(state, tester, repo).RunOnce(context.Background())
+	recoverer := &schedulingLivenessRecoverer{}
+	NewSuperPriorityRunner(state, tester, repo, recoverer).RunOnce(context.Background())
 
-	require.Empty(t, tester.calls)
-	require.Equal(t, []int64{1}, repo.clearErrorIDs)
+	require.Equal(t, []int64{1}, tester.calls)
+	require.Equal(t, []int64{1}, recoverer.calls)
+	require.True(t, repo.schedulable[1])
+	require.Empty(t, repo.clearErrorIDs)
 }
 
-func TestSchedulingLivenessRunnerDoesNotProbeOtherErrorStates(t *testing.T) {
+func TestSchedulingLivenessRunnerKeepsFailedAccountStopped(t *testing.T) {
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{{
 		ID:           1,
+		Type:         AccountTypeAPIKey,
 		Status:       StatusError,
-		Schedulable:  true,
+		Schedulable:  false,
 		ErrorMessage: "Authentication failed (401)",
 		Extra: map[string]any{SchedulingLivenessExtraKey: map[string]any{
 			"status":         SchedulingLivenessStatusDead,
 			"status_managed": true,
 		}},
 	}}
-	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{1: {Status: "success"}}}
+	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{1: {Status: "failed", ErrorMessage: "Authentication failed (401)"}}}
 	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
 		BaseStrategy: AccountSchedulingStrategyLowestCost,
 	}})
 
-	NewSuperPriorityRunner(state, tester, repo).RunOnce(context.Background())
+	recoverer := &schedulingLivenessRecoverer{}
+	NewSuperPriorityRunner(state, tester, repo, recoverer).RunOnce(context.Background())
 
-	require.Empty(t, tester.calls)
+	require.Equal(t, []int64{1}, tester.calls)
+	require.Empty(t, recoverer.calls)
+	require.Empty(t, repo.schedulable)
 	require.Empty(t, repo.clearErrorIDs)
-	require.Empty(t, repo.livenessWrites)
+	require.Equal(t, SchedulingLivenessStatusSuspect, repo.livenessWrites[1].Status)
+}
+
+func TestSchedulingLivenessRunnerKeepsAccountStoppedWhenRecoveryFails(t *testing.T) {
+	repo := newSuperPriorityFakeRepo()
+	account := makeSuperPriorityTestAccount(1, false, false)
+	account.Status = StatusError
+	repo.accounts = []Account{account}
+	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{1: {Status: "success"}}}
+	recoverer := &schedulingLivenessRecoverer{err: errors.New("database unavailable")}
+	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
+		BaseStrategy: AccountSchedulingStrategyLowestCost,
+	}})
+
+	result, err := NewSuperPriorityRunner(state, tester, repo, recoverer).RefreshNow(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, []int64{1}, tester.calls)
+	require.Equal(t, []int64{1}, recoverer.calls)
+	require.Empty(t, repo.schedulable)
+	require.Equal(t, SchedulingRefreshResult{Checked: 1, Failed: 1}, result)
+	require.Equal(t, SchedulingLivenessStatusSuspect, repo.livenessWrites[1].Status)
+	require.Contains(t, repo.livenessWrites[1].LastError, "recover account state")
 }

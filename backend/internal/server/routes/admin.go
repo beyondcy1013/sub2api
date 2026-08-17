@@ -385,6 +385,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/restore-from-trash", h.Admin.Account.RestoreFromTrash)
 		accounts.DELETE("/:id/permanent-delete", h.Admin.Account.PermanentDelete)
 		accounts.POST("/:id/test", h.Admin.Account.Test)
+		accounts.POST("/:id/mark-failed", h.Admin.Account.MarkAccountFailed)
 		accounts.POST("/batch-test-and-mark", h.Admin.Account.BatchTestAndMark)
 		accounts.POST("/:id/recover-state", h.Admin.Account.RecoverState)
 		accounts.POST("/:id/refresh", h.Admin.Account.Refresh)
@@ -418,6 +419,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		// 账号导出泄露上游凭证原文——要求 step-up 2FA
 		accounts.GET("/data", gin.HandlerFunc(stepUpAuth), h.Admin.Account.ExportData)
 		accounts.POST("/data", h.Admin.Account.ImportData)
+		accounts.POST("/data/clear/preview", h.Admin.Account.PreviewImportedDataClear)
 		accounts.POST("/data/clear", h.Admin.Account.ClearImportedData)
 		accounts.POST("/batch-update-credentials", h.Admin.Account.BatchUpdateCredentials)
 		accounts.POST("/batch-refresh-tier", h.Admin.Account.BatchRefreshTier)
@@ -580,6 +582,7 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, balance
 		adminSettings.POST("/super-priority/activate", h.Admin.Setting.ActivateSuperPriority)
 		adminSettings.POST("/super-priority/deactivate", h.Admin.Setting.DeactivateSuperPriority)
 		adminSettings.POST("/scheduling-rules/refresh", h.Admin.Setting.RefreshSchedulingRules)
+		adminSettings.GET("/scheduling-rules/runtime", h.Admin.Setting.GetSchedulingRulesRuntime)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)

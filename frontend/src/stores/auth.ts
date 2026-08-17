@@ -219,6 +219,11 @@ export const useAuthStore = defineStore('auth', () => {
       token.value = response.access_token
       refreshTokenValue.value = response.refresh_token
 
+      // Refresh tokens are rotated server-side, so both new tokens must replace
+      // the persisted pair before any subsequent request reads localStorage.
+      localStorage.setItem(AUTH_TOKEN_KEY, response.access_token)
+      localStorage.setItem(REFRESH_TOKEN_KEY, response.refresh_token)
+
       // Schedule next refresh (this also updates tokenExpiresAt and localStorage)
       scheduleTokenRefresh(response.expires_in)
     } catch (error) {

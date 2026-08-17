@@ -9,6 +9,7 @@ const {
   getAllGroups,
   getAllProxies,
   getBatchTodayStats,
+  getById,
   listAccounts,
   listWithEtag,
   permanentDelete,
@@ -18,6 +19,7 @@ const {
   getAllGroups: vi.fn(),
   getAllProxies: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getById: vi.fn(),
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   permanentDelete: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      getById,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: false }),
       delete: deleteAccount,
       recycle: vi.fn(),
@@ -123,12 +126,14 @@ const AccountTableActionsStub = {
 }
 
 const AccountBulkActionsBarStub = {
-  props: ['selectedIds', 'showDelete'],
-  emits: ['delete', 'select-all-results'],
+  props: ['selectedIds', 'showDelete', 'showPermanentDelete', 'searchQuery'],
+  emits: ['delete', 'permanent-delete', 'select-all-results', 'update:search-query'],
   template: `
     <div>
       <button data-test="select-all-results" @click="$emit('select-all-results')">select all results</button>
       <button v-if="showDelete && selectedIds.length" data-test="bulk-delete" @click="$emit('delete')">delete</button>
+      <button v-if="showPermanentDelete && selectedIds.length" data-test="bulk-permanent-delete" @click="$emit('permanent-delete')">permanent delete</button>
+      <input data-test="bulk-account-filter" :value="searchQuery" @input="$emit('update:search-query', $event.target.value)" />
     </div>
   `
 }
@@ -225,6 +230,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
       getAllGroups,
       getAllProxies,
       getBatchTodayStats,
+      getById,
       listAccounts,
       listWithEtag,
       permanentDelete,
@@ -242,6 +248,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     })
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    getById.mockResolvedValue(account)
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
     deleteAccount.mockResolvedValue({ message: 'deleted' })
@@ -327,7 +334,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(deleteAccount).not.toHaveBeenCalled()
   })
 
-  it('keeps bulk deletion unavailable after selecting deleted-staging results', async () => {
+  it('permanently deletes all selected deleted-staging results after confirmation', async () => {
     listAccounts
       .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
       .mockResolvedValueOnce({ items: [{ ...account, id: 42, extra: { deleted: true } }], total: 2, page: 1, page_size: 20, pages: 1 })
@@ -341,8 +348,28 @@ describe('admin AccountsView recycle-bin deletion', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="bulk-delete"]').exists()).toBe(false)
-    expect(permanentDelete).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="bulk-permanent-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(permanentDelete).toHaveBeenCalledTimes(2)
+    expect(permanentDelete).toHaveBeenCalledWith(42)
+    expect(permanentDelete).toHaveBeenCalledWith(43)
     expect(deleteAccount).not.toHaveBeenCalled()
+  })
+
+  it('binds the compact bulk filter to the account search query', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="bulk-account-filter"]').setValue('notes needle')
+    await flushPromises()
+
+    expect(listAccounts).toHaveBeenLastCalledWith(
+      1,
+      100,
+      expect.objectContaining({ search: 'notes needle' }),
+      expect.objectContaining({ signal: expect.anything() })
+    )
   })
   it('keeps edit, test connection and more available in staging mode alongside restore', async () => {
     const wrapper = mountView()
@@ -381,7 +408,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(wrapper.get('[data-test="account-test-modal"]').text()).toContain(account.name)
   })
 
-  it('keeps an overlong account name on one line and clips it to the fixed name column', async () => {
+  it('shows an overlong account name on at most two lines without growing the table row', async () => {
     listAccounts.mockResolvedValueOnce({
       items: [{ ...account, name: 'account-name-that-is-far-too-long-for-the-name-column' }],
       total: 1,
@@ -394,15 +421,70 @@ describe('admin AccountsView recycle-bin deletion', () => {
     await flushPromises()
 
     const name = wrapper.get('[data-test="account-name-value"]')
-    expect(name.classes()).toContain('whitespace-nowrap')
-    expect(name.classes()).toContain('truncate')
-    expect(name.element.parentElement?.classList.contains('inline-flex')).toBe(true)
-    expect(name.element.parentElement?.classList.contains('w-[176px]')).toBe(true)
-    expect(name.element.parentElement?.classList.contains('max-w-[176px]')).toBe(true)
+    const nameCell = wrapper.get('[data-test="account-name-cell"]')
+    expect(nameCell.classes()).toEqual(expect.arrayContaining([
+      'line-clamp-2',
+      'whitespace-normal',
+      'account-name-flow',
+      'leading-4',
+    ]))
+    expect(name.classes()).not.toContain('flex-1')
+    expect(name.classes()).not.toContain('line-clamp-2')
+
+    const outerCell = nameCell.element.parentElement
+    expect(outerCell?.classList.contains('h-8')).toBe(true)
+    expect(outerCell?.classList.contains('w-[212px]')).toBe(true)
+    expect(outerCell?.classList.contains('max-w-[212px]')).toBe(true)
+    expect(outerCell?.classList.contains('overflow-hidden')).toBe(true)
+  })
+
+  it('keeps the name prefix before a long supplemental email in one end-clamped text flow', async () => {
+    listAccounts.mockResolvedValueOnce({
+      items: [{
+        ...account,
+        name: '平台失联',
+        credentials: { email: 'tariqnatalino08048+fm3p11pl@outlook.com' }
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const nameCell = wrapper.get('[data-test="account-name-cell"]')
+    expect(nameCell.text()).toBe('平台失联 · tariqnatalino08048+fm3p11pl@outlook.com')
+    expect(nameCell.element.firstElementChild?.getAttribute('data-test')).toBe('account-name-value')
+    expect(nameCell.classes()).toEqual(expect.arrayContaining(['line-clamp-2', 'account-name-flow']))
+    expect(nameCell.find('[data-test="account-display-email"]').classes()).not.toContain('truncate')
+  })
+
+  it('does not append an email that is already the suffix of the account name', async () => {
+    listAccounts.mockResolvedValueOnce({
+      items: [{
+        ...account,
+        name: '收不到邮件talker-missing1t@icloud.com',
+        credentials: { email: ' TALKER-MISSING1T@ICLOUD.COM ' }
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const nameCell = wrapper.get('[data-test="account-name-cell"]')
+    expect(nameCell.text()).toBe('收不到邮件talker-missing1t@icloud.com')
+    expect(nameCell.find('[data-test="account-display-email"]').exists()).toBe(false)
   })
 
   it('temporarily highlights only the account that appears after a successful create', async () => {
     vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-27T09:59:59Z'))
     const createdAccount = {
       ...account,
       id: 99,
@@ -419,12 +501,13 @@ describe('admin AccountsView recycle-bin deletion', () => {
 
     await wrapper.get('[data-test="open-create-account"]').trigger('click')
     await wrapper.get('[data-test="complete-create-account"]').trigger('click')
-    await flushPromises()
 
-    expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
-      'account-row-99',
-      'account-row-42'
-    ])
+    await vi.waitFor(() => {
+      expect(wrapper.findAll('[data-test^="account-row-"]').map(row => row.attributes('data-test'))).toEqual([
+        'account-row-99',
+        'account-row-42'
+      ])
+    })
     expect(wrapper.get('[data-test="account-row-42"]').classes()).not.toContain('recently-created-account-row')
     expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row')
     expect(wrapper.get('[data-test="account-row-99"]').classes()).toContain('recently-created-account-row-red')
@@ -541,6 +624,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
       name: 'brake-imported',
       created_at: '2026-07-28T09:30:00+08:00'
     }
+    getById.mockResolvedValueOnce(importedAccount)
     listAccounts
       .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
       .mockResolvedValueOnce({

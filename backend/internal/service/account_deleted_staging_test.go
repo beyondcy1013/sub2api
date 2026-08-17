@@ -21,7 +21,7 @@ func TestDeletedStagingAccountIsExcludedFromAutomatedUse(t *testing.T) {
 	require.True(t, account.IsDeletedStaging())
 	require.False(t, account.IsSchedulable())
 	require.False(t, account.IsCredentialUsableForShadow())
-	require.False(t, schedulingLivenessProbeEligible(account, true))
+	require.False(t, schedulingLivenessProbeEligible(account))
 }
 
 func TestDuplicateAccountDropsLifecycleStagingMarkers(t *testing.T) {
@@ -37,18 +37,17 @@ func TestDuplicateAccountDropsLifecycleStagingMarkers(t *testing.T) {
 	require.Equal(t, "keep", extra["operator_note"])
 }
 
-func TestNormalAccountRemainsEligibleAfterDeletedStagingGuard(t *testing.T) {
+func TestErroredAccountRemainsEligibleAfterDeletedStagingGuard(t *testing.T) {
 	account := &Account{
 		ID:          43,
 		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
+		Status:      StatusError,
 		Schedulable: true,
 		Extra:       map[string]any{},
 	}
 
 	require.False(t, account.IsDeletedStaging())
-	require.True(t, account.IsSchedulable())
-	require.True(t, schedulingLivenessProbeEligible(account, false))
+	require.True(t, schedulingLivenessProbeEligible(account))
 }
 
 func TestAdminAccountEditPreservesDeletedStagingLifecycleMarker(t *testing.T) {

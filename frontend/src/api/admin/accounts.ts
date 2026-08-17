@@ -17,6 +17,7 @@ import type {
   TempUnschedulableStatus,
   AdminDataPayload,
   AdminDataClearResult,
+  AdminDataClearPreviewResult,
   AdminDataImportResult,
   CodexSessionImportRequest,
   CodexSessionImportResult,
@@ -446,6 +447,11 @@ export async function batchTestAndMark(accountIds: number[]): Promise<BatchTestA
   return data
 }
 
+export async function markAccountFailed(id: number, message: string): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/mark-failed`, { message })
+  return data
+}
+
 /**
  * Refresh account credentials
  * @param id - Account ID
@@ -701,12 +707,13 @@ export async function getTodayStats(id: number): Promise<WindowStats> {
 
 export interface BatchTodayStatsResponse {
   stats: Record<string, WindowStats>
+  total_stats: Record<string, WindowStats>
 }
 
 /**
  * 批量获取多个账号的今日统计
  * @param accountIds - 账号 ID 列表
- * @returns 以账号 ID（字符串）为键的统计映射
+ * @returns 以账号 ID（字符串）为键的今日和累计统计映射
  */
 export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTodayStatsResponse> {
   const { data } = await apiClient.post<BatchTodayStatsResponse>('/admin/accounts/today-stats/batch', {
@@ -937,9 +944,22 @@ export async function importData(payload: {
 
 export async function clearImportedData(payload: {
   data: AdminDataPayload
+  permanent_delete?: boolean
 }): Promise<AdminDataClearResult> {
   const { data } = await apiClient.post<AdminDataClearResult>('/admin/accounts/data/clear', {
-    data: payload.data
+    data: payload.data,
+    permanent_delete: payload.permanent_delete
+  })
+  return data
+}
+
+export async function previewClearImportedData(payload: {
+  data: AdminDataPayload
+  permanent_delete?: boolean
+}): Promise<AdminDataClearPreviewResult> {
+  const { data } = await apiClient.post<AdminDataClearPreviewResult>('/admin/accounts/data/clear/preview', {
+    data: payload.data,
+    permanent_delete: payload.permanent_delete
   })
   return data
 }
@@ -1280,6 +1300,7 @@ export const accountsAPI = {
   toggleStatus,
   testAccount,
   batchTestAndMark,
+  markAccountFailed,
   refreshCredentials,
   applyOAuthCredentials,
   getStats,
@@ -1312,6 +1333,7 @@ export const accountsAPI = {
   syncFromCrs,
   exportData,
   importData,
+  previewClearImportedData,
   clearImportedData,
   importCodexSession,
   createOpenAICodexPAT,

@@ -11,7 +11,7 @@ import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
-import { resolveCompletedSetupRedirectPath } from './setupRedirect'
+import { resolveCompletedSetupRedirectPath, resolveDefaultLandingPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 
 /**
@@ -188,8 +188,11 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== User Routes ====================
   {
+    // 根路径落地页由导航守卫按登录态决定：
+    // 未登录 -> /home，普通用户 -> /dashboard，管理员 -> /admin/accounts
     path: '/',
-    redirect: '/home'
+    // 兜底组件与公开首页一致，正常情况下守卫会先重定向，不会渲染到这里
+    component: () => import('@/views/HomeView.vue')
   },
   {
     path: '/dashboard',
@@ -399,7 +402,7 @@ const routes: RouteRecordRaw[] = [
   // ==================== Admin Routes ====================
   {
     path: '/admin',
-    redirect: '/admin/dashboard'
+    redirect: '/admin/accounts'
   },
   {
     path: '/admin/dashboard',
@@ -802,6 +805,16 @@ router.beforeEach(async (to, _from, next) => {
     authInitialized = true
   }
 
+  // 根路径按登录态选择默认落地页，保证管理员打开站点即进入账号管理
+  if (to.path === '/') {
+    if (!authStore.isAuthenticated) {
+      next('/home')
+      return
+    }
+    next(resolveDefaultLandingPath(authStore.isAdmin))
+    return
+  }
+
   // Set page title
   const appStore = useAppStore()
   const adminSettingsStore = useAdminSettingsStore()
@@ -837,8 +850,8 @@ router.beforeEach(async (to, _from, next) => {
         next()
         return
       }
-      // Admin users go to admin dashboard, regular users go to user dashboard
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+      // 管理员默认进入账号管理，普通用户进入用户控制台
+      next(resolveDefaultLandingPath(authStore.isAdmin))
       return
     }
     // Model Plaza:公开路由但受「启用开关 + 可选强制登录」双重控制(后端同口径 fail-closed)

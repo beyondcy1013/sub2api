@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccountSchedulingRuntimeSummary from '../AccountSchedulingRuntimeSummary.vue'
 
-const getSuperPriority = vi.hoisted(() => vi.fn())
+const { getSuperPriority, getSchedulingRuntime } = vi.hoisted(() => ({
+  getSuperPriority: vi.fn(),
+  getSchedulingRuntime: vi.fn()
+}))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    superPriority: { get: getSuperPriority }
+    superPriority: { get: getSuperPriority, getRuntime: getSchedulingRuntime }
   }
 }))
 
@@ -23,6 +26,8 @@ describe('AccountSchedulingRuntimeSummary', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-27T12:00:00Z'))
     getSuperPriority.mockReset()
+    getSchedulingRuntime.mockReset()
+    getSchedulingRuntime.mockResolvedValue(null)
   })
 
   afterEach(() => {
@@ -110,6 +115,92 @@ describe('AccountSchedulingRuntimeSummary', () => {
     expect(getSuperPriority).toHaveBeenCalledTimes(2)
     expect(wrapper.get('[data-testid="account-scheduling-runtime-state"]').text())
       .toBe('admin.accounts.schedulingRules.runtimeRunning')
+    wrapper.unmount()
+  })
+
+  it('emits when a new upstream billing run completes', async () => {
+    getSuperPriority.mockResolvedValue({
+      check_interval: '@every 1m',
+      liveness_runtime: { enabled: false, running: false }
+    })
+    getSchedulingRuntime
+      .mockResolvedValueOnce({
+        liveness: { enabled: false, running: false },
+        upstream_billing: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T11:59:00Z',
+            finished_at: '2026-07-27T11:59:05Z',
+            result: { checked: 1, succeeded: 1, failed: 0, skipped: 0 }
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        liveness: { enabled: false, running: false },
+        upstream_billing: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T12:00:00Z',
+            finished_at: '2026-07-27T12:00:05Z',
+            result: { checked: 2, succeeded: 2, failed: 0, skipped: 0 }
+          }
+        }
+      })
+
+    const wrapper = mount(AccountSchedulingRuntimeSummary)
+    await flushPromises()
+    expect(wrapper.emitted('upstream-billing-completed')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+
+    expect(wrapper.emitted('upstream-billing-completed')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not emit for an empty upstream billing cycle', async () => {
+    getSuperPriority.mockResolvedValue({
+      check_interval: '@every 1m',
+      liveness_runtime: { enabled: false, running: false }
+    })
+    getSchedulingRuntime
+      .mockResolvedValueOnce({
+        liveness: { enabled: false, running: false },
+        upstream_billing: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T11:59:00Z',
+            finished_at: '2026-07-27T11:59:05Z',
+            result: { checked: 0, succeeded: 0, failed: 0, skipped: 0 }
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        liveness: { enabled: false, running: false },
+        upstream_billing: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T12:00:00Z',
+            finished_at: '2026-07-27T12:00:05Z',
+            result: { checked: 0, succeeded: 0, failed: 0, skipped: 0 }
+          }
+        }
+      })
+
+    const wrapper = mount(AccountSchedulingRuntimeSummary)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+
+    expect(wrapper.emitted('upstream-billing-completed')).toBeUndefined()
     wrapper.unmount()
   })
 })

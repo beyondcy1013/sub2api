@@ -635,8 +635,9 @@ func ProvideSuperPriorityRunner(
 	state *SuperPriorityService,
 	accountTestSvc *AccountTestService,
 	accountRepo AccountRepository,
+	rateLimitSvc *RateLimitService,
 ) *SuperPriorityRunner {
-	runner := NewSuperPriorityRunner(state, accountTestSvc, accountRepo)
+	runner := NewSuperPriorityRunner(state, accountTestSvc, accountRepo, rateLimitSvc)
 	runner.Start()
 	return runner
 }
