@@ -1443,6 +1443,15 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
+type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
+const enableCodexFingerprintMode = ref(false)
+const codexFingerprintMode = ref<CodexFingerprintMode>('off')
+const codexFingerprintModeOptions = computed(() => [
+  { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
+  { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
+  { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
+  { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
+])
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const rpmLimitEnabled = ref(false)
@@ -1791,6 +1800,16 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     extra.codex_cli_only_allow_app_server = codexCLIOnlyAppServerEnabled.value
   }
 
+  if (enableCodexFingerprintMode.value) {
+    const extra = ensureExtra()
+    // off = 默认值，清键即可；device/session/full 是显式 opt-in，必须落键（#5610）。
+    if (codexFingerprintMode.value !== 'off') {
+      extra.codex_fingerprint_mode = codexFingerprintMode.value
+    } else {
+      delete extra.codex_fingerprint_mode
+    }
+  }
+
   if (enableOpenAICompactMode.value) {
     const extra = ensureExtra()
     extra.openai_compact_mode = openAICompactMode.value
@@ -2031,6 +2050,8 @@ watch(
       enableOpenAIAPIKeyWSMode.value = false
       enableCodexCLIOnly.value = false
       enableCodexCLIOnlyAppServer.value = false
+      enableCodexFingerprintMode.value = false
+      codexFingerprintMode.value = 'off'
       enableOpenAICompactMode.value = false
       enableOpenAICompactModelMapping.value = false
       enableRpmLimit.value = false

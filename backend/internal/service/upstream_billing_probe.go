@@ -1123,18 +1123,51 @@ func upstreamBillingRateSyncEnabled(account *Account) bool {
 	return ok && enabled && upstreamBillingProbeEnabled(account)
 }
 
+// IsUpstreamBillingProbeIdentity reports whether an account identity may opt
+// in to the upstream billing probe. `/v1/sub2api/billing` is a key-scoped
+// sub2api convention shared by the supported API-key platforms (including the
+// CN providers, whose official-domain accounts are short-circuited to
+// "unsupported" by upstreamBillingProbeTargetIsOfficialAPI).
+// Non-sub2api upstreams return 404 and the snapshot records "unsupported".
+// Only AccountTypeAPIKey is in scope. OAuth/Bedrock hold no static API key to
+// present at all; AccountTypeUpstream (antigravity relay accounts) does carry
+// a base_url plus a static api_key, but it is deliberately left out of the
+// current supported set. New antigravity relay accounts are created with
+// type=apikey by the admin form, so only pre-existing type=upstream rows
+// cannot turn the probe on.
 func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 	if accountType != AccountTypeAPIKey {
 		return false
 	}
 	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok:
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok,
+		PlatformKimi, PlatformZhipu, PlatformDeepseek:
 		return true
 	default:
 		return false
 	}
 }
 
+func isUpstreamBillingProbeAccount(account *Account) bool {
+	return account != nil && IsUpstreamBillingProbeIdentity(account.Platform, account.Type)
+}
+
+// upstreamBillingProbeOfficialAPIDomains lists the root domains of official
+// provider APIs. The create form fills empty base_url values with official
+// defaults (and offers official regional presets like us-east-1.api.x.ai),
+// so probing them would send the account key to an official API path that
+// cannot exist. Matching is by registrable root domain — exact host or any
+// subdomain, after stripping the port and a trailing DNS dot — because no
+// third-party sub2api relay can live under these domains, while custom
+// relays (the only targets that can answer /v1/sub2api/billing) always do
+// probe. OpenAI-platform accounts never reach this check: they keep the
+// upstream-official behavior of probing api.openai.com.
+// ollama.com is a first-class configuration here (Ollama Cloud accounts are
+// platform openai/anthropic with base_url https://ollama.com/v1), and it is
+// an official provider API just like the rest, so it belongs on this list.
+// CN provider domains (moonshot.cn / kimi.com / bigmodel.cn / deepseek.com)
+// serve the same role: official APIs that can never host /v1/sub2api/billing,
+// so their accounts short-circuit to "unsupported" without a request.
 var upstreamBillingProbeOfficialAPIDomains = []string{
 	"anthropic.com",
 	"googleapis.com",
@@ -1142,6 +1175,10 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"grok.com",
 	"openai.com",
 	"ollama.com",
+	"moonshot.cn",
+	"kimi.com",
+	"bigmodel.cn",
+	"deepseek.com",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {
@@ -1163,10 +1200,6 @@ func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {
 		}
 	}
 	return false
-}
-
-func isUpstreamBillingProbeAccount(account *Account) bool {
-	return account != nil && account.Type == AccountTypeAPIKey
 }
 
 func (s *UpstreamBillingProbeService) currentTime() time.Time {
