@@ -278,6 +278,7 @@ pnpm vitest run \
 
 - New-account form initialization and reset use `concurrency: 10`. Enhanced CLIProxyAPI imports also default new accounts to `concurrency: 10`; native backup imports preserve each account's exported concurrency.
 - New-account form initialization and reset select the last available proxy and the first available group. If proxy/group props arrive after the modal opens, fill only still-empty selections; never overwrite an operator's existing choice. Empty candidate lists remain unassigned.
+- After advancing to the OAuth authorization step, `CreateAccountModal.vue` keeps the account name entered on step one visible at the top of step two. Email addresses commonly used as account names must remain visible while the operator completes OpenAI Auth.
 - `AccountActionMenu.vue` always displays `恢复状态` for every account.
 - The bottom of `AccountActionMenu.vue` keeps the low-frequency actions in this order: `查看统计` -> `创建 Spark 影子账号` (when available) -> `设置隐私` (when available). Do not move them back above the recovery, scheduling, quota-reset, or delete actions.
 - The action menu keeps `w-[7.8rem] max-h-[calc(100vh-1rem)] overflow-y-auto`; `AccountsView.vue` keeps a `125` px width estimate and a `320` px height estimate for viewport positioning.

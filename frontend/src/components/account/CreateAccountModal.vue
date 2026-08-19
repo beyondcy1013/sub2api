@@ -3320,6 +3320,17 @@
 
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
+      <div
+        data-testid="oauth-account-name-summary"
+        class="flex min-w-0 items-baseline gap-2 border-b border-gray-200 pb-3 text-sm dark:border-dark-600"
+      >
+        <span class="shrink-0 text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.accountName') }}
+        </span>
+        <span class="min-w-0 break-all font-medium text-gray-900 dark:text-white">
+          {{ form.name }}
+        </span>
+      </div>
       <OAuthAuthorizationFlow
         ref="oauthFlowRef"
         :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"

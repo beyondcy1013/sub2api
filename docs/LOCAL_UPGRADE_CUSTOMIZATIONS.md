@@ -102,6 +102,7 @@ Both profiles must preserve all of the following:
   `EditAccountModal.vue`; unrelated account edits must not overwrite the
   dedicated scheduling-rate mode or value.
 - New-account initialization and reset use `concurrency: 10`.
+- The OAuth authorization step keeps the account name entered on the first step visible in a read-only summary above the authorization controls. This includes email addresses used as OpenAI account names.
 - A new account selects the last available proxy and first available group.
   Late candidate arrival fills only empty selections and never overwrites an
   operator choice.
