@@ -258,6 +258,19 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(flow.props('initialInputMethod')).toBe('manual')
   })
 
+  it('keeps the entered account email visible on the OpenAI OAuth step', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper
+      .get('form#create-account-form input[type="text"]')
+      .setValue('user@example.com')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+
+    expect(wrapper.get('[data-testid="oauth-account-name-summary"]').text()).toContain(
+      'user@example.com'
+    )
+  })
+
   it.each([
     ['camelCase', { authMode: 'agentIdentity', agentIdentity: { agentRuntimeId: 'runtime' } }],
     ['nested identity without auth_mode', { agent_identity: { agent_runtime_id: 'runtime' } }],
