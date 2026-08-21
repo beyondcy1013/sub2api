@@ -9,6 +9,7 @@ const {
   importCodexSessionMock,
   createOpenAICodexPATMock,
   showInfoMock,
+  authIsSimpleMode,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   cloneAccountMock: vi.fn(),
@@ -16,6 +17,7 @@ const {
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
   showInfoMock: vi.fn(),
+  authIsSimpleMode: { value: true },
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -28,7 +30,11 @@ vi.mock('@/stores/app', () => ({
 }))
 
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ isSimpleMode: true }),
+  useAuthStore: () => ({
+    get isSimpleMode() {
+      return authIsSimpleMode.value
+    },
+  }),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -91,8 +97,13 @@ const OAuthAuthorizationFlowStub = defineComponent({
 })
 
 function mountModal(
-  props: { show?: boolean; proxies?: any[]; groups?: any[]; cloneSource?: any } = {}
+  propsOrGroups:
+    | { show?: boolean; proxies?: any[]; groups?: any[]; cloneSource?: any }
+    | any[] = {}
 ) {
+  const props = Array.isArray(propsOrGroups)
+    ? { show: true, proxies: [], groups: propsOrGroups }
+    : propsOrGroups
   return mount(CreateAccountModal, {
     props: {
       show: props.show ?? true,
@@ -100,22 +111,58 @@ function mountModal(
       groups: props.groups ?? [],
       cloneSource: props.cloneSource,
     },
-    global: {
-      stubs: {
-        BaseDialog: BaseDialogStub,
-        OAuthAuthorizationFlow: OAuthAuthorizationFlowStub,
-        ConfirmDialog: true,
-        Select: true,
-        Icon: true,
-        PlatformIcon: true,
-        ProxySelector: true,
-        ProxyAdBanner: true,
-        GroupSelector: true,
-        ModelWhitelistSelector: true,
-        QuotaLimitCard: true,
-      },
-    },
+    global: mountModalStubs,
   })
+}
+
+const GroupSelectorStub = defineComponent({
+  name: 'GroupSelector',
+  props: {
+    modelValue: {
+      type: Array,
+      default: () => [],
+    },
+  },
+  emits: ['update:modelValue'],
+  template: `
+    <button
+      type="button"
+      data-testid="select-pricing-groups"
+      @click="$emit('update:modelValue', [1, 2])"
+    >
+      groups
+    </button>
+  `,
+})
+
+const ModelWhitelistSelectorStub = defineComponent({
+  name: 'ModelWhitelistSelector',
+  props: {
+    modelValue: {
+      type: Array,
+      default: () => [],
+    },
+    platform: String,
+    syncCredentials: Object,
+  },
+  emits: ['update:modelValue'],
+  template: '<div data-testid="model-whitelist-selector" />',
+})
+
+const mountModalStubs = {
+  stubs: {
+    BaseDialog: BaseDialogStub,
+    OAuthAuthorizationFlow: OAuthAuthorizationFlowStub,
+    ConfirmDialog: true,
+    Select: true,
+    Icon: true,
+    PlatformIcon: true,
+    ProxySelector: true,
+    ProxyAdBanner: true,
+    GroupSelector: GroupSelectorStub,
+    ModelWhitelistSelector: ModelWhitelistSelectorStub,
+    QuotaLimitCard: true,
+  },
 }
 
 async function selectButtonByText(wrapper: ReturnType<typeof mountModal>, text: string) {
@@ -168,6 +215,7 @@ async function openCodexImportStep(toggleClicks = 0) {
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
   beforeEach(() => {
+    authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
     cloneAccountMock.mockReset().mockResolvedValue({ id: 43, platform: 'openai', type: 'apikey' })
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
@@ -181,6 +229,34 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
     showInfoMock.mockReset()
+  })
+
+  it('hides only the redundant account toggle when every selected group enables tier pricing', async () => {
+    authIsSimpleMode.value = false
+    const wrapper = mountModal([
+      { id: 1, long_context_pricing_enabled: true },
+      { id: 2, long_context_pricing_enabled: true },
+    ])
+
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="select-pricing-groups"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="openai-long-context-billing-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="create-openai-ws-mode"]').exists()).toBe(true)
+  })
+
+  it('keeps the account toggle when any selected group disables tier pricing', async () => {
+    authIsSimpleMode.value = false
+    const wrapper = mountModal([
+      { id: 1, long_context_pricing_enabled: true },
+      { id: 2, long_context_pricing_enabled: false },
+    ])
+
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="select-pricing-groups"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="openai-long-context-billing-toggle"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="create-openai-ws-mode"]').exists()).toBe(true)
   })
 
   it('sends false explicitly for normal OpenAI account creation by default', async () => {
@@ -242,6 +318,43 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'API Key')
 
     expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+  })
+
+  it('submits adaptive Kimi protocol endpoints', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Kimi adaptive')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-kimi')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      account_mode: 'payg',
+      api_protocol: 'adaptive',
+      base_url: 'https://api.moonshot.cn/v1',
+      api_base_urls: {
+        chat_completions: 'https://api.moonshot.cn/v1',
+        anthropic: 'https://api.moonshot.cn/anthropic'
+      }
+    })
+  })
+
+  it('uses the edited adaptive Chat endpoint when previewing upstream models', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+    await wrapper
+      .get('[data-testid="cn-adaptive-base-url-chat_completions"]')
+      .setValue('https://relay.example.com/v1')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-relay')
+
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
+      platform: 'kimi',
+      type: 'apikey',
+      base_url: 'https://relay.example.com/v1',
+      api_key: 'sk-relay'
+    })
   })
 
   it('exposes Agent Identity in the OpenAI authorization methods', async () => {

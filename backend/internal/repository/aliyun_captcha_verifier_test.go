@@ -13,6 +13,18 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
+// Alibaba Cloud SDK follows proxy environment variables by default; these tests
+// must always target the loopback httptest server, never the host proxy.
+func disableProxyForAliyunCaptchaTest(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+		"http_proxy", "https_proxy", "all_proxy",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
 // newAliyunCaptchaTestTarget 起一个假的阿里云端点，让真实 SDK 走完整的签名/序列化链路。
 func newAliyunCaptchaTestTarget(t *testing.T, handler http.HandlerFunc) (*aliyunCaptchaVerifier, service.AliyunCaptchaCredentials) {
 	t.Helper()
@@ -30,6 +42,7 @@ func newAliyunCaptchaTestTarget(t *testing.T, handler http.HandlerFunc) (*aliyun
 }
 
 func TestAliyunCaptchaVerifier_VerifySuccess(t *testing.T) {
+	disableProxyForAliyunCaptchaTest(t)
 	var capturedParam, capturedSceneID string
 	verifier, cred := newAliyunCaptchaTestTarget(t, func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, r.ParseForm())
@@ -48,6 +61,7 @@ func TestAliyunCaptchaVerifier_VerifySuccess(t *testing.T) {
 }
 
 func TestAliyunCaptchaVerifier_VerifyResultFalse(t *testing.T) {
+	disableProxyForAliyunCaptchaTest(t)
 	verifier, cred := newAliyunCaptchaTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"Code":"Success","RequestId":"req-2","Success":true,"Result":{"VerifyResult":false,"VerifyCode":"F002"}}`))
@@ -60,6 +74,7 @@ func TestAliyunCaptchaVerifier_VerifyResultFalse(t *testing.T) {
 }
 
 func TestAliyunCaptchaVerifier_APIErrorNormalized(t *testing.T) {
+	disableProxyForAliyunCaptchaTest(t)
 	verifier, cred := newAliyunCaptchaTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -74,6 +89,7 @@ func TestAliyunCaptchaVerifier_APIErrorNormalized(t *testing.T) {
 }
 
 func TestAliyunCaptchaVerifier_TransportError(t *testing.T) {
+	disableProxyForAliyunCaptchaTest(t)
 	server := httptest.NewServer(http.NotFoundHandler())
 	endpoint := strings.TrimPrefix(server.URL, "http://")
 	server.Close() // 立即关闭，制造连接失败

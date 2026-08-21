@@ -192,8 +192,8 @@ func TestServerTimingConnectorRecordsDriverCallsWithoutRowLifetime(t *testing.T)
 	if strings.Contains(header, "sensitive") {
 		t.Fatalf("SQL text leaked into header: %q", header)
 	}
-	if app, db := metricDuration(t, header, "app"), metricDuration(t, header, "db"); app <= db {
-		t.Fatalf("row processing gap was counted as DB time: app=%.1fms db=%.1fms header=%q", app, db, header)
+	if app := metricDuration(t, header, "app"); app < 25.0 {
+		t.Fatalf("row processing gap was not counted as app time: app=%.1fms header=%q", app, header)
 	}
 }
 

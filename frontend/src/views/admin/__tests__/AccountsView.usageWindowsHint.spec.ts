@@ -119,9 +119,23 @@ function mountView() {
         HelpTooltip: HelpTooltipStub,
         Pagination: true,
         ConfirmDialog: true,
-        AccountTableActions: { template: '<div><slot name="before" /><slot name="beforeCreate" /><slot name="after" /></div>' },
+        AccountTableActions: {
+          props: ['loading', 'showFilters', 'recycled', 'deleted'],
+          emits: ['toggle-filters'],
+          template: `
+            <div>
+              <slot name="before" />
+              <button data-test="toggle-filters" @click="$emit('toggle-filters')" />
+              <slot name="beforeCreate" />
+              <slot name="after" />
+            </div>
+          `
+        },
         AccountSchedulingRuntimeSummary: { template: '<div data-test="scheduling-runtime-summary"></div>' },
-        AccountTableFilters: { template: '<div></div>' },
+        AccountTableFilters: {
+          props: ['groups'],
+          template: '<div data-test="account-filters" :data-group-count="groups.length"></div>'
+        },
         AccountBulkActionsBar: true,
         AccountActionMenu: true,
         ImportDataModal: true,
@@ -174,6 +188,17 @@ describe('admin AccountsView usage windows hint', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+  })
+
+  it('keeps groups available when loading proxies fails', async () => {
+    getAllProxies.mockRejectedValue(new Error('proxy service unavailable'))
+    getAllGroups.mockResolvedValue([{ id: 7, name: 'production' }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="toggle-filters"]').trigger('click')
+    expect(wrapper.get('[data-test="account-filters"]').attributes('data-group-count')).toBe('1')
   })
 
   it('renders an explanatory tooltip next to the usage windows column header', async () => {
