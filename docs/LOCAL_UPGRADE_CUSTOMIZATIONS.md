@@ -105,10 +105,11 @@ The client has these runtime guarantees:
 
 The Android WebView appends `sub2apiAndroid/<version>` to its user agent. The
 account-management page uses that explicit identity to force `DataTable`'s
-desktop-style table layout even below the normal 768px breakpoint, preserving
-horizontal scrolling and the fixed selection/action/name columns. This override
-is intentionally scoped to the native client; ordinary mobile browsers continue
-to use the shared card layout.
+desktop-style table layout even below the normal 768px breakpoint. The native
+layout fixes only the 36px selection column, allowing operation, name, and every
+later column to move through the viewport during horizontal swipes; desktop keeps
+the fixed selection/action/name columns. This override is intentionally scoped to
+the native client; ordinary mobile browsers continue to use the shared card layout.
 
 Regression verification:
 

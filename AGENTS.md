@@ -43,8 +43,10 @@ Local deployment rules for this project.
   coalesce network callbacks while resolution is already in flight.
 - The native client UA contains `sub2apiAndroid/<version>`. On the account-management
   page this client must use the same dense table layout as desktop, with horizontal
-  scrolling and the existing sticky leading columns. Ordinary mobile browsers retain
-  the generic card layout.
+  scrolling. Pin only the 36px selection column in the native Android layout so the
+  operation, name, and later columns can all enter the viewport while swiping; desktop
+  keeps the existing selection/action/name sticky columns. Ordinary mobile browsers
+  retain the generic card layout.
 - Update endpoints remain paired by source index in `SourceRegistry.UPDATE_URLS` and are
   raced concurrently. The Sub2API service on port `18381` does not expose the webClx
   artifact API, so do not replace the verified `11111`/`11112` update endpoints without
@@ -155,7 +157,7 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   - `状态` (status) has explicit `width: '80px'` as its minimum width on the account table.
   - Table headers, labels, sort indicators, and desktop cell content remain single-line and non-shrinking.
   - `AccountsView.vue` enables `DataTable`'s `single-line-cells` and `dynamic-column-widths` modes. In this opt-in mode, declared `column.width` values are minimum widths and other content may expand columns, while the name cell keeps its explicit `212px` cap; the table scrolls horizontally when necessary.
-  - The selection, operation, and name columns stay fixed on the left while the account table scrolls horizontally, using their declared `36px`, `220px`, and `212px` widths for cumulative offsets.
+  - On desktop, the selection, operation, and name columns stay fixed on the left while the account table scrolls horizontally, using their declared `36px`, `220px`, and `212px` widths for cumulative offsets. The native Android table fixes only the `36px` selection column; operation, name, and every later column must scroll into view instead of remaining hidden behind a sticky region wider than the viewport.
   - Other `DataTable` consumers retain the default fixed-width behavior where declared widths apply `width`, `minWidth`, and `maxWidth`.
   - The first and last table cells use `4px` outer padding so the table has no unnecessary edge whitespace.
   - Non-final columns retain 1px vertical separators in light and dark mode.

@@ -247,11 +247,11 @@
           :loading="loading"
           :sticky-first-column="false"
           :sticky-actions-column="false"
-          :sticky-left-column-keys="ACCOUNT_STICKY_LEFT_COLUMN_KEYS"
+          :sticky-left-column-keys="accountStickyLeftColumnKeys"
           compact-rows
           single-line-cells
           dynamic-column-widths
-          :force-table-layout="isSub2ApiAndroidClient()"
+          :force-table-layout="useAndroidTableLayout"
           row-key="id"
           :server-side-sort="true"
           @sort="handleSort"
@@ -749,6 +749,7 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const balanceCheckEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.balanceCheck))
 const authStore = useAuthStore()
+const useAndroidTableLayout = isSub2ApiAndroidClient()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
@@ -2106,6 +2107,9 @@ function getAntigravityTierClass(row: any): string {
 }
 
 const ACCOUNT_STICKY_LEFT_COLUMN_KEYS = ['select', 'actions', 'name']
+const accountStickyLeftColumnKeys = useAndroidTableLayout
+  ? ['select']
+  : ACCOUNT_STICKY_LEFT_COLUMN_KEYS
 
 // All available columns
 const allColumns = computed(() => {
