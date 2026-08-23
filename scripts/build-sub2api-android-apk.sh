@@ -17,7 +17,7 @@ mkdir -p "${TOOLCHAIN_DIR}" "${TMP_DIR}"
 export ANDROID_HOME="${SDK_ROOT}"
 export ANDROID_SDK_ROOT="${SDK_ROOT}"
 
-client_version="$(bash "${ROOT_DIR}/backend/scripts/resolve-version.sh")"
+client_version="$(tr -d '[:space:]' <"${ANDROID_DIR}/VERSION")"
 IFS=. read -r version_major version_minor version_patch_extra <<<"${client_version}"
 version_patch="${version_patch_extra%%-*}"
 if [[ ! "${version_major}" =~ ^[0-9]+$ \

@@ -75,6 +75,13 @@ virtual-mouse experiment introduced by `5ff00db87`. Future feature reverts must
 be scoped to the feature; preserve the Android project, tests, signing identity,
 and release script.
 
+`android/VERSION` is the authoritative client release version. It is intentionally
+independent from `backend/cmd/server/VERSION`: the backend remained at `0.1.179`
+after Android `0.1.180` had already been published, which caused the first rebuild
+attempt to produce a downgrade artifact and fail the required-artifact gate. Every
+Android publication must advance this client version monotonically relative to the
+current update manifest.
+
 The client has these runtime guarantees:
 
 - cold start submits every configured Sub2API health probe concurrently and

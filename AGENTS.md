@@ -30,6 +30,9 @@ Local deployment rules for this project.
 
 - The maintained native WebView client lives in `android/`; its release entrypoint is
   `scripts/build-sub2api-android-apk.sh`.
+- `android/VERSION` is the authoritative Android release version. Keep it monotonic
+  against the published update manifest; do not derive it from the independently
+  versioned backend service.
 - Cold start must probe every entry in `SourceRegistry.URLS` concurrently and load the
   first valid health response immediately. Do not serialize a remembered source before
   the race, add a fixed delay, or show automatic source-switch Toasts/countdowns.

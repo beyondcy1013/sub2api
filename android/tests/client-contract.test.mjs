@@ -18,7 +18,7 @@ const gradle = read("android/app/build.gradle.kts");
 const gradleProperties = read("android/gradle.properties");
 const buildScript = read("scripts/build-sub2api-android-apk.sh");
 const strings = read("android/app/src/main/res/values/strings.xml");
-const versionFile = read("backend/cmd/server/VERSION").trim();
+const versionFile = read("android/VERSION").trim();
 
 test("Sub2API Android cold start races every configured source without a preferred-source wait", () => {
   for (const source of [
@@ -118,10 +118,11 @@ test("Sub2API Android release signing explicitly supports Android v1 and v2 inst
   assert.match(buildScript, /--v2-signing-enabled true/);
 });
 
-test("Sub2API Android release identity comes from backend version", () => {
+test("Sub2API Android release identity comes from its monotonic client version", () => {
   assert.match(gradle, /applicationId = "com\.sub2api\.app"/);
   assert.match(gradle, /providers\.gradleProperty\("sub2apiVersion"\)/);
-  assert.match(buildScript, /backend\/scripts\/resolve-version\.sh/);
+  assert.match(buildScript, /ANDROID_DIR}\/VERSION/);
+  assert.doesNotMatch(buildScript, /backend\/scripts\/resolve-version\.sh/);
   assert.match(buildScript, /apksigner" verify --verbose --print-certs/);
   assert.match(buildScript, /sub2api-\$\{client_version\}\.apk/);
   assert.match(versionFile, /^[0-9]+\.[0-9]+\.[0-9]+$/);
