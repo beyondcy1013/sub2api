@@ -41,6 +41,10 @@ Local deployment rules for this project.
   sources. If runtime recovery finds no source, preserve the current WebView.
 - Main-frame failures must match the selected origin and current navigation generation;
   coalesce network callbacks while resolution is already in flight.
+- The native client UA contains `sub2apiAndroid/<version>`. On the account-management
+  page this client must use the same dense table layout as desktop, with horizontal
+  scrolling and the existing sticky leading columns. Ordinary mobile browsers retain
+  the generic card layout.
 - Update endpoints remain paired by source index in `SourceRegistry.UPDATE_URLS` and are
   raced concurrently. The Sub2API service on port `18381` does not expose the webClx
   artifact API, so do not replace the verified `11111`/`11112` update endpoints without

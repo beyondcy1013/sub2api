@@ -251,6 +251,7 @@
           compact-rows
           single-line-cells
           dynamic-column-widths
+          :force-table-layout="isSub2ApiAndroidClient()"
           row-key="id"
           :server-side-sort="true"
           @sort="handleSort"
@@ -740,6 +741,7 @@ import { formatUsageWindowReset, formatUsageWindowUtilization } from '@/utils/us
 import { refreshAccountUsageInBatches } from '@/utils/batchAccountUsageRefresh'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
+import { isSub2ApiAndroidClient } from '@/utils/device'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo, UsageProgress, UpdateSchedulingRateRequest, AdminDataImportedAccount } from '@/types'
 

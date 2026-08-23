@@ -478,6 +478,27 @@ describe('DataTable', () => {
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 1, 2])
   })
 
+  it('renders the horizontally scrollable table on a mobile viewport when forced', () => {
+    stubMobileMatchMedia()
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'name', label: 'Name', width: '212px' },
+          { key: 'status', label: 'Status', width: '80px' }
+        ],
+        data: [{ id: 1, name: 'Android account', status: 'active' }],
+        rowKey: 'id',
+        forceTableLayout: true
+      }
+    })
+
+    expect(wrapper.find('.table-wrapper').exists()).toBe(true)
+    expect(wrapper.find('table').exists()).toBe(true)
+    expect(wrapper.find('tbody tr[data-row-id="1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-field="name"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="select-all-mobile"]').exists()).toBe(false)
+  })
+
   it('applies row-derived classes to mobile cards', () => {
     stubMobileMatchMedia()
     const wrapper = mount(DataTable, {

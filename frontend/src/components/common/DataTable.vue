@@ -1,5 +1,5 @@
 <template>
-  <div v-if="!isDesktopViewport" class="space-y-3">
+  <div v-if="!useTableLayout" class="space-y-3">
     <template v-if="loading">
       <div v-for="i in 5" :key="i" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
         <div class="space-y-3">
@@ -480,6 +480,8 @@ interface Props {
   singleLineCells?: boolean
   /** Treat column.width as a minimum and let content expand the column. */
   dynamicColumnWidths?: boolean
+  /** Always render the table layout, even below the normal desktop breakpoint. */
+  forceTableLayout?: boolean
   /** Estimated row height in px for the virtualizer (default 56) */
   estimateRowHeight?: number
   /** Number of rows to render beyond the visible area (default 5) */
@@ -509,6 +511,7 @@ const props = withDefaults(defineProps<Props>(), {
   compactRows: false,
   singleLineCells: false,
   dynamicColumnWidths: false,
+  forceTableLayout: false,
   selectable: false,
   selectedKeys: () => []
 })
@@ -668,15 +671,16 @@ const resolveStableRowKey = (row: any): string | number | undefined => {
 const resolveRowKey = (row: any, index: number) => resolveStableRowKey(row) ?? index
 
 const dataColumns = computed(() => props.columns.filter((column) => column.key !== 'actions'))
+const useTableLayout = computed(() => props.forceTableLayout || isDesktopViewport.value)
 const columnsSignature = computed(() =>
   props.columns.map((column) => `${column.key}:${column.sortable ? '1' : '0'}`).join('|')
 )
 
 watch(
-  isDesktopViewport,
-  async (isDesktop) => {
+  useTableLayout,
+  async (isTable) => {
     detachDesktopTableTracking()
-    if (!isDesktop) return
+    if (!isTable) return
     await nextTick()
     attachDesktopTableTracking()
   },
@@ -787,7 +791,7 @@ const toggleAllVisible = (checked: boolean) => {
 // 是否启用虚拟化:仅桌面端且行数超过阈值时开启。小列表全量渲染,彻底绕开虚拟器的
 // 估算/测量/滚动补偿链路,消除可变行高导致的滚动抖动。
 const shouldVirtualize = computed(() =>
-  isDesktopViewport.value && (sortedData.value?.length ?? 0) > (props.virtualizeThreshold ?? 100)
+  useTableLayout.value && (sortedData.value?.length ?? 0) > (props.virtualizeThreshold ?? 100)
 )
 
 const rowVirtualizer = useVirtualizer(computed(() => ({

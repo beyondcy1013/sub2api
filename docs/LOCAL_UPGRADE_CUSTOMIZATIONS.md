@@ -103,6 +103,13 @@ The client has these runtime guarantees:
   `:11112` artifact origins, so update routing intentionally retains the
   separate paired endpoint list.
 
+The Android WebView appends `sub2apiAndroid/<version>` to its user agent. The
+account-management page uses that explicit identity to force `DataTable`'s
+desktop-style table layout even below the normal 768px breakpoint, preserving
+horizontal scrolling and the fixed selection/action/name columns. This override
+is intentionally scoped to the native client; ordinary mobile browsers continue
+to use the shared card layout.
+
 Regression verification:
 
 ```bash

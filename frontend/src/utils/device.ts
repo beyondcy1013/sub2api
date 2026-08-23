@@ -21,6 +21,7 @@ interface DeviceDetectionEnvironment {
 const MOBILE_UA_RE = /\b(Mobi|Android|iPhone|iPod|Windows Phone|webOS|BlackBerry|IEMobile)\b/i
 const TABLET_UA_RE = /\b(iPad|Tablet)\b/i
 const IOS_UA_RE = /\b(iPhone|iPad|iPod)\b/i
+const SUB2API_ANDROID_UA_RE = /\bsub2apiAndroid\/[0-9]+(?:\.[0-9]+){2}\b/i
 
 function matchesQuery(
   matchMedia: DeviceDetectionEnvironment['matchMedia'],
@@ -60,6 +61,15 @@ export function isMobileDevice(): boolean {
     navigator,
     matchMedia: typeof window !== 'undefined' ? window.matchMedia.bind(window) : undefined,
   })
+}
+
+export function detectSub2ApiAndroidClient(env: DeviceDetectionEnvironment = {}): boolean {
+  return SUB2API_ANDROID_UA_RE.test(env.navigator?.userAgent || '')
+}
+
+export function isSub2ApiAndroidClient(): boolean {
+  return typeof navigator !== 'undefined'
+    && detectSub2ApiAndroidClient({ navigator })
 }
 
 export function detectIOSDevice(env: DeviceDetectionEnvironment = {}): boolean {

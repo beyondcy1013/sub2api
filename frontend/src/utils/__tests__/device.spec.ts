@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectIOSDevice, detectMobileDevice } from '../device'
+import { detectIOSDevice, detectMobileDevice, detectSub2ApiAndroidClient } from '../device'
 
 describe('detectMobileDevice', () => {
   it('prefers userAgentData.mobile when available', () => {
@@ -89,6 +89,24 @@ describe('detectIOSDevice', () => {
         userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136.0 Safari/537.36',
         platform: 'MacIntel',
         maxTouchPoints: 0,
+      },
+    })).toBe(false)
+  })
+})
+
+describe('detectSub2ApiAndroidClient', () => {
+  it('recognizes the versioned UA token injected by the native Android client', () => {
+    expect(detectSub2ApiAndroidClient({
+      navigator: {
+        userAgent: 'Mozilla/5.0 Android WebView sub2apiAndroid/0.1.182',
+      },
+    })).toBe(true)
+  })
+
+  it('does not force table layout in an ordinary Android browser', () => {
+    expect(detectSub2ApiAndroidClient({
+      navigator: {
+        userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/136.0 Mobile Safari/537.36',
       },
     })).toBe(false)
   })
