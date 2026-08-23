@@ -26,6 +26,32 @@ Local deployment rules for this project.
 - Writable data path: `/home/third_party/sub2api/deploy/data`
 - HTTP port: `18381`
 
+## Android Client
+
+- The maintained native WebView client lives in `android/`; its release entrypoint is
+  `scripts/build-sub2api-android-apk.sh`.
+- Cold start must probe every entry in `SourceRegistry.URLS` concurrently and load the
+  first valid health response immediately. Do not serialize a remembered source before
+  the race, add a fixed delay, or show automatic source-switch Toasts/countdowns.
+- Keep a healthy selected source stable. Network callbacks verify the current source in
+  the background; only a confirmed failure may trigger a silent race of the remaining
+  sources. If runtime recovery finds no source, preserve the current WebView.
+- Main-frame failures must match the selected origin and current navigation generation;
+  coalesce network callbacks while resolution is already in flight.
+- Update endpoints remain paired by source index in `SourceRegistry.UPDATE_URLS` and are
+  raced concurrently. The Sub2API service on port `18381` does not expose the webClx
+  artifact API, so do not replace the verified `11111`/`11112` update endpoints without
+  first adding and testing such a proxy.
+- Preserve the existing `sub2api` signing key and explicitly enable APK Signature Scheme
+  v1 and v2. Never generate a replacement key for an existing application ID.
+- Run `node --test android/tests/client-contract.test.mjs` after Android changes.
+- The Android client was previously removed wholesale while reverting an unrelated
+  virtual-mouse experiment. Revert a feature at file/hunk scope; never delete `android/`
+  merely to remove one client behavior.
+- Preserve the Android contract documented in
+  [docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md](docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md) across
+  upstream merges and record future behavior changes there.
+
 ## Data Isolation
 
 This service must use the main account database/config:

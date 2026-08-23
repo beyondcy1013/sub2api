@@ -66,6 +66,42 @@ operators not to use the WebUI binary updater, because it installs an upstream
 binary and discards local enhancements. Link to `docs/UPGRADE_RUNBOOK.md`
 instead.
 
+## Android Fastest-Healthy-Source Contract
+
+As of 2026-08-23, the native Android WebView client is maintained in `android/`
+and built by `scripts/build-sub2api-android-apk.sh`. It was restored after commit
+`f719641b3` reverted the entire client while attempting to remove only the
+virtual-mouse experiment introduced by `5ff00db87`. Future feature reverts must
+be scoped to the feature; preserve the Android project, tests, signing identity,
+and release script.
+
+The client has these runtime guarantees:
+
+- cold start submits every configured Sub2API health probe concurrently and
+  immediately loads the first healthy completion;
+- a remembered origin never adds a serial wait before that race;
+- automatic selection and recovery are silent, with no countdown, switching
+  Toast, spinner, or fixed delay;
+- network callbacks are coalesced, verify the current source first, and do not
+  switch while it remains healthy;
+- only a selected-origin main-frame failure or a failed current-source probe
+  starts a race excluding that failed source;
+- runtime all-failed results preserve the existing WebView; cold-start
+  all-failed results alone show the retry view;
+- stale or duplicate WebView failure callbacks are guarded by selected origin
+  and navigation generation;
+- update checks concurrently race the corresponding webClx artifact endpoints.
+  Read-only verification on 2026-08-23 found the update API returns `404` on
+  both Sub2API `:18381` service origins and `200` on the paired `:11111` and
+  `:11112` artifact origins, so update routing intentionally retains the
+  separate paired endpoint list.
+
+Regression verification:
+
+```bash
+node --test android/tests/client-contract.test.mjs
+```
+
 ## Shared Account-Management Contract
 
 Both profiles must preserve all of the following:
