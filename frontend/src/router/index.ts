@@ -560,7 +560,8 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Plugin Management',
       titleKey: 'admin.plugins.title',
-      descriptionKey: 'admin.plugins.description    }
+      descriptionKey: 'admin.plugins.description'
+    }
   },
   {
     path: '/admin/announcements',
