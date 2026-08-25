@@ -109,7 +109,6 @@ func grokStickyAffinitySeed(sessionID string, body []byte) string {
 	}
 	return "grok-affinity:v1:" + model + ":" + sessionID
 }
-}
 
 // explicitOpenAIRequestSessionID extends the common OpenAI session signals
 // with Grok's native conversation header only for requests authenticated to a

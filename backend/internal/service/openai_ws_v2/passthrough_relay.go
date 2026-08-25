@@ -279,41 +279,36 @@ func Relay(
 	if !options.StartClientAfterFirstDownstream {
 		startClientReader()
 	}
-upstreamDone := make(chan struct{})
-go func() {
-	defer close(upstreamDone)
-	runUpstreamToClient(
-		relayCtx,
-		upstreamConn,
-		writeClient,
-		startAt,
-		nowFn,
-		state,
-		options.OnUsageParseFailure,
-		options.OnTurnComplete,
-		options.BeforeWriteClient,
-		func(msgType coderws.MessageType, payload []byte) {
-			if options.BeforeClientWrite != nil {
-				options.BeforeClientWrite(msgType, payload)
-			}
-			if options.StartClientAfterFirstDownstream {
-				// Start the control-plane reader before the first downstream
-				// frame can become visible to the peer. Otherwise the peer can
-				// react to that frame and cancel the outer context while no
-				// reader exists to deliver the precise close code.
-				startClientReader()
-			}
-		},
-		options.AfterClientWrite,
-		nil,
-		&dropDownstreamWrites,
-		upstreamToClientFrames,
-		droppedDownstreamFrames,
-		markActivity,
-		onTrace,
-		exitCh,
-	)
-}()	go runIdleWatchdog(relayCtx, nowFn, options.IdleTimeout, &lastActivity, onTrace, exitCh)
+	upstreamDone := make(chan struct{})
+	go func() {
+		defer close(upstreamDone)
+		runUpstreamToClient(
+			relayCtx,
+			upstreamConn,
+			writeClient,
+			startAt,
+			nowFn,
+			state,
+			options.OnUsageParseFailure,
+			options.OnTurnComplete,
+			options.BeforeWriteClient,
+			options.BeforeClientWrite,
+			options.AfterClientWrite,
+			func(msgType coderws.MessageType, payload []byte) {
+				if options.StartClientAfterFirstDownstream {
+					startClientReader()
+				}
+			},
+			&dropDownstreamWrites,
+			upstreamToClientFrames,
+			droppedDownstreamFrames,
+			markActivity,
+			onTrace,
+			exitCh,
+		)
+	}()
+
+	go runIdleWatchdog(relayCtx, nowFn, options.IdleTimeout, &lastActivity, onTrace, exitCh)
 
 	firstExit := <-exitCh
 	// An outer ingress cancellation is a control-plane close, not a graceful
