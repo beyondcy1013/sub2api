@@ -292,13 +292,20 @@ func Relay(
 			options.OnUsageParseFailure,
 			options.OnTurnComplete,
 			options.BeforeWriteClient,
-			options.BeforeClientWrite,
-			options.AfterClientWrite,
 			func(msgType coderws.MessageType, payload []byte) {
+				if options.BeforeClientWrite != nil {
+					options.BeforeClientWrite(msgType, payload)
+				}
 				if options.StartClientAfterFirstDownstream {
+					// Start the control-plane reader before the first downstream
+					// frame can become visible to the peer. Otherwise the peer can
+					// react to that frame and cancel the outer context while no
+					// reader exists to deliver the precise close code.
 					startClientReader()
 				}
 			},
+			options.AfterClientWrite,
+			nil,
 			&dropDownstreamWrites,
 			upstreamToClientFrames,
 			droppedDownstreamFrames,
@@ -364,7 +371,18 @@ func Relay(
 	// ReadFrame observes relayCtx cancellation and Close is the transport-level
 	// fallback. Join the reader before touching relayState or firing the final
 	// turn callback; otherwise a late read can race Relay's result settlement.
-	<-upstreamDone
+	if ctx.Err() != nil {
+		// Outer cancellation: the downstream client write intentionally outlives
+		// relayCtx (see writeClient), so the reader goroutine may legitimately
+		// stay parked inside that write. Use the same short convergence budget as
+		// the second-exit wait above; the orphaned write finishes on its own.
+		select {
+		case <-upstreamDone:
+		case <-time.After(200 * time.Millisecond):
+		}
+	} else {
+		<-upstreamDone
+	}
 
 	emitTurnComplete(options.OnTurnComplete, state, finalizePendingBareError(state, nowFn()))
 	enrichResult(&result, state, nowFn().Sub(startAt))
