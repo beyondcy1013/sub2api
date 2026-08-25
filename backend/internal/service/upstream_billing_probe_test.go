@@ -110,7 +110,7 @@ func (r *upstreamBillingProbeAccountRepo) UpdateExtra(_ context.Context, id int6
 	return nil
 }
 
-func (r *upstreamBillingProbeAccountRepo) UpdateUpstreamBillingProbeSnapshot(_ context.Context, expected *Account, snapshot *UpstreamBillingProbeSnapshot) error {
+func (r *upstreamBillingProbeAccountRepo) UpdateUpstreamBillingProbeSnapshot(_ context.Context, expected *Account, snapshot *UpstreamBillingProbeSnapshot, _ ...*float64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	account := r.accounts[expected.ID]
@@ -715,6 +715,50 @@ func TestUpstreamBillingProbeUnsupportedAndAccountToggle(t *testing.T) {
 	repo.accounts[invalid.ID] = invalid
 	err = svc.SetAccountEnabled(context.Background(), invalid.ID, true)
 	require.True(t, errors.Is(err, ErrUpstreamBillingProbeAccountInvalid))
+}
+
+func TestUpstreamBillingProbeAutoSchemeFallsBackToNikoAPI(t *testing.T) {
+	account := &Account{
+		ID:          84,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://upstream.example"},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+	upstream := &accountBalanceQueryHTTPStub{handler: func(req *http.Request) *http.Response {
+		switch req.URL.Path {
+		case "/v1/sub2api/billing":
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"not found"}`)
+		case "/api/log/token":
+			return balanceQueryResponse(http.StatusOK, `{
+				"success":true,
+				"data":[{
+					"type":2,
+					"created_at":1787464852,
+					"group":"codex-mixed",
+					"other":{"group_ratio":0.062,"user_group_ratio":0.062,"model_ratio":2.5}
+				}]
+			}`)
+		default:
+			return balanceQueryResponse(http.StatusNotFound, `{"error":"unexpected endpoint"}`)
+		}
+	}}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	fixedNow := time.Date(2026, time.August, 23, 6, 6, 0, 0, time.UTC)
+	svc.now = func() time.Time { return fixedNow }
+
+	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+
+	require.NoError(t, err)
+	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
+	require.Equal(t, 0.062, snapshot.Data["resolved_rate_multiplier"])
+	require.Equal(t, string(AccountBalanceQuerySchemeNikoAPI), snapshot.Data["algorithm"])
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/v1/sub2api/billing", upstream.requests[0].URL.Path)
+	require.Equal(t, "/api/log/token", upstream.requests[1].URL.Path)
+	require.Equal(t, UpstreamBillingProbeStatusOK, account.Extra[UpstreamBillingProbeExtraKey].(*UpstreamBillingProbeSnapshot).Status)
 }
 
 func TestUpstreamBillingProbeRunnerIsBoundedAndManualProbeIgnoresSwitches(t *testing.T) {

@@ -214,8 +214,10 @@ type UpstreamBillingProbeService struct {
 	instanceID   string
 }
 
-type upstreamBillingProbeSnapshotWriter interface {
-	UpdateUpstreamBillingProbeSnapshot(context.Context, *Account, *UpstreamBillingProbeSnapshot) error
+// UpstreamBillingProbeSnapshotWriter is the optional persistence capability
+// required by UpstreamBillingProbeService.
+type UpstreamBillingProbeSnapshotWriter interface {
+	UpdateUpstreamBillingProbeSnapshot(context.Context, *Account, *UpstreamBillingProbeSnapshot, ...*float64) error
 }
 
 type upstreamBillingProbeDueAccountLister interface {
@@ -908,7 +910,7 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 }
 
 func (s *UpstreamBillingProbeService) updateSnapshot(ctx context.Context, account *Account, snapshot *UpstreamBillingProbeSnapshot) error {
-	writer, ok := s.accountRepo.(upstreamBillingProbeSnapshotWriter)
+	writer, ok := s.accountRepo.(UpstreamBillingProbeSnapshotWriter)
 	if !ok {
 		return ErrUpstreamBillingProbeUnavailable
 	}

@@ -586,10 +586,9 @@ func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits
 		_, _, _ = sanitizeOpenAIResponsesToolParameterTypes(large)
 	})
 
-	// 命中切片扩容是对数级，留出充裕余量；线性写法在这里会是 2000 量级。
-	// 干净环境实测 large 约 17 allocs，200 是 10 倍余量，同时容忍 CI 慢 pod 上
-	// 包内后台 goroutine（日志/ticker）对进程级 Mallocs 的噪声污染。
-	require.Less(t, largeAllocs, 200.0,
+	// 命中切片扩容是对数级；并发测试期间后台 goroutine 的少量全局分配会带来
+	// 噪声。线性写法在这里仍是约 2000 次分配，25 倍阈值足够稳定地区分两者。
+	require.Less(t, largeAllocs, smallAllocs*25,
 		"分配次数随命中数线性增长，说明退回了逐路径全量重写 (small=%v large=%v)", smallAllocs, largeAllocs)
 
 	// 同时确认大 body 的结果确实全部修好了。
