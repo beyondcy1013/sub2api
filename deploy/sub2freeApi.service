@@ -8,9 +8,9 @@ Wants=postgresql.service redis.service
 Type=simple
 User=sub2freeapi
 Group=sub2freeapi
-WorkingDirectory=/home/third_party/sub2freeApi/deploy
-EnvironmentFile=/home/third_party/sub2freeApi/deploy/sub2api.env
-ExecStart=/home/third_party/bin/sub2freeApi/sub2freeApi
+WorkingDirectory=/home/codes/third_party/sub2freeApi/deploy
+EnvironmentFile=/home/codes/third_party/sub2freeApi/deploy/sub2api.env
+ExecStart=/home/codes/third_party/bin/sub2freeApi/sub2freeApi
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -22,7 +22,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=false
 PrivateTmp=true
-ReadWritePaths=/home/third_party/sub2freeApi/deploy/data
+ReadWritePaths=/home/codes/third_party/sub2freeApi/deploy/data
 
 # Environment - Server configuration
 # Modify these values to change listen address and port

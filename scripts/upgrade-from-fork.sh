@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CANONICAL_REPO="/home/third_party/sub2api"
-LEGACY_REPO="/home/third_party/sub2freeApi"
+CANONICAL_REPO="/home/codes/third_party/sub2api"
+LEGACY_REPO="/home/codes/third_party/sub2freeApi"
 REQUESTED_REPO="${1:-$CANONICAL_REPO}"
 
 if [ "$(realpath "$REQUESTED_REPO")" != "$CANONICAL_REPO" ]; then
@@ -19,7 +19,7 @@ if git -C "$CANONICAL_REPO" rev-parse -q --verify MERGE_HEAD >/dev/null; then
 fi
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-CANONICAL_BACKUP="/home/third_party/upgrade-backups/sub2api-$TIMESTAMP"
+CANONICAL_BACKUP="/home/codes/third_party/upgrade-backups/sub2api-$TIMESTAMP"
 STATE_FILE="$CANONICAL_BACKUP/upgrade-state.env"
 
 snapshot_repo() {
@@ -27,7 +27,7 @@ snapshot_repo() {
   local name backup branch
 
   name="$(basename "$repo")"
-  backup="/home/third_party/upgrade-backups/${name}-${TIMESTAMP}"
+  backup="/home/codes/third_party/upgrade-backups/${name}-${TIMESTAMP}"
   branch="backup-pre-upgrade-${TIMESTAMP}"
   mkdir -p "$backup"
   git -C "$repo" branch "$branch" HEAD
@@ -65,8 +65,8 @@ record_runtime() {
     printf 'sub2api_pid=%s\n' "$main_pid"
     printf 'sub2freeApi_pid=%s\n' "$free_pid"
     sha256sum \
-      /home/third_party/bin/sub2api/sub2api \
-      /home/third_party/bin/sub2freeApi/sub2freeApi \
+      /home/codes/third_party/bin/sub2api/sub2api \
+      /home/codes/third_party/bin/sub2freeApi/sub2freeApi \
       "/proc/$main_pid/exe" "/proc/$free_pid/exe"
     systemctl is-active sub2api.service
     systemctl is-active sub2freeApi.service

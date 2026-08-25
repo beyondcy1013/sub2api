@@ -4,11 +4,11 @@ set -euo pipefail
 EXPECTED_OLD_SHA=""
 EXPECTED_MAIN_PID=""
 EXPECTED_FREE_PID=""
-ARTIFACT="/home/third_party/sub2api/backend/bin/sub2api-unified.new"
+ARTIFACT="/home/codes/third_party/sub2api/backend/bin/sub2api-unified.new"
 MAIN_SERVICE="sub2api.service"
-MAIN_BINARY="/home/third_party/bin/sub2api/sub2api"
+MAIN_BINARY="/home/codes/third_party/bin/sub2api/sub2api"
 FREE_SERVICE="sub2freeApi.service"
-FREE_BINARY="/home/third_party/bin/sub2freeApi/sub2freeApi"
+FREE_BINARY="/home/codes/third_party/bin/sub2freeApi/sub2freeApi"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 
 report_error() {
@@ -189,10 +189,10 @@ if [ "$ARTIFACT_SHA" = "$EXPECTED_OLD_SHA" ]; then
   test "$FREE_PID" = "$EXPECTED_FREE_PID"
   verify_service \
     "$MAIN_SERVICE" "$MAIN_BINARY" 18381 main sub2api 0 \
-    /home/third_party/sub2api/deploy/data ''
+    /home/codes/third_party/sub2api/deploy/data ''
   verify_service \
     "$FREE_SERVICE" "$FREE_BINARY" 18382 free sub2freeApi 1 \
-    /home/third_party/sub2freeApi/deploy/data sub2freeApi
+    /home/codes/third_party/sub2freeApi/deploy/data sub2freeApi
   verify_final_sha_matrix
   echo "Artifact is already installed and verified; no restart required."
   exit 0
@@ -205,9 +205,9 @@ test "$(sha_of "/proc/$FREE_PID/exe")" = "$EXPECTED_OLD_SHA"
 
 deploy_service \
   "$MAIN_SERVICE" "$MAIN_BINARY" 18381 main sub2api 0 \
-  /home/third_party/sub2api/deploy/data '' "$EXPECTED_MAIN_PID"
+  /home/codes/third_party/sub2api/deploy/data '' "$EXPECTED_MAIN_PID"
 deploy_service \
   "$FREE_SERVICE" "$FREE_BINARY" 18382 free sub2freeApi 1 \
-  /home/third_party/sub2freeApi/deploy/data sub2freeApi "$EXPECTED_FREE_PID"
+  /home/codes/third_party/sub2freeApi/deploy/data sub2freeApi "$EXPECTED_FREE_PID"
 
 verify_final_sha_matrix
