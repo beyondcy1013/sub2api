@@ -654,7 +654,6 @@ import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnB
 // Module-level cache shared across all AccountUsageCell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
 const USAGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-const SUPPRESS_USAGE_REFRESH_WINDOW_MS = 5 * 1000
 
 const props = withDefaults(
   defineProps<{
@@ -687,7 +686,6 @@ const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
 const usageInfo = ref<AccountUsageInfo | null>(props.externalUsage)
-const suppressOpenAIUsageRefreshUntil = ref(0)
 watch(usageInfo, (usage) => {
   if (usage) emit('usage-loaded', usage)
 })
@@ -1543,7 +1541,6 @@ const quotaTotalBar = computed((): QuotaBarInfo | null => {
 })
 
 const handleQuotaResetAccountUpdated = (account: Account) => {
-  suppressOpenAIUsageRefreshUntil.value = Date.now() + SUPPRESS_USAGE_REFRESH_WINDOW_MS
   emit('account-updated', account)
 }
 
@@ -1595,11 +1592,6 @@ onMounted(() => {
 watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
-  if (Date.now() < suppressOpenAIUsageRefreshUntil.value) {
-    suppressOpenAIUsageRefreshUntil.value = 0
-    return
-  }
-
   _usageCache.delete(props.account.id)
   requestAutoLoad()
 })
