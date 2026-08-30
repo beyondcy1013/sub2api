@@ -3845,6 +3845,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 				AND status = 'active'
 				AND type = 'apikey'
+				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
 		), parsed AS MATERIALIZED (
 			SELECT
 				id,

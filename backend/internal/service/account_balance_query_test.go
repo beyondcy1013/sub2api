@@ -356,7 +356,7 @@ type concurrentBalanceQueryRepo struct {
 func (r *concurrentBalanceQueryRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
 	r.loads++
 	if r.loads == 2 {
-		_ = r.upstreamBillingProbeAccountRepo.UpdateExtra(ctx, id, map[string]any{
+		_ = r.UpdateExtra(ctx, id, map[string]any{
 			AccountBalanceQueryExtraKey: AccountBalanceQueryConfig{Scheme: AccountBalanceQuerySchemeCPA},
 		})
 	}

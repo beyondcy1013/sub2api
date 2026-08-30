@@ -444,7 +444,7 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) (runErr error)
 	due := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if !isUpstreamBillingProbeAccount(&account) || !account.IsActive() {
+		if !isUpstreamBillingProbeAccount(&account) || !upstreamBillingProbeEnabled(&account) || !account.IsActive() {
 			continue
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
@@ -573,7 +573,7 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requireEnabled {
-			if !account.IsActive() {
+			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
 				return nil, nil
 			}
 			if snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra); snapshot != nil &&

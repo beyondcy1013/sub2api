@@ -2472,7 +2472,7 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	case account.Platform == PlatformOpenAI && isOpenAIModelNotAllowed403Error(statusCode, responseBody):
 		cooldown, reason = openAIModelNotAllowed403Cooldown, openAIModelNotAllowed403Reason
 	case isUpstreamModelRoutingError(statusCode, responseBody) &&
-		!(isOpenAICodexPlanGatedModelError(statusCode, responseBody) && !isOpenAIOAuthAccount(account)):
+		(!isOpenAICodexPlanGatedModelError(statusCode, responseBody) || isOpenAIOAuthAccount(account)):
 		cooldown, reason = upstreamModelRoutingErrorCooldown, upstreamModelRoutingErrorReason
 	default:
 		return false

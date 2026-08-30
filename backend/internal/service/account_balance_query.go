@@ -527,7 +527,7 @@ func convertNikoAPIQuotaBalance(balance *parsedAccountBalance, statusBody []byte
 	displayType, _ := accountBalanceValue(payload, "data.quota_display_type").(string)
 	displayType = strings.ToUpper(strings.TrimSpace(displayType))
 	converted := balance.Balance
-	unit := "quota"
+	var unit string
 	switch displayType {
 	case "USD":
 		converted /= quotaPerUnit

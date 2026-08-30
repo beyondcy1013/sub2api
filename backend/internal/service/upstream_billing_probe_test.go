@@ -758,7 +758,9 @@ func TestUpstreamBillingProbeAutoSchemeFallsBackToNikoAPI(t *testing.T) {
 	require.Len(t, upstream.requests, 2)
 	require.Equal(t, "/v1/sub2api/billing", upstream.requests[0].URL.Path)
 	require.Equal(t, "/api/log/token", upstream.requests[1].URL.Path)
-	require.Equal(t, UpstreamBillingProbeStatusOK, account.Extra[UpstreamBillingProbeExtraKey].(*UpstreamBillingProbeSnapshot).Status)
+	persisted, ok := account.Extra[UpstreamBillingProbeExtraKey].(*UpstreamBillingProbeSnapshot)
+	require.True(t, ok)
+	require.Equal(t, UpstreamBillingProbeStatusOK, persisted.Status)
 }
 
 func TestUpstreamBillingProbeRunnerIsBoundedAndManualProbeIgnoresSwitches(t *testing.T) {
@@ -798,7 +800,7 @@ func TestUpstreamBillingProbeRunnerIsBoundedAndManualProbeIgnoresSwitches(t *tes
 	require.Equal(t, int64(21), upstream.calls.Load())
 }
 
-func TestUpstreamBillingProbeRunnerIgnoresLegacyAccountSwitchAfterDueSelection(t *testing.T) {
+func TestUpstreamBillingProbeRunnerRespectsAccountSwitchAfterDueSelection(t *testing.T) {
 	account := &Account{
 		ID:          26,
 		Platform:    PlatformOpenAI,
@@ -819,8 +821,8 @@ func TestUpstreamBillingProbeRunnerIgnoresLegacyAccountSwitchAfterDueSelection(t
 	svc := newUpstreamBillingProbeTestService(repo, upstream, settingsRepo)
 
 	require.NoError(t, svc.RunDue(context.Background()))
-	require.Equal(t, int64(1), upstream.calls.Load())
-	require.Contains(t, account.Extra, UpstreamBillingProbeExtraKey)
+	require.Zero(t, upstream.calls.Load())
+	require.NotContains(t, account.Extra, UpstreamBillingProbeExtraKey)
 }
 
 func TestUpstreamBillingProbeNeverDowngradesMissingConfiguredProxyToDirect(t *testing.T) {

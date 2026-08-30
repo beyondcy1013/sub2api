@@ -197,6 +197,7 @@ func mustCreateAccount(t *testing.T, client *dbent.Client, a *service.Account) *
 
 	create := client.Account.Create().
 		SetName(a.Name).
+		SetNillableNotes(a.Notes).
 		SetPlatform(a.Platform).
 		SetType(a.Type).
 		SetCredentials(a.Credentials).

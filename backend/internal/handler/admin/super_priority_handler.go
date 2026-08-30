@@ -155,10 +155,7 @@ func (h *SettingHandler) GetSchedulingRulesRuntime(c *gin.Context) {
 	}
 	liveness := h.schedulingLiveness.RuntimeStatus()
 	runtime := service.SchedulingRulesRuntimeStatus{
-		Liveness: service.SchedulingTaskRuntimeStatus{
-			Enabled: liveness.Enabled, Running: liveness.Running, NextRunAt: liveness.NextRunAt,
-			LastRun: liveness.LastRun, History: liveness.History,
-		},
+		Liveness: service.SchedulingTaskRuntimeStatus(liveness),
 	}
 	if provider, ok := h.upstreamBilling.(schedulingRuntimeProvider); ok {
 		runtime.UpstreamBilling = provider.RuntimeStatus()

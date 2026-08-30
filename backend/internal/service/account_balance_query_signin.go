@@ -52,7 +52,11 @@ func newAccountBalanceSignInClientFromEnv() *accountBalanceSignInClient {
 		rawURL = accountBalanceSignInDefaultURL
 	}
 	baseURL, err := parseAccountBalanceSignInServiceURL(rawURL)
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		defaultTransport = &http.Transport{}
+	}
+	transport := defaultTransport.Clone()
 	// This integration is loopback-only and must not follow environment proxy settings.
 	transport.Proxy = nil
 	client := &accountBalanceSignInClient{
