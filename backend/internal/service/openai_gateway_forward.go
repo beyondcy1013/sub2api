@@ -181,23 +181,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
-	normalizedReplayBody, normalizedReplayItems, normalizeReplayErr := normalizeOpenAIResponsesReasoningReplay(body)
-	if normalizeReplayErr != nil {
-		return nil, fmt.Errorf("normalize OpenAI Responses reasoning replay: %w", normalizeReplayErr)
-	}
-	if normalizedReplayItems > 0 {
-		body = normalizedReplayBody
-		originalBody = normalizedReplayBody
-		requestView = newOpenAIRequestView(body)
-		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
-		originalModel = reqModel
-		logger.LegacyPrintf(
-			"service.openai_gateway",
-			"[OpenAI] Normalized plaintext reasoning replay items (account: %s, count: %d)",
-			account.Name,
-			normalizedReplayItems,
-		)
-	}
 	if account.IsOpenAI() && (account.IsOpenAIApiKey() || account.IsOpenAIOAuthLike()) {
 		normalizedReasoningBody, reasoningChanged, reasoningErr := normalizeOpenAIResponsesReasoningContentReplay(body)
 		if reasoningErr != nil {
@@ -221,6 +204,23 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
 			originalModel = reqModel
 		}
+	}
+	normalizedReplayBody, normalizedReplayItems, normalizeReplayErr := normalizeOpenAIResponsesReasoningReplay(body)
+	if normalizeReplayErr != nil {
+		return nil, fmt.Errorf("normalize OpenAI Responses reasoning replay: %w", normalizeReplayErr)
+	}
+	if normalizedReplayItems > 0 {
+		body = normalizedReplayBody
+		originalBody = normalizedReplayBody
+		requestView = newOpenAIRequestView(body)
+		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
+		originalModel = reqModel
+		logger.LegacyPrintf(
+			"service.openai_gateway",
+			"[OpenAI] Normalized plaintext reasoning replay items (account: %s, count: %d)",
+			account.Name,
+			normalizedReplayItems,
+		)
 	}
 
 	compatMessagesBridge := isOpenAICompatMessagesBridgeBody(body)

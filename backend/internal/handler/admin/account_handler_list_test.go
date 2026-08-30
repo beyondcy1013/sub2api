@@ -19,7 +19,21 @@ func setupAccountListRouter() (*gin.Engine, *stubAdminService) {
 	adminSvc := newStubAdminService()
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router.GET("/api/v1/admin/accounts", handler.List)
+	router.GET("/api/v1/admin/accounts/upstream-billing-rates", handler.GetUpstreamBillingRates)
 	return router, adminSvc
+}
+
+func TestAccountHandlerUpstreamBillingRatesExcludesLifecycleStaging(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/upstream-billing-rates?page=1&page_size=20", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, 1, adminSvc.lastListAccounts.calls)
+	require.False(t, adminSvc.lastListAccounts.recycled)
+	require.False(t, adminSvc.lastListAccounts.deleted)
 }
 
 func TestAccountHandlerListIncludesCreatedAt(t *testing.T) {
