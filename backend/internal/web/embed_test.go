@@ -147,6 +147,20 @@ func TestInjectSiteFavicon(t *testing.T) {
 
 		assert.Contains(t, string(result), `a=1&amp;b=2`)
 	})
+
+	t.Run("free_profile_defaults_to_logo_free_svg_when_no_custom_logo", func(t *testing.T) {
+		t.Setenv("DEPLOYMENT_PROFILE", "free")
+		html := []byte(`<link rel="icon" type="image/svg+xml" href="/logo.svg" />`)
+		result := injectSiteFavicon(html, []byte(`{}`))
+		assert.Contains(t, string(result), `<link rel="icon" href="/logo-free.svg" />`)
+	})
+
+	t.Run("main_profile_keeps_default_when_no_custom_logo", func(t *testing.T) {
+		t.Setenv("DEPLOYMENT_PROFILE", "main")
+		html := []byte(`<link rel="icon" type="image/svg+xml" href="/logo.svg" />`)
+		result := injectSiteFavicon(html, []byte(`{}`))
+		assert.Equal(t, string(html), string(result))
+	})
 }
 
 func TestReplaceNoncePlaceholder(t *testing.T) {
@@ -650,11 +664,11 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 		// Request for existing static file
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/logo.png", nil)
+		req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Header().Get("Content-Type"), "image/png")
+		assert.Contains(t, w.Header().Get("Content-Type"), "image/svg+xml")
 		assert.Empty(t, w.Header().Get("Cache-Control"))
 
 		entries, err := fs.ReadDir(server.distFS, "assets")
@@ -735,11 +749,11 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 		router.Use(middleware)
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/logo.png", nil)
+		req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Header().Get("Content-Type"), "image/png")
+		assert.Contains(t, w.Header().Get("Content-Type"), "image/svg+xml")
 	})
 
 	t.Run("serves_index_html_for_root", func(t *testing.T) {

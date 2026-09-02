@@ -99,6 +99,11 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 
+		// For free deployment profile without explicit override, serve free logo variant
+		if cleanPath == "logo.svg" && s.isFreeProfile() && s.fileExists("logo-free.svg") {
+			cleanPath = "logo-free.svg"
+		}
+
 		// For index.html or SPA routes, serve with injected settings
 		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
 			s.serveIndexHTML(c)
@@ -112,9 +117,19 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 
 		// Serve static files normally (hashed assets get long-lived cache headers)
 		applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
-		s.fileServer.ServeHTTP(c.Writer, c.Request)
+		if cleanPath != strings.TrimPrefix(path, "/") {
+			reqCopy := c.Request.Clone(c.Request.Context())
+			reqCopy.URL.Path = "/" + cleanPath
+			s.fileServer.ServeHTTP(c.Writer, reqCopy)
+		} else {
+			s.fileServer.ServeHTTP(c.Writer, c.Request)
+		}
 		c.Abort()
 	}
+}
+
+func (s *FrontendServer) isFreeProfile() bool {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("DEPLOYMENT_PROFILE"))) == "free"
 }
 
 func (s *FrontendServer) fileExists(path string) bool {
@@ -228,7 +243,11 @@ func injectSiteFavicon(html, settingsJSON []byte) []byte {
 
 	logoURL := safeImageURL(cfg.SiteLogo)
 	if logoURL == "" {
-		return html
+		if strings.ToLower(strings.TrimSpace(os.Getenv("DEPLOYMENT_PROFILE"))) == "free" {
+			logoURL = "/logo-free.svg"
+		} else {
+			return html
+		}
 	}
 
 	linkStart := bytes.Index(html, []byte(`<link rel="icon"`))
