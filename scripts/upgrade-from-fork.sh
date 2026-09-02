@@ -70,7 +70,7 @@ record_runtime() {
       "/proc/$main_pid/exe" "/proc/$free_pid/exe"
     systemctl is-active sub2api.service
     systemctl is-active sub2freeApi.service
-    ss -ltnp | rg ':18381|:18382'
+    ss -ltnp | grep -E ':18381|:18382'
   } > "$CANONICAL_BACKUP/runtime-baseline.txt"
 }
 
