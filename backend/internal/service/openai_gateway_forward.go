@@ -1032,7 +1032,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			headerGuard.close()
 			return nil, s.newOpenAIFirstOutputTimeoutError(
-				ctx, c, account, startTime, originalModel, reasoningEffortValue,
+				ctx, c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account),
+				startTime, originalModel, reasoningEffortValue,
 				firstOutputTimeout, "response_headers", nil,
 			)
 		}
@@ -1125,6 +1126,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					upstreamDetail = truncateString(string(respBody), maxBytes)
 				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
 					Platform:           account.Platform,
 					AccountID:          account.ID,
 					AccountName:        account.Name,
@@ -1190,6 +1193,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					compactResp, compactBody := openAICompactFallbackErrorResponse(resp, signal)
 					if s.shouldFailoverOpenAIUpstreamResponse(compactResp.StatusCode, signal.message, compactBody) {
 						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+							ProxyID:            opsUpstreamProxyID(account),
+							ProxyName:          opsUpstreamProxyName(account),
 							Platform:           account.Platform,
 							AccountID:          account.ID,
 							AccountName:        account.Name,
@@ -1221,6 +1226,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 						c, account, requestedModel, body, http.StatusBadRequest, signal.message, signal.payload, compactModelFallbackRetried,
 					); retry {
+						s.appendOpenAICompactFallbackRetryOps(c, account, resp, signal.payload, signal.message, false)
 						body = retryBody
 						requestView = newOpenAIRequestView(body)
 						upstreamModel = fallbackModel
