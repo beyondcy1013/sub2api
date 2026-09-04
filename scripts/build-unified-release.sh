@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 PNPM9="/home/root/.npm/_npx/8959f4e966f464e2/node_modules/pnpm/bin/pnpm.cjs"
+PNPM_CMD=()
 BUILD_OUT="$BACKEND_DIR/bin/sub2api-unified.new"
 BUILD_TMP="$BUILD_OUT.tmp.$$"
 BUILD_MODE="${SUB2API_BUILD_MODE:-quick}"
@@ -137,17 +138,17 @@ verify_backend() {
 
 verify_frontend_tests() {
   cd "$SNAPSHOT_FRONTEND_DIR"
-  node "$PNPM9" vitest run
+  "${PNPM_CMD[@]}" vitest run
 }
 
 verify_frontend_types() {
   cd "$SNAPSHOT_FRONTEND_DIR"
-  node "$PNPM9" typecheck
+  "${PNPM_CMD[@]}" typecheck
 }
 
 build_frontend() {
   cd "$SNAPSHOT_FRONTEND_DIR"
-  node "$PNPM9" exec vite build
+  "${PNPM_CMD[@]}" exec vite build
 }
 
 build_embedded_binary() {
@@ -161,7 +162,20 @@ build_embedded_binary() {
     ./cmd/server/
 }
 
-test -f "$PNPM9"
+if [ -f "$PNPM9" ]; then
+  PNPM_CMD=(node "$PNPM9")
+elif command -v corepack >/dev/null 2>&1; then
+  PNPM_CMD=(corepack pnpm)
+else
+  echo "ERROR: pnpm 9 is required but neither $PNPM9 nor corepack is available" >&2
+  exit 1
+fi
+PNPM_VERSION="$("${PNPM_CMD[@]}" --version)"
+if [[ "$PNPM_VERSION" != 9.* ]]; then
+  echo "ERROR: pnpm 9 is required, got $PNPM_VERSION from ${PNPM_CMD[*]}" >&2
+  exit 1
+fi
+echo "==> pnpm=$PNPM_VERSION command=${PNPM_CMD[*]}"
 mkdir -p "$(dirname -- "$SNAPSHOT_LOCK")"
 exec 9>"$SNAPSHOT_LOCK"
 if ! flock -n 9; then
