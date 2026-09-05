@@ -9,6 +9,7 @@ const {
   getBatchTodayStats,
   listAccounts,
   listWithEtag,
+  getById,
   markAccountFailed,
   probeUpstreamBilling,
   recoverState,
@@ -22,6 +23,7 @@ const {
   getBatchTodayStats: vi.fn(),
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
+  getById: vi.fn(),
   markAccountFailed: vi.fn(),
   probeUpstreamBilling: vi.fn(),
   recoverState: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       list: listAccounts,
+      getById,
       listWithEtag,
       getBatchTodayStats,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: false }),
@@ -181,6 +184,7 @@ describe('admin AccountsView successful test recovery prompt', () => {
       getBatchTodayStats,
       listAccounts,
       listWithEtag,
+      getById,
       markAccountFailed,
       probeUpstreamBilling,
       recoverState,
@@ -193,6 +197,7 @@ describe('admin AccountsView successful test recovery prompt', () => {
     }
     listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
+    getById.mockResolvedValue(account)
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
