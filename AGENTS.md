@@ -26,6 +26,18 @@ Local deployment rules for this project.
 - Writable data path: `/home/third_party/sub2api/deploy/data`
 - HTTP port: `18381`
 
+## Binary Backup Policy
+
+- `/home/third_party/bin/sub2api/` keeps at most 1 binary backup at all times
+  (parent `/home/third_party/AGENTS.md` 二进制备份保留规则 applies and cannot be
+  relaxed by project rules).
+- Before installing a new backup, delete all existing `sub2api.bak.*`,
+  `sub2api.backup*`, and `sub2api.bak-*` files in that directory.
+- After every deploy, converge to exactly the newest 1 backup and report the
+  retained filename plus the number removed.
+- Long-term version history belongs in Git tags or release archives, not in
+  the bin directory.
+
 ## Android Client
 
 - The maintained native WebView client lives in `android/`; its release entrypoint is
