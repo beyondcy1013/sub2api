@@ -17,9 +17,13 @@ vi.mock('@/api/admin', () => ({
   }
 }))
 
-vi.mock('vue-i18n', () => ({
+vi.mock('vue-i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-i18n')>()
+  return {
+  ...actual,
   useI18n: () => ({ t: (key: string) => key })
-}))
+  }
+})
 
 const mountModal = () => mount(ImportDataModal, {
   props: { show: true },
