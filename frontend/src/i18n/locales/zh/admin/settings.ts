@@ -437,6 +437,8 @@ export default {
         enabledHint: '开启后，仅对账号自身已启用自动检测的账号执行定时探测；关闭后停止所有定时探测，手动探测不受影响。',
         intervalMinutes: '探测周期（分钟）',
         intervalHint: '范围 5–1440 分钟。成功探测结果的有效期为两个探测周期。',
+        notifyOnChangeOnly: '有变更才通知',
+        notifyOnChangeOnlyHint: '开启后，成功检测且倍率与上次一致时不显示 Toast；失败或不支持仍会提示。',
         saved: '上游倍率自动探测设置已保存',
         saveFailed: '保存上游倍率自动探测设置失败'
       },
@@ -855,6 +857,12 @@ export default {
         refundEnabled: '允许退款',
         allowUserRefund: '允许用户退款',
         enableConflict: '{method} 已有启用中的服务商实例：{provider}。请先停用现有实例后再启用或切换。',
+      },
+      redeemPurchase: {
+        title: '兑换购买链接',
+        description: '在兑换页展示购买链接，便于用户前往配置的商店购买兑换码。',
+        url: '购买页面 URL',
+        urlHint: '留空则隐藏购买按钮。',
       },
       balanceNotify: {
         title: '余额不足提醒',

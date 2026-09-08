@@ -444,6 +444,8 @@ export default {
         enabledHint: 'When enabled, scheduled detection runs only for accounts that also enable automatic detection. Disabling stops all scheduled detection; manual detection remains available.',
         intervalMinutes: 'Detection interval (minutes)',
         intervalHint: 'Range: 5–1440 minutes. A successful result remains valid for two detection intervals.',
+        notifyOnChangeOnly: 'Notify only on changes',
+        notifyOnChangeOnlyHint: 'Suppress the Toast when a successful probe returns the same rate. Failures and unsupported upstreams are still reported.',
         saved: 'Upstream rate auto detection settings saved',
         saveFailed: 'Failed to save upstream rate auto detection settings'
       },
@@ -860,6 +862,12 @@ export default {
         refundEnabled: 'Allow Refund',
         allowUserRefund: 'Allow User Refund',
         enableConflict: '{method} already has an enabled provider instance: {provider}. Disable the existing instance before switching.',
+      },
+      redeemPurchase: {
+        title: 'Redeem Purchase Link',
+        description: 'Show a purchase link on the redeem page so users can buy codes from your configured storefront.',
+        url: 'Purchase Page URL',
+        urlHint: 'Leave empty to hide the purchase button.',
       },
       balanceNotify: {
         title: 'Balance Low Notification',
