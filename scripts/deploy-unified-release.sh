@@ -39,6 +39,12 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ -z "$EXPECTED_OLD_SHA" ] && [ -z "$EXPECTED_MAIN_PID" ] && [ -z "$EXPECTED_FREE_PID" ]; then
+  read -r EXPECTED_OLD_SHA _ < <(sha256sum "$MAIN_BINARY")
+  EXPECTED_MAIN_PID="$(systemctl show -p MainPID --value "$MAIN_SERVICE")"
+  EXPECTED_FREE_PID="$(systemctl show -p MainPID --value "$FREE_SERVICE")"
+fi
+
 if ! [[ "$EXPECTED_OLD_SHA" =~ ^[0-9a-f]{64}$ ]] ||
    ! [[ "$EXPECTED_MAIN_PID" =~ ^[1-9][0-9]*$ ]] ||
    ! [[ "$EXPECTED_FREE_PID" =~ ^[1-9][0-9]*$ ]]; then
