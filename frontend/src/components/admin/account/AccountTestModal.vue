@@ -411,7 +411,10 @@ const loadAvailableModels = async () => {
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    // axios unwraps the standard {code,data} envelope in the response
+    // interceptor, so the API helper already returns the model array here.
+    const payload = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = Array.isArray(payload) ? payload : []
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models

@@ -145,6 +145,16 @@ describe('AccountTestModal', () => {
     expect(wrapper.emitted('test-succeeded')?.[0]?.[0]).toMatchObject({ id: 42 })
   })
 
+  it('即使 API 帮助函数已解包响应信封，仍渲染可用模型', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    const selectedModelId = (wrapper.vm as any).selectedModelId
+    expect(selectedModelId).toBe('gemini-3.1-flash-image')
+    expect(getAvailableModels).toHaveBeenCalledWith(42)
+  })
+
   it('测试失败时不发送成功事件', async () => {
     global.fetch = vi.fn().mockResolvedValue(
       createStreamResponse([
