@@ -247,7 +247,7 @@
           :loading="loading"
           :sticky-first-column="false"
           :sticky-actions-column="false"
-          :sticky-left-column-keys="accountStickyLeftColumnKeys"
+          :sticky-left-column-keys="ACCOUNT_STICKY_LEFT_COLUMN_KEYS"
           compact-rows
           single-line-cells
           dynamic-column-widths
@@ -911,7 +911,7 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
-const menu = reactive<{show:boolean, acc:Account|null, anchorRect:DOMRect|null, pos:{top:number,left:number}|null}>({ show: false, acc: null, anchorRect: null, pos: null })
+const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number,left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
@@ -2110,9 +2110,6 @@ function getAntigravityTierClass(row: any): string {
 }
 
 const ACCOUNT_STICKY_LEFT_COLUMN_KEYS = ['select', 'actions', 'name']
-const accountStickyLeftColumnKeys = useAndroidTableLayout
-  ? ['select']
-  : ACCOUNT_STICKY_LEFT_COLUMN_KEYS
 
 // All available columns
 const allColumns = computed(() => {
