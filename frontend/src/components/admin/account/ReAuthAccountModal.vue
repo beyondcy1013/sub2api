@@ -2,7 +2,7 @@
   <BaseDialog
     :show="show"
     :title="t('admin.accounts.reAuthorizeAccount')"
-    width="normal"
+    width="wide"
     @close="handleClose"
   >
     <div v-if="account" class="space-y-4">
@@ -43,6 +43,12 @@
                         ? t('admin.accounts.grokAccount')
                         : t('admin.accounts.claudeCodeAccount')
               }}
+            </span>
+            <span
+              v-if="account.notes"
+              class="mt-1 block max-h-16 overflow-y-auto break-words text-sm text-gray-500 dark:text-gray-400"
+            >
+              {{ account.notes }}
             </span>
           </div>
         </div>

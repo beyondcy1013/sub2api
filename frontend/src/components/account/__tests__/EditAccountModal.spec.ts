@@ -338,6 +338,21 @@ describe('EditAccountModal', () => {
     expect((input.element as HTMLInputElement).value).toBe('sk-test')
   })
 
+  it('submits an allowed OpenAI/Anthropic API Key platform correction', async () => {
+    const account = buildAccount()
+    account.platform = 'anthropic'
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-account-platform-openai"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.platform).toBe('openai')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.type).toBe('apikey')
+  })
+
   afterEach(() => vi.useRealTimers())
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {

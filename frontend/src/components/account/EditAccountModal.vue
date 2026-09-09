@@ -15,6 +15,36 @@
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
       </div>
+      <div v-if="canSwitchOpenAIApiKeyPlatform" data-testid="edit-account-platform-conversion">
+        <label class="input-label">{{ t('admin.accounts.platform') }}</label>
+        <div class="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            class="rounded-lg border px-4 py-2 text-sm font-medium transition"
+            :class="selectedPlatform === 'openai'
+              ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-500 dark:bg-primary-900/20 dark:text-primary-300'
+              : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700'"
+            data-testid="edit-account-platform-openai"
+            @click="selectedPlatform = 'openai'"
+          >
+            OpenAI API Key
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border px-4 py-2 text-sm font-medium transition"
+            :class="selectedPlatform === 'anthropic'
+              ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-500 dark:bg-primary-900/20 dark:text-primary-300'
+              : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700'"
+            data-testid="edit-account-platform-anthropic"
+            @click="selectedPlatform = 'anthropic'"
+          >
+            Anthropic API Key
+          </button>
+        </div>
+        <p v-if="platformWillChange" class="input-hint">
+          {{ t('admin.accounts.platformConversionHint') }}
+        </p>
+      </div>
       <div>
         <label class="input-label">{{ t('admin.accounts.notes') }}</label>
         <textarea
@@ -3632,6 +3662,27 @@ const form = reactive({
   expires_at: null as number | null
 })
 
+const selectedPlatform = ref<'anthropic' | 'openai'>(
+  props.account?.platform === 'anthropic' || props.account?.platform === 'openai'
+    ? props.account.platform
+    : 'anthropic'
+)
+const canSwitchOpenAIApiKeyPlatform = computed(() =>
+  props.account?.type === 'apikey' &&
+  (props.account?.platform === 'anthropic' || props.account?.platform === 'openai')
+)
+const platformWillChange = computed(() =>
+  canSwitchOpenAIApiKeyPlatform.value &&
+  props.account != null &&
+  selectedPlatform.value !== props.account.platform
+)
+
+watch(selectedPlatform, (platform) => {
+  if (platformWillChange.value) {
+    editBaseUrl.value = platform === 'openai' ? 'https://api.openai.com' : 'https://api.anthropic.com'
+  }
+})
+
 const statusOptions = computed(() => {
   const options = [
     { value: 'active', label: t('common.active') },
@@ -3716,6 +3767,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningAction.value = null
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
+  selectedPlatform.value =
+    newAccount.platform === 'anthropic' || newAccount.platform === 'openai'
+      ? newAccount.platform
+      : selectedPlatform.value
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -4661,7 +4716,7 @@ const handleSubmit = async () => {
 		}
 	}
 
-  const updatePayload: Record<string, unknown> = { ...form }
+    const updatePayload: Record<string, unknown> = { ...form }
   try {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {
@@ -5335,6 +5390,22 @@ const handleSubmit = async () => {
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
+    }
+
+    // A platform conversion must be a clean provider identity change. Do not
+    // carry protocol-specific credentials/extra from the immutable source
+    // snapshot; MergePreservingSensitiveCreds retains the existing API key.
+    if (platformWillChange.value && props.account.type === 'apikey') {
+      updatePayload.platform = selectedPlatform.value
+      updatePayload.type = 'apikey'
+      updatePayload.extra = {}
+      const conversionCredentials: Record<string, unknown> = {
+        base_url: editBaseUrl.value.trim() || (selectedPlatform.value === 'openai' ? 'https://api.openai.com' : 'https://api.anthropic.com')
+      }
+      if (editApiKey.value.trim()) {
+        conversionCredentials.api_key = editApiKey.value.trim()
+      }
+      updatePayload.credentials = conversionCredentials
     }
 
     // 上游ID头名只在改动时写回 extra，避免用弹窗打开时的快照覆盖运行态键。

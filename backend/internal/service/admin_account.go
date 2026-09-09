@@ -641,6 +641,25 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	wasOveragesEnabled := account.IsOveragesEnabled()
 
+	// API Key credentials are provider-neutral relays in this deployment. Allow a
+	// narrowly scoped OpenAI/Anthropic correction while preserving every other
+	// account's original platform identity.
+	if input.Platform != "" && input.Platform != account.Platform {
+		platformChanged := false
+		if (account.Platform == PlatformAnthropic || account.Platform == PlatformOpenAI) &&
+			(input.Platform == PlatformAnthropic || input.Platform == PlatformOpenAI) &&
+			(input.Type == "" || input.Type == AccountTypeAPIKey) && account.Type == AccountTypeAPIKey {
+			account.Platform = input.Platform
+			platformChanged = true
+		}
+		if !platformChanged {
+			return nil, infraerrors.BadRequest(
+				"ACCOUNT_PLATFORM_IMMUTABLE",
+				"account platform can only be corrected between Anthropic and OpenAI API Key accounts",
+			)
+		}
+	}
+
 	if input.Name != "" {
 		account.Name = input.Name
 	}

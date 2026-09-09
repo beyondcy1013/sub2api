@@ -8,6 +8,12 @@ const source = readFileSync(
 )
 
 describe('ReAuthAccountModal Grok re-auth paths', () => {
+  it('shows existing notes and uses a wide dialog', () => {
+    expect(source).toContain('width="wide"')
+    expect(source).toContain('v-if="account.notes"')
+    expect(source).toContain('{{ account.notes }}')
+  })
+
   it('exposes SSO cookie and refresh-token options; password auth stays hidden', () => {
     expect(source).toContain(':show-sso-option="isGrok"')
     expect(source).toContain(':show-email-password-option="false"')
