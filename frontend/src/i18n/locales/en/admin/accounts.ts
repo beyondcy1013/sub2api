@@ -1352,8 +1352,6 @@ export default {
           step2OpenUrl: 'Open the URL in your browser and complete authorization',
           openUrlDesc:
             'Open the authorization URL in a new tab, log in to your OpenAI account and authorize.',
-          importantNotice:
-            'Important: The page may take a while to load after authorization. Please wait patiently. When the browser address bar changes to http://localhost..., the authorization is complete.',
           step3EnterCode: 'Enter Authorization URL or Code',
           authCodeDesc:
             'After authorization is complete, when the page URL becomes http://localhost:xxx/auth/callback?code=...:',
@@ -1526,8 +1524,6 @@ export default {
           generateAuthUrl: 'Generate Auth URL',
           step2OpenUrl: 'Open the URL in your browser and complete authorization',
           openUrlDesc: 'Open the authorization URL in a new tab, log in to your Google account and authorize.',
-          importantNotice:
-            'Important: The page may take a while to load after authorization. Please wait patiently. When the browser address bar shows http://localhost..., authorization is complete.',
           step3EnterCode: 'Enter Authorization URL or Code',
           authCodeDesc:
             'After authorization, when the page URL becomes http://localhost:xxx/auth/callback?code=...:',

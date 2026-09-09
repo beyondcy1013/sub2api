@@ -797,19 +797,9 @@
                 <p class="text-sm text-blue-700 dark:text-blue-300">
                   {{ oauthOpenUrlDesc }}
                 </p>
-                <!-- Local callback notice -->
-                <div
-                  v-if="showLocalCallbackNotice"
-                  class="mt-2 rounded border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/30"
-                >
-                  <p
-                    class="text-xs text-amber-800 dark:text-amber-300"
-                    v-text="oauthImportantNotice"
-                  ></p>
-                </div>
                 <!-- Proxy Warning (for non-OpenAI) -->
                 <div
-                  v-else-if="showProxyWarning"
+                  v-if="showProxyWarning"
                   class="mt-2 rounded border border-yellow-300 bg-yellow-50 p-3 dark:border-yellow-700 dark:bg-yellow-900/30"
                 >
                   <p
@@ -981,8 +971,6 @@ const emailPasswordOptionEnabled = computed(
   () => props.showEmailPasswordOption && props.platform === 'grok' && passwordAuthEnabled.value
 )
 
-const showLocalCallbackNotice = computed(() => props.platform === 'openai' || props.platform === 'grok')
-
 // Get translation key based on platform
 const getOAuthKey = (key: string) => {
   if (props.platform === 'openai') return `admin.accounts.oauth.openai.${key}`
@@ -1004,13 +992,6 @@ const oauthAuthCodeDesc = computed(() => t(getOAuthKey('authCodeDesc')))
 const oauthAuthCode = computed(() => t(getOAuthKey('authCode')))
 const oauthAuthCodePlaceholder = computed(() => t(getOAuthKey('authCodePlaceholder')))
 const oauthAuthCodeHint = computed(() => t(getOAuthKey('authCodeHint')))
-const oauthImportantNotice = computed(() => {
-  if (props.platform === 'openai') return t('admin.accounts.oauth.openai.importantNotice')
-  if (props.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.importantNotice')
-  if (props.platform === 'grok') return t('admin.accounts.oauth.grok.importantNotice')
-  return ''
-})
-
 // Local state
 const inputMethod = ref<AuthInputMethod>(props.initialInputMethod)
 const isAgentIdentityInput = computed(() => inputMethod.value === 'agent_identity')
