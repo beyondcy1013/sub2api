@@ -59,9 +59,6 @@ func TestGetOpsAdvancedSettings_DefaultCleanupFollowsDeploymentConfig(t *testing
 		t.Fatal("data cleanup should follow the disabled deployment baseline")
 	}
 }
-	}
-}
-
 func TestUpdateOpsAdvancedSettings_PersistsOpenAITokenStatsVisibility(t *testing.T) {
 	repo := newRuntimeSettingRepoStub()
 	svc := &OpsService{settingRepo: repo}
@@ -153,7 +150,6 @@ func TestGetOpenAIQuotaAutoPauseSettings_ReadsDefaultsFromOpsAdvancedSettings(t 
 	if settings.DefaultThreshold7d != 0.9 {
 		t.Fatalf("DefaultThreshold7d = %v, want 0.9", settings.DefaultThreshold7d)
 	}
-
 	// Subsequent Get must hit the warm cache and return the same value without any DB
 	// access — that's the hot-path invariant.
 	cached := svc.GetOpenAIQuotaAutoPauseSettings(context.Background())
