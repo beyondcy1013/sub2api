@@ -82,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
@@ -91,9 +91,6 @@ import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
 const emit = defineEmits(['close', 'stats', 'schedule', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete', 'permanent-delete'])
 const { t } = useI18n()
-const menuRef = ref<HTMLElement | null>(null)
-
-const viewportPadding = 8
 
 
 // Measure after rendering; menu items and translated labels can change its size.
