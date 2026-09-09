@@ -87,9 +87,51 @@ restored status/file list with the pre-upgrade snapshot before continuing.
 - generated wiring: preserve every upstream constructor parameter and both
   deployment-profile dependencies. Regenerate only with the project's existing
   generator if tests prove the generated file stale.
+- Account-level upstream billing probe ownership: upstream v0.2.1 moved the
+  default probe decision out of account creation. Create payloads should not
+  send `upstream_billing_probe_enabled`; the post-create probe remains
+  frontend-triggered, and the edit modal continues to hide the account-level
+  switch. Keep policy/global-settings tests aligned with this ownership.
+- Error surfaces: combine upstream structured error codes with local source
+  attribution. Preserve `gateway_concurrency_limit_code` while wrapping its
+  message with `clienterror.WithSource`; preserve upstream
+  `mapResponsesErrorCode(errType, code)` while retaining `clienterror.Source`.
+- Compact account list: adopt `AccountListItem` and the upstream lite payload,
+  but retain local lifecycle fields and the dense-table page-size default.
+  Do not update page-size expectations unless the local contract explicitly
+  changed them.
 
 The project customization document is the complete behavior checklist; the
 rules above are only high-frequency merge recipes.
+
+## Never Collapse The Merge Index Too Early
+
+`git add` resolves a conflicted index entry and removes its base/ours/theirs
+stages. After that, worktree loss cannot be recovered with `git cat-file
+':1:path'`, `':2:path'`, or `':3:path'`. Keep conflict files unstaged until
+their three-way merge decisions are complete. If staging is unavoidable,
+record the three OIDs first:
+
+```bash
+git ls-files -s <path>
+git cat-file blob :1:<path> >/tmp/base
+git cat-file blob :2:<path> >/tmp/ours
+git cat-file blob :3:<path> >/tmp/theirs
+```
+
+If the stages are already gone, rebuild a reviewable merge from Git history:
+
+```bash
+base=$(git merge-base HEAD upstream/main)
+git show "$base:<path>" >/tmp/base
+git show HEAD:<path> ><path>
+git show upstream/main:<path> >/tmp/theirs
+git merge-file -L HEAD -L base -L upstream/main <path> /tmp/base /tmp/theirs
+```
+
+This intentionally reopens conflicts so they can be resolved by block; never
+choose a side wholesale. Rerun focused backend and frontend tests after a
+rebuilt merge. A later `git add` is safe only after all conflicts are resolved.
 
 ## README Advertisement Policy
 
@@ -114,15 +156,15 @@ must use the source-based runbook instead of the WebUI binary updater.
 
 ## Verify
 
-Use pnpm 9 and run focused tests while resolving. Before deployment, require:
+Use pnpm 9 through `corepack pnpm`; the old absolute `/home/root/.npm/_npx/.../pnpm.cjs` entrypoint is not stable. Run focused tests while resolving. Before deployment, require:
 
 ```bash
 cd /home/third_party/sub2api/backend
 go test -tags unit ./... -count=1
 
 cd /home/third_party/sub2api/frontend
-node /home/root/.npm/_npx/8959f4e966f464e2/node_modules/pnpm/bin/pnpm.cjs vitest run
-node /home/root/.npm/_npx/8959f4e966f464e2/node_modules/pnpm/bin/pnpm.cjs typecheck
+corepack pnpm vitest run
+corepack pnpm typecheck
 ```
 
 Also require the focused commands in `AGENTS.md`, `git diff --check`, the
