@@ -819,6 +819,7 @@ export default {
       deleteConfirm: "Move '{name}' to trash? All account data remains available and can be restored, but the account will no longer participate in request routing or automated scans.",
       // Create/Edit Account Modal
       platform: 'Platform',
+      platformConversionHint: 'Convert only between Anthropic API Key and OpenAI API Key; the same key will be reused for the selected platform.',
       accountName: 'Account Name',
       enterAccountName: 'Enter account name',
       accountType: 'Account Type',

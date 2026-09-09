@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="show && anchorRect">
+    <div v-if="show && position">
       <!-- Backdrop: click anywhere outside to close -->
       <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
       <div
@@ -83,7 +83,6 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
-import { useResizeObserver, useWindowSize } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
@@ -93,37 +92,11 @@ const props = defineProps<{ show: boolean; account: Account | null; position: { 
 const emit = defineEmits(['close', 'stats', 'schedule', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete', 'permanent-delete'])
 const { t } = useI18n()
 const menuRef = ref<HTMLElement | null>(null)
-const { width: viewportWidth, height: viewportHeight } = useWindowSize()
+
 const viewportPadding = 8
-const menuPosition = ref({ top: viewportPadding, left: viewportPadding })
-const menuStyle = computed(() => ({
-  top: `${menuPosition.value.top}px`,
-  left: `${menuPosition.value.left}px`,
-  maxWidth: `${Math.max(0, viewportWidth.value - viewportPadding * 2)}px`,
-  maxHeight: `${Math.max(0, viewportHeight.value - viewportPadding * 2)}px`
-}))
 
-const updatePosition = () => {
-  if (!menuRef.value || !props.anchorRect) return
-
-  const { width, height } = menuRef.value.getBoundingClientRect()
-  const anchor = props.anchorRect
-  const gap = 4
-  const maxTop = viewportHeight.value - height - viewportPadding
-  const top = anchor.bottom + gap <= maxTop
-    ? anchor.bottom + gap
-    : anchor.top - height - gap
-  const left = viewportWidth.value < 768
-    ? anchor.left + anchor.width / 2 - width / 2
-    : anchor.right - width
-
-  menuPosition.value.top = Math.max(viewportPadding, Math.min(top, maxTop))
-  menuPosition.value.left = Math.max(viewportPadding, Math.min(left, viewportWidth.value - width - viewportPadding))
-}
 
 // Measure after rendering; menu items and translated labels can change its size.
-watch([menuRef, () => props.anchorRect, viewportWidth, viewportHeight], updatePosition, { flush: 'post' })
-useResizeObserver(menuRef, updatePosition)
 
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false

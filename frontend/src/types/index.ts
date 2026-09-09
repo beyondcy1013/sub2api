@@ -1559,6 +1559,7 @@ export interface CreateAccountRequest {
 export interface UpdateAccountRequest {
   name?: string
   notes?: string | null
+  platform?: 'anthropic' | 'openai'
   type?: AccountType
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>

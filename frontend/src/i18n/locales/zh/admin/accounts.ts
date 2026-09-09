@@ -911,6 +911,7 @@ export default {
       failedToRefresh: '刷新 Cookie 失败',
       // Create/Edit Account Modal
       platform: '平台',
+      platformConversionHint: '仅在 Anthropic API Key 与 OpenAI API Key 之间转换；同一密钥将复用于新平台。',
       accountName: '账号名称',
       enterAccountName: '请输入账号名称',
       accountType: '账号类型',
