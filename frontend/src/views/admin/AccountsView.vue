@@ -247,7 +247,7 @@
           :loading="loading"
           :sticky-first-column="false"
           :sticky-actions-column="false"
-          :sticky-left-column-keys="ACCOUNT_STICKY_LEFT_COLUMN_KEYS"
+          :sticky-left-column-keys="accountStickyLeftColumnKeys"
           compact-rows
           single-line-cells
           dynamic-column-widths
@@ -2110,6 +2110,9 @@ function getAntigravityTierClass(row: any): string {
 }
 
 const ACCOUNT_STICKY_LEFT_COLUMN_KEYS = ['select', 'actions', 'name']
+const accountStickyLeftColumnKeys = useAndroidTableLayout
+  ? ['select']
+  : ACCOUNT_STICKY_LEFT_COLUMN_KEYS
 
 // All available columns
 const allColumns = computed(() => {
