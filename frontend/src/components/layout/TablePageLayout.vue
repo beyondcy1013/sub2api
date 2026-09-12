@@ -1,5 +1,5 @@
 <template>
-  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile }">
+  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile && !isAndroidApp }">
     <!-- 固定区域：操作按钮 -->
     <div v-if="$slots.actions" class="layout-section-fixed">
       <slot name="actions" />
@@ -26,6 +26,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { isSub2ApiAndroidClient } from '@/utils/device'
+
+const isAndroidApp = isSub2ApiAndroidClient()
 
 const isMobile = ref(false)
 
@@ -100,9 +103,9 @@ onUnmounted(() => {
   @apply flex-none min-h-fit;
 }
 
-.table-page-layout.mobile-mode .table-scroll-container :deep(table) {
-  @apply flex-none;
-  display: table;
-  min-width: 100%;
+.table-page-layout.android-native .table-scroll-container,
+.table-page-layout.android-native .layout-section-scrollable {
+  /* The native client uses the dense horizontal table at every viewport width. */
+  @apply flex-1 min-h-0 overflow-hidden;
 }
 </style>

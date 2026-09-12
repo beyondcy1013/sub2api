@@ -95,6 +95,17 @@ test("Sub2API Android uses native WebView touch handling and permits pinch zoom"
   assert.doesNotMatch(activity, /window\.__sub2apiTouch|new PointerEvent/);
 });
 
+test("Sub2API Android native refresh keeps the selected origin and page URL", () => {
+  assert.match(strings, /<string name="refresh">刷新<\/string>/);
+  assert.match(activity, /refreshButton\.setText\(R\.string\.refresh\)/);
+  assert.match(activity, /refreshButton\.setOnClickListener\(view -> refreshWebView\(\)\)/);
+  assert.match(activity, /private void refreshWebView\(\)/);
+  assert.match(activity, /if \(!SourceRegistry\.isValidIndex\(selectedSource\)\)[\s\S]*beginSourceResolution\(\)/);
+  assert.match(activity, /if \(currentPageFailed\)[\s\S]*requestSourceReevaluation\(\)/);
+  assert.match(activity, /CookieManager\.getInstance\(\)\.flush\(\);\s*webView\.reload\(\)/);
+  assert.doesNotMatch(activity, /refreshWebView\(\)[\s\S]{0,800}loadSource\(selectedSource\)/);
+});
+
 test("Sub2API Android automatic updates validate manifest, bytes, package, version, and signer", () => {
   assert.match(gradleProperties, /^android\.useAndroidX=true$/m);
   assert.match(updateManager, /Pattern\.compile\("\[0-9a-f\]\{64\}"\)/);

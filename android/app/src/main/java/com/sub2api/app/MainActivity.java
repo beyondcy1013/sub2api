@@ -95,6 +95,7 @@ public final class MainActivity extends Activity {
     private WebView webView;
     private View connectionPanel;
     private TextView connectionMessage;
+    private Button refreshButton;
     private Button retryButton;
     private ValueCallback<Uri[]> fileChooserCallback;
     private PendingDownload pendingDownload;
@@ -152,6 +153,16 @@ public final class MainActivity extends Activity {
         settingsParams.topMargin = dp(8);
         settingsParams.rightMargin = dp(8);
         root.addView(settingsButton, settingsParams);
+
+        refreshButton = new Button(this);
+        refreshButton.setText(R.string.refresh);
+        refreshButton.setAllCaps(false);
+        refreshButton.setOnClickListener(view -> refreshWebView());
+        FrameLayout.LayoutParams refreshParams = new FrameLayout.LayoutParams(dp(64), dp(44));
+        refreshParams.gravity = Gravity.TOP | Gravity.END;
+        refreshParams.topMargin = dp(8);
+        refreshParams.rightMargin = dp(72);
+        root.addView(refreshButton, refreshParams);
 
         setContentView(root);
         registerDownloadCompleteReceiver();
@@ -626,6 +637,21 @@ public final class MainActivity extends Activity {
                 + "document.documentElement.style.colorScheme='" + effective + "';})()",
             null
         );
+    }
+
+    private void refreshWebView() {
+        if (!SourceRegistry.isValidIndex(selectedSource)) {
+            beginSourceResolution();
+            return;
+        }
+        if (currentPageFailed) {
+            // Let source health choose recovery instead of blindly reloading a
+            // known failed origin while another source may already be usable.
+            requestSourceReevaluation();
+            return;
+        }
+        CookieManager.getInstance().flush();
+        webView.reload();
     }
 
     private void maybeCheckForUpdate() {
