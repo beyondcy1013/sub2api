@@ -1,5 +1,5 @@
 <template>
-  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile && !isAndroidApp }">
+  <div class="table-page-layout" :class="{ 'mobile-mode': isMobile && !isAndroidApp, 'android-native': isAndroidApp }">
     <!-- 固定区域：操作按钮 -->
     <div v-if="$slots.actions" class="layout-section-fixed">
       <slot name="actions" />
@@ -107,5 +107,11 @@ onUnmounted(() => {
 .table-page-layout.android-native .layout-section-scrollable {
   /* The native client uses the dense horizontal table at every viewport width. */
   @apply flex-1 min-h-0 overflow-hidden;
+}
+
+.table-page-layout.android-native {
+  height: calc(100vh - 64px - 2rem);
+  min-height: 0;
+  gap: 0.75rem;
 }
 </style>
