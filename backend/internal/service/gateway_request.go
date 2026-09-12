@@ -1421,7 +1421,8 @@ func normalizeEffortToken(raw string) string {
 }
 
 func isGLM53Model(model string) bool {
-	return strings.EqualFold(strings.TrimSpace(model), "glm-5.3")
+	id := strings.ToLower(lastOpenAIModelSegment(strings.TrimSpace(model)))
+	return id == "glm-5.3" || strings.HasPrefix(id, "glm-5.3-")
 }
 
 func normalizeGLMOpenAIReasoningEffort(raw string) string {
@@ -1474,6 +1475,34 @@ func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, b
 		return body, false
 	}
 	return modified, true
+}
+
+func mapGLM53AnthropicEffort(raw string) string {
+	var effort string
+	switch normalizeEffortToken(raw) {
+	case "disabled", "off", "none", "minimal", "low":
+		effort = "low"
+	case "enabled", "adaptive", "medium", "high":
+		effort = "high"
+	case "xhigh", "max", "ultra":
+		effort = "max"
+	default:
+		return ""
+	}
+	return effort
+}
+
+// normalizeGLMAnthropicEffortForUsage aligns the persisted reasoning-effort
+// value with GLM-5.3's Anthropic-compatible scale after request normalization.
+func normalizeGLMAnthropicEffortForUsage(effort *string) *string {
+	if effort == nil {
+		return nil
+	}
+	mapped := mapGLM53AnthropicEffort(strings.TrimSpace(*effort))
+	if mapped == "" || mapped == *effort {
+		return effort
+	}
+	return &mapped
 }
 
 // =========================

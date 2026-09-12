@@ -77,6 +77,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
+	requestedReasoningEffort := CanonicalRequestedReasoningEffort(body, originalModel)
+	if mapped := normalizeGLMAnthropicEffortForUsage(reasoningEffort); mapped != nil {
+		reasoningEffort = mapped
+	}
 
 	// 5. Force upstream streaming（客户端原始终决定响应格式；
 	// 上游恒为流式，非流式由缓冲路径组装）。
@@ -94,6 +98,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	anthropicBody, err := json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
+	}
+	if normalizedAnthropicBody, normalized := NormalizeGLM53AnthropicThinking(anthropicBody, upstreamModel); normalized {
+		anthropicBody = normalizedAnthropicBody
 	}
 
 	// 与 /v1/messages 直通路径相同的 pre-filter。
@@ -138,9 +145,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	}
 
 	if clientStream {
-		return s.handleResponsesStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
+		return s.handleResponsesStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, requestedReasoningEffort, startTime, clientToolMapping)
 	}
-	return s.handleResponsesBufferedFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
+	return s.handleResponsesBufferedFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, requestedReasoningEffort, startTime, clientToolMapping)
 }
 
 // handleResponsesBufferedFromNativeAnthropic reads Anthropic SSE events, assembles
@@ -152,6 +159,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	billingModel string,
 	upstreamModel string,
 	reasoningEffort *string,
+	requestedReasoningEffort *string,
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*OpenAIForwardResult, error) {
@@ -286,16 +294,17 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:        requestID,
-		UpstreamHeaders:  resp.Header,
-		Usage:            claudeUsageToOpenAIUsage(&usage),
-		Model:            originalModel,
-		BillingModel:     billingModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/messages",
-		ReasoningEffort:  reasoningEffort,
-		Stream:           false,
-		Duration:         time.Since(startTime),
+		RequestID:                requestID,
+		UpstreamHeaders:          resp.Header,
+		Usage:                    claudeUsageToOpenAIUsage(&usage),
+		Model:                    originalModel,
+		BillingModel:             billingModel,
+		UpstreamModel:            upstreamModel,
+		UpstreamEndpoint:         "/v1/messages",
+		ReasoningEffort:          reasoningEffort,
+		RequestedReasoningEffort: requestedReasoningEffort,
+		Stream:                   false,
+		Duration:                 time.Since(startTime),
 	}, nil
 }
 
@@ -308,6 +317,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	billingModel string,
 	upstreamModel string,
 	reasoningEffort *string,
+	requestedReasoningEffort *string,
 	startTime time.Time,
 	clientToolMapping apicompat.ResponsesClientToolMapping,
 ) (*OpenAIForwardResult, error) {
@@ -340,18 +350,19 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:        requestID,
-			UpstreamHeaders:  resp.Header,
-			Usage:            claudeUsageToOpenAIUsage(&usage),
-			Model:            originalModel,
-			BillingModel:     billingModel,
-			UpstreamModel:    upstreamModel,
-			UpstreamEndpoint: "/v1/messages",
-			ReasoningEffort:  reasoningEffort,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: clientDisconnected,
+			RequestID:                requestID,
+			UpstreamHeaders:          resp.Header,
+			Usage:                    claudeUsageToOpenAIUsage(&usage),
+			Model:                    originalModel,
+			BillingModel:             billingModel,
+			UpstreamModel:            upstreamModel,
+			UpstreamEndpoint:         "/v1/messages",
+			ReasoningEffort:          reasoningEffort,
+			RequestedReasoningEffort: requestedReasoningEffort,
+			Stream:                   true,
+			Duration:                 time.Since(startTime),
+			FirstTokenMs:             firstTokenMs,
+			ClientDisconnect:         clientDisconnected,
 		}
 	}
 

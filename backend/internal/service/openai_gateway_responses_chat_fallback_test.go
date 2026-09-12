@@ -90,6 +90,121 @@ func TestForwardResponses_ForceChatCompletionsOmitsNoneReasoningEffort(t *testin
 	require.Nil(t, result.ReasoningEffort)
 }
 
+func TestForwardResponses_NativeAnthropicNormalizesGLMReasoningEffort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"GLM-5.3-Flash","input":"hello","reasoning":{"effort":"medium"},"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			strings.Join([]string{
+				`event: message_start`,
+				`data: {"type":"message_start","message":{"id":"msg_glm","type":"message","role":"assistant","model":"GLM-5.3-Flash","content":[],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+				``,
+				`event: content_block_start`,
+				`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+				``,
+				`event: content_block_delta`,
+				`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+				``,
+				`event: message_delta`,
+				`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+				``,
+				`event: message_stop`,
+				`data: {"type":"message_stop"}`,
+				``,
+			}, "\n"),
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:       102,
+		Name:     "zhipu-anthropic",
+		Platform: PlatformZhipu,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":      "sk-test",
+			"base_url":     "http://upstream.example",
+			"api_protocol": APIProtocolAnthropic,
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://upstream.example/v1/messages", upstream.lastReq.URL.String())
+	require.Equal(t, "GLM-5.3-Flash", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "enabled", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
+	require.Equal(t, "high", gjson.GetBytes(upstream.lastBody, "output_config.effort").String())
+	require.NotNil(t, result.ReasoningEffort)
+	require.Equal(t, "high", *result.ReasoningEffort)
+}
+
+func TestForwardResponses_NativeAnthropicPreservesGLM53NativeLow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"GLM-5.3-Flash","input":"hello","reasoning":{"effort":"low"},"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			strings.Join([]string{
+				`event: message_start`,
+				`data: {"type":"message_start","message":{"id":"msg_glm_low","type":"message","role":"assistant","model":"GLM-5.3-Flash","content":[],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+				``,
+				`event: content_block_start`,
+				`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+				``,
+				`event: content_block_delta`,
+				`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+				``,
+				`event: message_delta`,
+				`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`,
+				``,
+				`event: message_stop`,
+				`data: {"type":"message_stop"}`,
+				``,
+			}, "\n"),
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:       102,
+		Name:     "zhipu-anthropic",
+		Platform: PlatformZhipu,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":      "sk-test",
+			"base_url":     "http://upstream.example",
+			"api_protocol": APIProtocolAnthropic,
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "low", gjson.GetBytes(upstream.lastBody, "output_config.effort").String())
+	require.NotNil(t, result.ReasoningEffort)
+	require.Equal(t, "low", *result.ReasoningEffort)
+}
+
 func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

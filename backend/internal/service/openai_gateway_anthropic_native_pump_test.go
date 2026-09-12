@@ -190,7 +190,7 @@ func TestResponsesStreamingFromNativeAnthropic_HangTimesOut(t *testing.T) {
 
 	resp, pr, pw := newHangingUpstreamResponse()
 	start := time.Now()
-	res, err := svc.handleResponsesStreamingFromNativeAnthropic(resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, start, apicompat.ResponsesClientToolMapping{})
+	res, err := svc.handleResponsesStreamingFromNativeAnthropic(resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, nil, start, apicompat.ResponsesClientToolMapping{})
 	_ = pw.Close()
 	_ = pr.Close()
 
@@ -310,7 +310,7 @@ func TestResponsesBufferedFromNativeAnthropic_ToolArgumentsAreValidJSON(t *testi
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 	resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(toolAnthropicSSEStream())), Header: http.Header{}}
 
-	_, err := svc.handleResponsesBufferedFromNativeAnthropic(resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
+	_, err := svc.handleResponsesBufferedFromNativeAnthropic(resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, nil, time.Now(), apicompat.ResponsesClientToolMapping{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
