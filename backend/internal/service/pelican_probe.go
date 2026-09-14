@@ -8,6 +8,8 @@ import (
 const (
 	// DefaultPelicanPrompt is the standard prompt for Pelican IQ / downgrade testing.
 	DefaultPelicanPrompt = "创建一个 HTML，内容是 SVG 绘制一个鹈鹕骑自行车的 2D 动画，你不需要任何测试，不要有任何限制"
+	// DefaultPelicanModel is the default model for Pelican IQ / downgrade testing.
+	DefaultPelicanModel = "gpt-6-astra"
 	// DefaultPelicanInstructions instructs the model to return a complete standalone HTML document.
 	DefaultPelicanInstructions = "Return a complete standalone HTML document in your response. Do not use Markdown fences or external dependencies."
 )
@@ -144,12 +146,17 @@ func isUnexpectedDowngradedModel(requested, actual string) bool {
 }
 
 // createOpenAIPelicanProbePayload creates a Responses API payload tailored for the Pelican test.
-func createOpenAIPelicanProbePayload(model string, isOAuth bool, prompt string, accountID int64) map[string]any {
+func createOpenAIPelicanProbePayload(model string, isOAuth bool, prompt string, accountID int64, reasoningEffort ...string) map[string]any {
 	sessionID := compactProbeSessionID(accountID)
 	windowID := sessionID + ":0"
 	installationID := deriveStableUUIDv4("sub2api:codex-pelican-installation:" + sessionID)
 	turnID := deriveStableUUIDv4("sub2api:codex-pelican-turn:" + sessionID)
 	turnMetadata := deriveStableUUIDv4("sub2api:codex-turn-meta:" + turnID)
+
+	effort := "low"
+	if len(reasoningEffort) > 0 && strings.TrimSpace(reasoningEffort[0]) != "" {
+		effort = strings.TrimSpace(reasoningEffort[0])
+	}
 
 	payload := map[string]any{
 		"model":        strings.TrimSpace(model),
@@ -167,7 +174,7 @@ func createOpenAIPelicanProbePayload(model string, isOAuth bool, prompt string, 
 			},
 		},
 		"reasoning": map[string]any{
-			"effort":  "medium",
+			"effort":  effort,
 			"summary": "auto",
 		},
 		"stream":           true,

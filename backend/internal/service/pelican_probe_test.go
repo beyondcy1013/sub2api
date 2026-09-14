@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -95,6 +96,15 @@ func TestCreateOpenAIPelicanProbePayload(t *testing.T) {
 	assert.Equal(t, true, payload["stream"])
 	assert.NotEmpty(t, payload["prompt_cache_key"])
 
+	reasoning, ok := payload["reasoning"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "low", reasoning["effort"])
+
+	customPayload := createOpenAIPelicanProbePayload("gpt-6-astra", true, DefaultPelicanPrompt, 123, "high")
+	customReasoning, ok := customPayload["reasoning"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "high", customReasoning["effort"])
+
 	meta, ok := payload["client_metadata"].(map[string]any)
 	require.True(t, ok)
 	assert.NotEmpty(t, meta["x-codex-installation-id"])
@@ -140,5 +150,25 @@ func TestAccountTestService_TestAccountConnection_OpenAIPelican(t *testing.T) {
 	body := rec.Body.String()
 	assert.Contains(t, body, "pelican_result")
 	assert.Contains(t, body, "未降智")
+
+	t.Run("defaults to DefaultPelicanModel when modelID is empty", func(t *testing.T) {
+		upstream.resp = &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(pelicanSSEResponse)),
+		}
+		rec2 := httptest.NewRecorder()
+		c2, _ := gin.CreateTestContext(rec2)
+		c2.Request = httptest.NewRequest("POST", "/api/v1/admin/accounts/1/test", bytes.NewReader(nil))
+
+		err2 := svc.TestAccountConnection(c2, account.ID, "", "", AccountTestModePelican)
+		require.NoError(t, err2)
+
+		require.NotNil(t, upstream.lastBody)
+		var sentBody map[string]any
+		err := json.Unmarshal(upstream.lastBody, &sentBody)
+		require.NoError(t, err)
+		assert.Equal(t, DefaultPelicanModel, sentBody["model"])
+	})
 }
 

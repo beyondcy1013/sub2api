@@ -1527,9 +1527,10 @@ func (h *AccountHandler) PermanentDelete(c *gin.Context) {
 
 // TestAccountRequest represents the request body for testing an account
 type TestAccountRequest struct {
-	ModelID string `json:"model_id"`
-	Prompt  string `json:"prompt"`
-	Mode    string `json:"mode"`
+	ModelID         string `json:"model_id"`
+	Prompt          string `json:"prompt"`
+	Mode            string `json:"mode"`
+	ReasoningEffort string `json:"reasoning_effort"`
 }
 
 type SyncFromCRSRequest struct {
@@ -1560,7 +1561,10 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode); err != nil {
+	opts := service.AccountTestOptions{
+		ReasoningEffort: req.ReasoningEffort,
+	}
+	if err := h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		if c.Request.Context().Err() == nil {
 			if _, submitErr := h.submitAccountTestResult(context.WithoutCancel(c.Request.Context()), accountID, false, err.Error()); submitErr != nil {
 				_ = c.Error(submitErr)

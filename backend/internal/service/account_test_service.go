@@ -133,8 +133,9 @@ type TestEvent struct {
 // AccountTestOptions carries optional media for admin connectivity tests.
 // ImageDataURL / AudioDataURL are full data URLs (data:<mime>;base64,...).
 type AccountTestOptions struct {
-	ImageDataURL string
-	AudioDataURL string
+	ImageDataURL    string
+	AudioDataURL    string
+	ReasoningEffort string
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -423,7 +424,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts)
 		case APIProtocolChatCompletions:
 			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 		case APIProtocolAnthropic:
@@ -432,7 +433,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsOpenAI() {
-		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
+		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts)
 	}
 
 	if account.IsGemini() {
@@ -760,14 +761,18 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
-func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
-	// Default to openai.DefaultTestModel for OpenAI testing
+	// Default to openai.DefaultTestModel for OpenAI testing, or DefaultPelicanModel for pelican mode
 	testModelID := modelID
 	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+		if mode == AccountTestModePelican {
+			testModelID = DefaultPelicanModel
+		} else {
+			testModelID = openai.DefaultTestModel
+		}
 	}
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
@@ -859,7 +864,8 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if pelicanPrompt == "" {
 			pelicanPrompt = DefaultPelicanPrompt
 		}
-		payload = createOpenAIPelicanProbePayload(upstreamTestModelID, isOAuth, pelicanPrompt, credentialAccount.ID)
+		testOpts := firstAccountTestOptions(opts)
+		payload = createOpenAIPelicanProbePayload(upstreamTestModelID, isOAuth, pelicanPrompt, credentialAccount.ID, testOpts.ReasoningEffort)
 	} else {
 		payload = createOpenAITestPayload(upstreamTestModelID, isOAuth)
 	}

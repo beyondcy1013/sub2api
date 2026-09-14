@@ -87,12 +87,11 @@
               :disabled="isRunning"
               class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
             >
-              <option value="">{{ t('admin.accounts.pelicanEffortDefault') }}</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
-              <option value="max">max</option>
+              <option value="low">{{ t('admin.accounts.pelicanEffortLow') }}</option>
+              <option value="medium">{{ t('admin.accounts.pelicanEffortMedium') }}</option>
+              <option value="high">{{ t('admin.accounts.pelicanEffortHigh') }}</option>
+              <option value="xhigh">{{ t('admin.accounts.pelicanEffortXHigh') }}</option>
+              <option value="max">{{ t('admin.accounts.pelicanEffortMax') }}</option>
             </select>
           </div>
 
@@ -498,12 +497,31 @@
         <div class="text-xs text-gray-400">
           {{ t('admin.accounts.pelicanAccountsCount', { selected: accountStates.length, total: candidateAccounts.length || accountStates.length }) }}
         </div>
-        <button
-          @click="handleClose"
-          class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
-        >
-          {{ t('common.close') }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            @click="handleClose"
+            class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+          >
+            {{ t('common.close') }}
+          </button>
+          <button
+            v-if="!isRunning"
+            @click="startAllTests"
+            :disabled="accountStates.length === 0"
+            class="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-50"
+          >
+            <Icon name="play" size="sm" />
+            <span>{{ t('admin.accounts.pelicanStartBatch') }}</span>
+          </button>
+          <button
+            v-else
+            @click="stopAllTests"
+            class="flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-500"
+          >
+            <Icon name="x" size="sm" />
+            <span>{{ t('admin.accounts.pelicanStopBatch') }}</span>
+          </button>
+        </div>
       </div>
     </template>
   </BaseDialog>
@@ -521,15 +539,16 @@ import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import type { Account } from '@/types'
 
+const DEFAULT_PELICAN_MODEL = 'gpt-6-astra'
+
 const MODEL_PRESETS = [
+  { label: 'gpt-6-astra (默认)', value: 'gpt-6-astra' },
+  { label: 'gpt-5.6-sol', value: 'gpt-5.6-sol' },
+  { label: 'gpt-5.6-terra', value: 'gpt-5.6-terra' },
+  { label: 'gpt-5.6-luna', value: 'gpt-5.6-luna' },
+  { label: 'gpt-5.5', value: 'gpt-5.5' },
   { label: 'gpt-5.4', value: 'gpt-5.4' },
-  { label: 'gpt-5.3-codex-spark', value: 'gpt-5.3-codex-spark' },
-  { label: 'gpt-5.2', value: 'gpt-5.2' },
-  { label: 'gpt-5', value: 'gpt-5' },
-  { label: 'o3-mini', value: 'o3-mini' },
-  { label: 'claude-3-7-sonnet-20250219', value: 'claude-3-7-sonnet-20250219' },
-  { label: 'gemini-2.5-pro', value: 'gemini-2.5-pro' },
-  { label: 'grok-3', value: 'grok-3' }
+  { label: 'gpt-5.4-mini', value: 'gpt-5.4-mini' }
 ]
 
 const props = withDefaults(
@@ -541,7 +560,7 @@ const props = withDefaults(
   }>(),
   {
     allAccounts: () => [],
-    autoStart: true
+    autoStart: false
   }
 )
 
@@ -571,9 +590,9 @@ interface PelicanAccountState {
 }
 
 // 默认模型选择、思考程度与并发数
-const selectedModel = ref('')
-const presetModelSelect = ref('')
-const reasoningEffort = ref('')
+const selectedModel = ref(DEFAULT_PELICAN_MODEL)
+const presetModelSelect = ref(DEFAULT_PELICAN_MODEL)
+const reasoningEffort = ref('low')
 const concurrency = ref(1)
 
 const isRunning = ref(false)
@@ -587,8 +606,16 @@ const selectedAccountIds = ref<Set<number>>(new Set())
 const onPresetModelChange = () => {
   if (presetModelSelect.value) {
     selectedModel.value = presetModelSelect.value
+  } else {
+    selectedModel.value = ''
   }
 }
+
+watch(selectedModel, (newVal) => {
+  const trimmed = (newVal || '').trim()
+  const found = MODEL_PRESETS.find(m => m.value === trimmed)
+  presetModelSelect.value = found ? found.value : ''
+})
 
 // Lightbox preview state
 const lightboxItem = ref<PelicanAccountState | null>(null)
@@ -710,6 +737,13 @@ watch(
   ([show, accounts]) => {
     if (show) {
       customPrompt.value = t('admin.accounts.pelicanPromptDefault')
+      if (!selectedModel.value) {
+        selectedModel.value = DEFAULT_PELICAN_MODEL
+        presetModelSelect.value = DEFAULT_PELICAN_MODEL
+      }
+      if (!reasoningEffort.value) {
+        reasoningEffort.value = 'low'
+      }
       const targetAccounts = accounts && accounts.length > 0 ? accounts : props.allAccounts.slice(0, 1)
       selectedAccountIds.value = new Set(targetAccounts.map(a => a.id))
       accountStates.value = targetAccounts.map(account => ({
@@ -719,7 +753,7 @@ watch(
         activeTab: 'preview'
       }))
 
-      // 打开弹窗后自动启动测智，免去卡在“排队中/待测试”的等待困扰
+      // 默认不在打开弹窗时直接开始，需在弹出窗口中选择好大模型后点击“开始测智”手动开始
       if (props.autoStart && targetAccounts.length > 0) {
         setTimeout(() => {
           if (!isRunning.value && accountStates.value.length > 0) {
@@ -774,12 +808,10 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
       mode: string
       reasoning_effort?: string
     } = {
-      model_id: selectedModel.value.trim(),
+      model_id: selectedModel.value.trim() || DEFAULT_PELICAN_MODEL,
       prompt: customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault'),
-      mode: 'pelican'
-    }
-    if (reasoningEffort.value) {
-      requestBody.reasoning_effort = reasoningEffort.value
+      mode: 'pelican',
+      reasoning_effort: reasoningEffort.value || 'low'
     }
     const url = buildApiUrl(`/admin/accounts/${item.account.id}/test`)
     const response = await fetch(url, {

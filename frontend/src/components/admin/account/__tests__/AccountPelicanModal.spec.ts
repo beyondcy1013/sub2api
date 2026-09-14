@@ -110,7 +110,9 @@ describe('AccountPelicanModal', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2)
     const [, req1] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(req1.body)).toMatchObject({
-      mode: 'pelican'
+      mode: 'pelican',
+      model_id: 'gpt-6-astra',
+      reasoning_effort: 'low'
     })
 
     const state1 = (wrapper.vm as any).accountStates[0]
@@ -210,7 +212,18 @@ describe('AccountPelicanModal', () => {
     expect((wrapper.vm as any).lightboxItem).toBeNull()
   })
 
-  it('默认情况下打开弹窗自动启动测智', async () => {
+  it('默认打开弹窗不直接开始，账号保持待测试 (idle) 状态', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 120))
+    await flushPromises()
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).isRunning).toBe(false)
+    expect((wrapper.vm as any).accountStates[0].status).toBe('idle')
+  })
+
+  it('显式传入 autoStart 为 true 时自动启动测智', async () => {
     const wrapper = mountModal(
       [{ id: 99, name: 'Auto Start Account', platform: 'openai', type: 'oauth', status: 'active' }],
       true
@@ -242,5 +255,14 @@ describe('AccountPelicanModal', () => {
     const body = JSON.parse(req.body)
     expect(body.model_id).toBe('gpt-5.4')
     expect(body.reasoning_effort).toBe('high')
+  })
+
+  it('默认大模型为 gpt-6-astra 且思考程度默认为 low', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedModel).toBe('gpt-6-astra')
+    expect((wrapper.vm as any).presetModelSelect).toBe('gpt-6-astra')
+    expect((wrapper.vm as any).reasoningEffort).toBe('low')
   })
 })
