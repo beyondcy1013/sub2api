@@ -1811,6 +1811,7 @@ export default {
       pelicanConcurrency: '并行并发数',
       pelicanStartBatch: '开始测智',
       pelicanStopBatch: '停止',
+      pelicanStatusReady: '待测试',
       pelicanStatusQueued: '排队中',
       pelicanStatusRunning: '生成中',
       pelicanStatusSuccess: '未降智',

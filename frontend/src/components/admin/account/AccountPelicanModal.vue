@@ -206,7 +206,7 @@
                 v-if="item.status === 'idle'"
                 class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-dark-700 dark:text-gray-400"
               >
-                {{ t('admin.accounts.pelicanStatusQueued') }}
+                {{ isRunning ? t('admin.accounts.pelicanStatusQueued') : t('admin.accounts.pelicanStatusReady') }}
               </span>
               <span
                 v-else-if="item.status === 'running'"
@@ -301,13 +301,26 @@
               </p>
             </div>
 
-            <!-- Idle placeholder -->
+            <!-- Idle / Queued placeholder -->
             <div
               v-else
-              class="flex items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 dark:border-dark-700"
+              class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-4 text-xs text-gray-400 dark:border-dark-700"
               :class="previewHeightClass"
             >
-              <span>{{ t('admin.accounts.pelicanStatusQueued') }}</span>
+              <template v-if="isRunning">
+                <Icon name="clock" size="md" class="mb-1 text-gray-400" />
+                <span>{{ t('admin.accounts.pelicanStatusQueued') }}</span>
+              </template>
+              <template v-else>
+                <button
+                  type="button"
+                  @click="runSingleTest(item)"
+                  class="flex flex-col items-center gap-1 text-primary-600 hover:text-primary-700 transition"
+                >
+                  <Icon name="play" size="md" />
+                  <span>{{ t('admin.accounts.pelicanStatusReady') }}</span>
+                </button>
+              </template>
             </div>
           </div>
 
@@ -462,9 +475,11 @@ const props = withDefaults(
     show: boolean
     accounts: Account[]
     allAccounts?: Account[]
+    autoStart?: boolean
   }>(),
   {
-    allAccounts: () => []
+    allAccounts: () => [],
+    autoStart: true
   }
 )
 
@@ -631,6 +646,15 @@ watch(
         streamingContent: '',
         activeTab: 'preview'
       }))
+
+      // 打开弹窗后自动启动测智，免去卡在“排队中/待测试”的等待困扰
+      if (props.autoStart && targetAccounts.length > 0) {
+        setTimeout(() => {
+          if (!isRunning.value && accountStates.value.length > 0) {
+            startAllTests()
+          }
+        }, 50)
+      }
     } else {
       stopAllTests()
       closeLightbox()
@@ -778,12 +802,20 @@ async function startAllTests() {
   globalAbort = new AbortController()
   const signal = globalAbort.signal
 
-  const queue = [...accountStates.value]
+  // 将所有未成功的账号重置为就绪/排队
+  for (const item of accountStates.value) {
+    if (item.status !== 'success') {
+      item.status = 'idle'
+    }
+  }
+
+  const queue = [...accountStates.value.filter(s => s.status !== 'success')]
+  const runQueue = queue.length > 0 ? queue : [...accountStates.value]
   const limit = Math.max(1, Math.min(10, concurrency.value || 1))
 
   const workers = Array.from({ length: limit }, async () => {
-    while (queue.length > 0 && !signal.aborted) {
-      const item = queue.shift()
+    while (runQueue.length > 0 && !signal.aborted) {
+      const item = runQueue.shift()
       if (!item) break
       await testSingleAccount(item, signal)
     }

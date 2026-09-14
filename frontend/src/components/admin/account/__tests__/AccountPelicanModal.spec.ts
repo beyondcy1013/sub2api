@@ -47,14 +47,18 @@ function createStreamResponse(lines: string[]) {
   } as Response
 }
 
-function mountModal(accounts = [
-  { id: 1, name: 'OpenAI Account 1', platform: 'openai', type: 'oauth', status: 'active' },
-  { id: 2, name: 'OpenAI Account 2', platform: 'openai', type: 'apikey', status: 'active' }
-]) {
+function mountModal(
+  accounts = [
+    { id: 1, name: 'OpenAI Account 1', platform: 'openai', type: 'oauth', status: 'active' },
+    { id: 2, name: 'OpenAI Account 2', platform: 'openai', type: 'apikey', status: 'active' }
+  ],
+  autoStart = false
+) {
   return mount(AccountPelicanModal, {
     props: {
       show: true,
-      accounts: accounts as any
+      accounts: accounts as any,
+      autoStart
     },
     global: {
       stubs: {
@@ -204,5 +208,18 @@ describe('AccountPelicanModal', () => {
 
     ;(wrapper.vm as any).closeLightbox()
     expect((wrapper.vm as any).lightboxItem).toBeNull()
+  })
+
+  it('默认情况下打开弹窗自动启动测智', async () => {
+    const wrapper = mountModal(
+      [{ id: 99, name: 'Auto Start Account', platform: 'openai', type: 'oauth', status: 'active' }],
+      true
+    )
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 120))
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalled()
+    expect((wrapper.vm as any).accountStates[0].status).toBe('success')
   })
 })

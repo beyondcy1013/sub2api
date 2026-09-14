@@ -1746,6 +1746,7 @@ export default {
       pelicanConcurrency: 'Concurrency',
       pelicanStartBatch: 'Start Pelican Test',
       pelicanStopBatch: 'Stop',
+      pelicanStatusReady: 'Ready',
       pelicanStatusQueued: 'Queued',
       pelicanStatusRunning: 'Running',
       pelicanStatusSuccess: 'Normal',
