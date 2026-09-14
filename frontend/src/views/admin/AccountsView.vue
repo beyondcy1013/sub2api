@@ -230,6 +230,7 @@
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
           @refresh-usage="handleBulkRefreshUsage"
           @test-and-mark="handleBatchTestAndMark"
+          @pelican-test="handleBulkPelicanTest"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -626,6 +627,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" />
+    <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" @close="closePelicanModal" />
     <SchedulingRulesModal
       :show="showSchedulingRules"
       @close="closeSchedulingRulesModal"
@@ -649,7 +651,7 @@
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @pelican-test="handleSinglePelicanTest" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="handleAccountsCreated" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -711,6 +713,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import EnhancedImportDataModal from '@/components/admin/account/EnhancedImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
+import AccountPelicanModal from '@/components/admin/account/AccountPelicanModal.vue'
 import SchedulingRulesModal from '@/components/account/SchedulingRulesModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
@@ -882,6 +885,8 @@ const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
+const showPelicanModal = ref(false)
+const pelicanTestAccounts = ref<Account[]>([])
 const showTestRecoveryDialog = ref(false)
 const showTestFailedDialog = ref(false)
 const showSchedulingRules = ref(false)
@@ -1682,6 +1687,7 @@ const isAnyModalOpen = computed(() => {
     showDeleteDialog.value ||
     showReAuth.value ||
     showTest.value ||
+    showPelicanModal.value ||
     showSchedulingRate.value ||
     showStats.value ||
     showStickySessions.value ||
@@ -3045,6 +3051,23 @@ const handleTest = async (a: AccountListItem) => {
   if (!account) return
   testingAcc.value = account
   showTest.value = true
+}
+const closePelicanModal = () => {
+  showPelicanModal.value = false
+  pelicanTestAccounts.value = []
+}
+const handleSinglePelicanTest = async (a: AccountListItem | Account) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  pelicanTestAccounts.value = [account]
+  showPelicanModal.value = true
+}
+const handleBulkPelicanTest = async () => {
+  const selected = accounts.value.filter(a => selIds.value.includes(a.id))
+  if (selected.length === 0) return
+  const fullAccounts = (await Promise.all(selected.map(a => loadAccountDetails(a)))).filter((a): a is Account => a != null)
+  pelicanTestAccounts.value = fullAccounts
+  showPelicanModal.value = true
 }
 const refreshUpstreamBillingAfterSuccessfulTest = async (account: Account) => {
   if (account.platform !== 'openai' || account.type !== 'apikey' || probingUpstreamBilling.has(account.id)) return

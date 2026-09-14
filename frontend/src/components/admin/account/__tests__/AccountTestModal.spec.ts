@@ -351,4 +351,47 @@ describe('AccountTestModal', () => {
     expect(wrapper.text()).not.toContain('api-password')
     expect(wrapper.text()).not.toContain('secret')
   })
+
+  it('OpenAI Pelican 测智会携带 pelican 模式与提示词并处理 pelican_result 事件', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"test_start","model":"gpt-5.6-sol"}\n',
+        'data: {"type":"pelican_result","text":"测智通过","data":{"has_html":true,"html":"<!doctype html><html><body><svg></svg></body></html>","downgraded":false,"reason":"测智通过","response_model":"gpt-5.6-sol"}}\n',
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 42,
+      name: 'OpenAI OAuth',
+      platform: 'openai',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    ;(wrapper.vm as any).selectedModelId = 'gpt-5.6-sol'
+    ;(wrapper.vm as any).testMode = 'pelican'
+    ;(wrapper.vm as any).pelicanPrompt = '绘制一个鹈鹕'
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toMatchObject({
+      model_id: 'gpt-5.6-sol',
+      prompt: '绘制一个鹈鹕',
+      mode: 'pelican'
+    })
+
+    expect((wrapper.vm as any).pelicanResult).toMatchObject({
+      has_html: true,
+      downgraded: false,
+      response_model: 'gpt-5.6-sol'
+    })
+  })
 })

@@ -13,6 +13,10 @@
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
+            <button @click="$emit('pelican-test', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-cyan-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="play" size="sm" class="text-cyan-600" />
+              {{ t('admin.accounts.pelicanAction') }}
+            </button>
             <button v-if="canDuplicate" @click="$emit('duplicate', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
@@ -89,7 +93,7 @@ import type { Account } from '@/types'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
-const emit = defineEmits(['close', 'stats', 'schedule', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete', 'permanent-delete'])
+const emit = defineEmits(['close', 'stats', 'schedule', 'pelican-test', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete', 'permanent-delete'])
 const { t } = useI18n()
 
 

@@ -66,6 +66,17 @@
         />
       </div>
 
+      <div v-if="testMode === 'pelican'" class="space-y-1.5">
+        <TextArea
+          v-model="pelicanPrompt"
+          :label="t('admin.accounts.pelicanPromptLabel')"
+          :placeholder="t('admin.accounts.pelicanPromptPlaceholder')"
+          :hint="t('admin.accounts.pelicanTestHint')"
+          :disabled="status === 'connecting'"
+          rows="3"
+        />
+      </div>
+
       <div v-if="supportsImageTest" class="space-y-1.5">
         <TextArea
           v-model="testPrompt"
@@ -153,6 +164,93 @@
         </div>
       </div>
 
+      <!-- Pelican Test Result Inspection -->
+      <div
+        v-if="pelicanResult"
+        class="space-y-3 rounded-xl border p-4 transition-all"
+        :class="pelicanResult.downgraded
+          ? 'border-amber-300 bg-amber-50/70 dark:border-amber-700/50 dark:bg-amber-950/20'
+          : 'border-green-300 bg-green-50/70 dark:border-green-700/50 dark:bg-green-950/20'"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span
+              :class="[
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold',
+                pelicanResult.downgraded
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                  : 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+              ]"
+            >
+              <Icon :name="pelicanResult.downgraded ? 'exclamationTriangle' : 'checkCircle'" size="sm" :stroke-width="2" />
+              {{ pelicanResult.downgraded ? t('admin.accounts.pelicanDowngraded') : t('admin.accounts.pelicanPassed') }}
+            </span>
+            <span v-if="pelicanResult.response_model" class="text-xs text-gray-500 dark:text-gray-400">
+              ({{ pelicanResult.response_model }})
+            </span>
+          </div>
+
+          <div v-if="pelicanResult.has_html" class="flex items-center gap-1 rounded-lg bg-gray-200/60 p-1 dark:bg-dark-600">
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                pelicanActiveTab === 'preview'
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-800 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="pelicanActiveTab = 'preview'"
+            >
+              {{ t('admin.accounts.pelicanPreviewTab') }}
+            </button>
+            <button
+              type="button"
+              :class="[
+                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                pelicanActiveTab === 'source'
+                  ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-800 dark:text-gray-100'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="pelicanActiveTab = 'source'"
+            >
+              {{ t('admin.accounts.pelicanSourceTab') }}
+            </button>
+          </div>
+        </div>
+
+        <p v-if="pelicanResult.reason" class="text-xs text-gray-600 dark:text-gray-300">
+          {{ pelicanResult.reason }}
+        </p>
+
+        <!-- Preview View -->
+        <div v-if="pelicanResult.has_html && pelicanActiveTab === 'preview'" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-dark-600">
+          <iframe
+            :srcdoc="pelicanPreviewDocument(pelicanResult.html || '')"
+            sandbox="allow-scripts"
+            class="h-64 w-full border-0"
+            title="Pelican Animation Preview"
+          />
+        </div>
+
+        <!-- Source Code View -->
+        <div v-else-if="pelicanResult.has_html && pelicanActiveTab === 'source'" class="relative">
+          <pre class="max-h-60 overflow-y-auto rounded-lg bg-gray-900 p-3 font-mono text-xs text-gray-200"><code>{{ pelicanResult.html }}</code></pre>
+          <button
+            type="button"
+            @click="copyToClipboard(pelicanResult.html || '', t('admin.accounts.outputCopied'))"
+            class="absolute right-2 top-2 rounded bg-gray-800 p-1.5 text-xs text-gray-300 hover:bg-gray-700 hover:text-white"
+            :title="t('admin.accounts.copyOutput')"
+          >
+            <Icon name="copy" size="sm" />
+          </button>
+        </div>
+
+        <!-- No HTML placeholder -->
+        <div v-else-if="!pelicanResult.has_html" class="rounded-lg border border-dashed border-gray-300 p-4 text-center text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
+          {{ t('admin.accounts.pelicanNoHtml') }}
+        </div>
+      </div>
+
       <!-- Image Lightbox -->
       <Teleport to="body">
         <Transition name="fade">
@@ -187,9 +285,11 @@
         <span class="flex items-center gap-1">
           <Icon name="chat" size="sm" :stroke-width="2" />
           {{
-            supportsImageTest
-              ? t('admin.accounts.imageTestMode')
-              : t('admin.accounts.testPrompt')
+            testMode === 'pelican'
+              ? t('admin.accounts.pelicanTestMode')
+              : supportsImageTest
+                ? t('admin.accounts.imageTestMode')
+                : t('admin.accounts.testPrompt')
           }}
         </span>
       </div>
@@ -264,6 +364,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
+import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
@@ -299,11 +400,20 @@ const errorMessage = ref('')
 const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
+const pelicanPrompt = ref('')
+const pelicanActiveTab = ref<'preview' | 'source'>('preview')
+const pelicanResult = ref<{
+  has_html: boolean
+  html?: string
+  downgraded: boolean
+  reason: string
+  response_model?: string
+} | null>(null)
 const loadingModels = ref(false)
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
-const testMode = ref<'default' | 'compact'>('default')
+const testMode = ref<'default' | 'compact' | 'pelican'>('default')
 const readAutoStartTest = () => {
   try {
     return localStorage.getItem(AUTO_TEST_STORAGE_KEY) !== 'false'
@@ -322,7 +432,8 @@ const persistAutoStartTest = () => {
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
-  { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
+  { value: 'compact', label: t('admin.accounts.openai.testModeCompact') },
+  { value: 'pelican', label: t('admin.accounts.openai.testModePelican') }
 ])
 
 function displayConfiguredUpstreamURL(account: Account): string {
@@ -383,6 +494,9 @@ watch(
       const openedAccountId = props.account.id
       testPrompt.value = ''
       testMode.value = 'default'
+      pelicanPrompt.value = t('admin.accounts.pelicanPromptDefault')
+      pelicanResult.value = null
+      pelicanActiveTab.value = 'preview'
       resetState()
       await loadAvailableModels()
       if (
@@ -398,6 +512,12 @@ watch(
     }
   }
 )
+
+watch(testMode, (newMode) => {
+  if (newMode === 'pelican' && !pelicanPrompt.value.trim()) {
+    pelicanPrompt.value = t('admin.accounts.pelicanPromptDefault')
+  }
+})
 
 watch(selectedModelId, () => {
   if (supportsImageTest.value && !testPrompt.value.trim()) {
@@ -449,6 +569,7 @@ const resetState = () => {
   errorMessage.value = ''
   generatedImages.value = []
   previewImageUrl.value = ''
+  pelicanResult.value = null
 }
 
 const handleClose = () => {
@@ -498,10 +619,12 @@ const startTest = async () => {
     const requestBody: {
       model_id: string
       prompt: string
-      mode?: 'default' | 'compact'
+      mode?: 'default' | 'compact' | 'pelican'
     } = {
       model_id: selectedModelId.value,
-      prompt: supportsImageTest.value ? testPrompt.value.trim() : ''
+      prompt: testMode.value === 'pelican'
+        ? (pelicanPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault'))
+        : (supportsImageTest.value ? testPrompt.value.trim() : '')
     }
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
@@ -591,6 +714,7 @@ const handleEvent = (event: {
   error?: string
   image_url?: string
   mime_type?: string
+  data?: any
 }) => {
   switch (event.type) {
     case 'test_start':
@@ -599,7 +723,9 @@ const handleEvent = (event: {
         addLine(t('admin.accounts.usingModel', { model: event.model }), 'text-cyan-400')
       }
       addLine(
-        supportsImageTest.value
+        testMode.value === 'pelican'
+          ? t('admin.accounts.pelicanTestMode')
+          : supportsImageTest.value
             ? t('admin.accounts.sendingImageRequest')
             : t('admin.accounts.sendingTestMessage'),
         'text-gray-400'
@@ -628,6 +754,23 @@ const handleEvent = (event: {
     case 'status':
       if (event.text) {
         addLine(event.text, 'text-cyan-300')
+      }
+      break
+
+    case 'pelican_result':
+      if (event.data) {
+        pelicanResult.value = event.data as {
+          has_html: boolean
+          html?: string
+          downgraded: boolean
+          reason: string
+          response_model?: string
+        }
+        if (pelicanResult.value.downgraded) {
+          addLine(`${t('admin.accounts.pelicanDowngraded')}: ${pelicanResult.value.reason}`, 'text-red-400')
+        } else {
+          addLine(t('admin.accounts.pelicanPassed'), 'text-green-400')
+        }
       }
       break
 

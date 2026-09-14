@@ -78,6 +78,13 @@
         >
           {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
         </button>
+        <button
+          data-test="batch-pelican-test"
+          class="btn btn-secondary btn-sm"
+          @click="$emit('pelican-test')"
+        >
+          {{ t('admin.accounts.pelicanAction') }}
+        </button>
         <button v-if="showDelete" data-test="bulk-delete" @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
         <button
           v-if="showPermanentDelete"
@@ -170,6 +177,7 @@ const emit = defineEmits<{
   'probe-upstream-billing': []
   'refresh-usage': []
   'test-and-mark': []
+  'pelican-test': []
 }>()
 
 const { t } = useI18n()

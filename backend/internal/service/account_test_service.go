@@ -853,7 +853,16 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	var payload map[string]any
+	if mode == AccountTestModePelican {
+		pelicanPrompt := strings.TrimSpace(prompt)
+		if pelicanPrompt == "" {
+			pelicanPrompt = DefaultPelicanPrompt
+		}
+		payload = createOpenAIPelicanProbePayload(upstreamTestModelID, isOAuth, pelicanPrompt, credentialAccount.ID)
+	} else {
+		payload = createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -905,6 +914,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		enforceCodexIdentityHeadersWithUA(req.Header, credentialAccount.GetOpenAIUserAgent())
 	}
 
+	if mode == AccountTestModePelican {
+		sessionID := compactProbeSessionID(credentialAccount.ID)
+		req.Header.Set("session-id", sessionID)
+		req.Header.Set("conversation_id", sessionID)
+		req.Header.Set("x-client-request-id", sessionID)
+	}
+
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	credentialAccount.ApplyHeaderOverrides(req.Header)
 
@@ -945,7 +961,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// Process SSE stream
-	return s.processOpenAIStream(c, resp.Body)
+	return s.processOpenAIStreamWithMode(c, resp.Body, mode, testModelID)
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
@@ -2896,16 +2912,37 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 
 // processOpenAIStream processes the SSE stream from OpenAI Responses API
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
+	return s.processOpenAIStreamWithMode(c, body, AccountTestModeDefault, "")
+}
+
+// processOpenAIStreamWithMode processes the SSE stream with mode-specific evaluation (e.g. Pelican)
+func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io.Reader, mode string, requestedModel string) error {
 	reader := bufio.NewReader(body)
 	seenCompleted := false
+	var replyBuilder strings.Builder
+	var refusalBuilder strings.Builder
+	var responseModel string
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				if seenCompleted {
+					if mode == AccountTestModePelican {
+						result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
+						s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
+						s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
+						return nil
+					}
 					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 					return nil
+				}
+				if mode == AccountTestModePelican {
+					result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), "Stream ended before response.completed")
+					result.Downgraded = true
+					result.Reason = "响应未完整结束（疑似降智或中断）"
+					s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: false})
+					return s.sendErrorAndEnd(c, result.Reason)
 				}
 				return s.sendErrorAndEnd(c, "Stream ended before response.completed")
 			}
@@ -2920,8 +2957,21 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
 			if seenCompleted {
+				if mode == AccountTestModePelican {
+					result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
+					s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
+					s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
+					return nil
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
+			}
+			if mode == AccountTestModePelican {
+				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), "Stream ended before response.completed")
+				result.Downgraded = true
+				result.Reason = "响应未完整结束（疑似降智或中断）"
+				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: false})
+				return s.sendErrorAndEnd(c, result.Reason)
 			}
 			return s.sendErrorAndEnd(c, "Stream ended before response.completed")
 		}
@@ -2937,9 +2987,31 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		case "response.output_text.delta":
 			// OpenAI Responses API uses "delta" field for text content
 			if delta, ok := data["delta"].(string); ok && delta != "" {
+				replyBuilder.WriteString(delta)
+				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
+			}
+		case "response.refusal.delta":
+			if delta, ok := data["delta"].(string); ok && delta != "" {
+				refusalBuilder.WriteString(delta)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			seenCompleted = true
+			if responseData, ok := data["response"].(map[string]any); ok {
+				if m, ok := responseData["model"].(string); ok && m != "" {
+					responseModel = m
+				}
+				if finalText := pelicanFinalTextFromResponse(responseData); finalText != "" && replyBuilder.Len() == 0 {
+					replyBuilder.WriteString(finalText)
+					s.sendEvent(c, TestEvent{Type: "content", Text: finalText})
+				}
+			}
+			if mode == AccountTestModePelican {
+				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
+				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
+				s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
+				return nil
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -2951,6 +3023,10 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 					}
 				}
 			}
+			if mode == AccountTestModePelican {
+				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), errorMsg)
+				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Error: errorMsg, Model: responseModel, Data: result, Success: false})
+			}
 			return s.sendErrorAndEnd(c, errorMsg)
 		case "error":
 			errorMsg := "Unknown error"
@@ -2958,6 +3034,10 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				if msg, ok := errData["message"].(string); ok {
 					errorMsg = msg
 				}
+			}
+			if mode == AccountTestModePelican {
+				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), errorMsg)
+				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Error: errorMsg, Model: responseModel, Data: result, Success: false})
 			}
 			return s.sendErrorAndEnd(c, errorMsg)
 		}
