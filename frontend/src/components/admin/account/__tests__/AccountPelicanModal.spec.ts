@@ -262,7 +262,6 @@ describe('AccountPelicanModal', () => {
     await flushPromises()
 
     expect((wrapper.vm as any).selectedModel).toBe('gpt-6-astra')
-    expect((wrapper.vm as any).presetModelSelect).toBe('gpt-6-astra')
     expect((wrapper.vm as any).reasoningEffort).toBe('low')
   })
 })

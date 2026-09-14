@@ -50,31 +50,20 @@
 
         <!-- Controls: Model Selection, Reasoning Effort & Concurrency -->
         <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-12 items-end">
-          <!-- Big Model Selector & Input -->
+          <!-- Big Model Selector (single dropdown) -->
           <div class="sm:col-span-2 md:col-span-6 space-y-1">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.pelicanModel') }}
             </label>
-            <div class="flex items-center gap-1.5">
-              <input
-                v-model="selectedModel"
-                type="text"
-                :disabled="isRunning"
-                :placeholder="t('admin.accounts.pelicanModelPlaceholder')"
-                class="flex-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-800 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200"
-              />
-              <select
-                v-model="presetModelSelect"
-                :disabled="isRunning"
-                @change="onPresetModelChange"
-                class="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-              >
-                <option value="">{{ t('admin.accounts.pelicanModelDefault') }}</option>
-                <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
-                  {{ m.label }}
-                </option>
-              </select>
-            </div>
+            <select
+              v-model="selectedModel"
+              :disabled="isRunning"
+              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
+                {{ m.label }}
+              </option>
+            </select>
           </div>
 
           <!-- Reasoning Effort -->
@@ -591,7 +580,6 @@ interface PelicanAccountState {
 
 // 默认模型选择、思考程度与并发数
 const selectedModel = ref(DEFAULT_PELICAN_MODEL)
-const presetModelSelect = ref(DEFAULT_PELICAN_MODEL)
 const reasoningEffort = ref('low')
 const concurrency = ref(1)
 
@@ -602,20 +590,6 @@ const accountSearchQuery = ref('')
 const customPrompt = ref(t('admin.accounts.pelicanPromptDefault'))
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
-
-const onPresetModelChange = () => {
-  if (presetModelSelect.value) {
-    selectedModel.value = presetModelSelect.value
-  } else {
-    selectedModel.value = ''
-  }
-}
-
-watch(selectedModel, (newVal) => {
-  const trimmed = (newVal || '').trim()
-  const found = MODEL_PRESETS.find(m => m.value === trimmed)
-  presetModelSelect.value = found ? found.value : ''
-})
 
 // Lightbox preview state
 const lightboxItem = ref<PelicanAccountState | null>(null)
@@ -739,7 +713,6 @@ watch(
       customPrompt.value = t('admin.accounts.pelicanPromptDefault')
       if (!selectedModel.value) {
         selectedModel.value = DEFAULT_PELICAN_MODEL
-        presetModelSelect.value = DEFAULT_PELICAN_MODEL
       }
       if (!reasoningEffort.value) {
         reasoningEffort.value = 'low'
