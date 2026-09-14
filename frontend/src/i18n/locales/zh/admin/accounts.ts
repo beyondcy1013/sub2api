@@ -1825,6 +1825,11 @@ export default {
       pelicanClearSelection: '清空',
       pelicanSearchAccount: '搜索账号...',
       pelicanNoAccountsSelected: '尚未选择任何账号，请选择要测试的账号',
+      pelicanModel: '测试大模型',
+      pelicanModelPlaceholder: '输入或选择大模型（如 gpt-5.4）',
+      pelicanModelDefault: '账号默认模型',
+      pelicanEffort: '思考程度',
+      pelicanEffortDefault: '默认',
       // Stats Modal
       viewStats: '查看统计',
       usageStatistics: '使用统计',

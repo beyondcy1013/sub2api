@@ -222,4 +222,25 @@ describe('AccountPelicanModal', () => {
     expect(global.fetch).toHaveBeenCalled()
     expect((wrapper.vm as any).accountStates[0].status).toBe('success')
   })
+
+  it('支持选择或输入大模型并正确传递至后端', async () => {
+    const wrapper = mountModal([
+      { id: 10, name: 'Model Test Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+
+    // 设置大模型与思考程度
+    ;(wrapper.vm as any).selectedModel = 'gpt-5.4'
+    ;(wrapper.vm as any).reasoningEffort = 'high'
+    await flushPromises()
+
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalled()
+    const [, req] = (global.fetch as any).mock.calls[(global.fetch as any).mock.calls.length - 1]
+    const body = JSON.parse(req.body)
+    expect(body.model_id).toBe('gpt-5.4')
+    expect(body.reasoning_effort).toBe('high')
+  })
 })

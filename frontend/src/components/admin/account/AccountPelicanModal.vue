@@ -8,7 +8,7 @@
     <div class="space-y-4">
       <!-- Description & Config Bar -->
       <div class="rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-dark-700 dark:bg-dark-800/40">
-        <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
           <div class="max-w-2xl">
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
               {{ t('admin.accounts.pelicanBatchDesc') }}
@@ -27,23 +27,7 @@
               </button>
             </div>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2">
-              <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
-                {{ t('admin.accounts.pelicanConcurrency') }}:
-              </label>
-              <select
-                v-model.number="concurrency"
-                :disabled="isRunning"
-                class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-              >
-                <option :value="1">1</option>
-                <option :value="2">2</option>
-                <option :value="3">3</option>
-                <option :value="5">5</option>
-                <option :value="10">10</option>
-              </select>
-            </div>
+          <div class="flex items-center gap-2">
             <button
               v-if="!isRunning"
               @click="startAllTests"
@@ -61,6 +45,73 @@
               <Icon name="x" size="sm" />
               <span>{{ t('admin.accounts.pelicanStopBatch') }}</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Controls: Model Selection, Reasoning Effort & Concurrency -->
+        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-12 items-end">
+          <!-- Big Model Selector & Input -->
+          <div class="sm:col-span-2 md:col-span-6 space-y-1">
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.pelicanModel') }}
+            </label>
+            <div class="flex items-center gap-1.5">
+              <input
+                v-model="selectedModel"
+                type="text"
+                :disabled="isRunning"
+                :placeholder="t('admin.accounts.pelicanModelPlaceholder')"
+                class="flex-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-800 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200"
+              />
+              <select
+                v-model="presetModelSelect"
+                :disabled="isRunning"
+                @change="onPresetModelChange"
+                class="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+              >
+                <option value="">{{ t('admin.accounts.pelicanModelDefault') }}</option>
+                <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
+                  {{ m.label }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Reasoning Effort -->
+          <div class="sm:col-span-1 md:col-span-3 space-y-1">
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.pelicanEffort') }}
+            </label>
+            <select
+              v-model="reasoningEffort"
+              :disabled="isRunning"
+              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              <option value="">{{ t('admin.accounts.pelicanEffortDefault') }}</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
+            </select>
+          </div>
+
+          <!-- Concurrency -->
+          <div class="sm:col-span-1 md:col-span-3 space-y-1">
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.pelicanConcurrency') }}
+            </label>
+            <select
+              v-model.number="concurrency"
+              :disabled="isRunning"
+              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              <option :value="1">1</option>
+              <option :value="2">2</option>
+              <option :value="3">3</option>
+              <option :value="5">5</option>
+              <option :value="10">10</option>
+            </select>
           </div>
         </div>
 
@@ -470,6 +521,17 @@ import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import type { Account } from '@/types'
 
+const MODEL_PRESETS = [
+  { label: 'gpt-5.4', value: 'gpt-5.4' },
+  { label: 'gpt-5.3-codex-spark', value: 'gpt-5.3-codex-spark' },
+  { label: 'gpt-5.2', value: 'gpt-5.2' },
+  { label: 'gpt-5', value: 'gpt-5' },
+  { label: 'o3-mini', value: 'o3-mini' },
+  { label: 'claude-3-7-sonnet-20250219', value: 'claude-3-7-sonnet-20250219' },
+  { label: 'gemini-2.5-pro', value: 'gemini-2.5-pro' },
+  { label: 'grok-3', value: 'grok-3' }
+]
+
 const props = withDefaults(
   defineProps<{
     show: boolean
@@ -508,8 +570,12 @@ interface PelicanAccountState {
   }
 }
 
-// 默认并发数调整为 1
+// 默认模型选择、思考程度与并发数
+const selectedModel = ref('')
+const presetModelSelect = ref('')
+const reasoningEffort = ref('')
 const concurrency = ref(1)
+
 const isRunning = ref(false)
 const showPromptEdit = ref(false)
 const showAccountPicker = ref(false)
@@ -517,6 +583,12 @@ const accountSearchQuery = ref('')
 const customPrompt = ref(t('admin.accounts.pelicanPromptDefault'))
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
+
+const onPresetModelChange = () => {
+  if (presetModelSelect.value) {
+    selectedModel.value = presetModelSelect.value
+  }
+}
 
 // Lightbox preview state
 const lightboxItem = ref<PelicanAccountState | null>(null)
@@ -696,10 +768,18 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
   const startAt = Date.now()
 
   try {
-    const requestBody = {
-      model_id: '',
+    const requestBody: {
+      model_id: string
+      prompt: string
+      mode: string
+      reasoning_effort?: string
+    } = {
+      model_id: selectedModel.value.trim(),
       prompt: customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault'),
       mode: 'pelican'
+    }
+    if (reasoningEffort.value) {
+      requestBody.reasoning_effort = reasoningEffort.value
     }
     const url = buildApiUrl(`/admin/accounts/${item.account.id}/test`)
     const response = await fetch(url, {

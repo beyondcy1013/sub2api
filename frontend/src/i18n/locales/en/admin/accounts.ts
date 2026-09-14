@@ -1760,6 +1760,11 @@ export default {
       pelicanClearSelection: 'Clear',
       pelicanSearchAccount: 'Search accounts...',
       pelicanNoAccountsSelected: 'No accounts selected. Please select accounts to test.',
+      pelicanModel: 'Test Model',
+      pelicanModelPlaceholder: 'Input or choose model (e.g. gpt-5.4)',
+      pelicanModelDefault: 'Account Default',
+      pelicanEffort: 'Reasoning Effort',
+      pelicanEffortDefault: 'Default',
       // Stats Modal
       viewStats: 'View Stats',
       usageStatistics: 'Usage Statistics',
