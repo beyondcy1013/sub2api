@@ -155,4 +155,54 @@ describe('AccountPelicanModal', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1)
     expect(state.status).toBe('success')
   })
+
+  it('并发数默认值必须为 1', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect((wrapper.vm as any).concurrency).toBe(1)
+  })
+
+  it('支持在弹窗内选择和切换账号', async () => {
+    const wrapper = mount(AccountPelicanModal, {
+      props: {
+        show: true,
+        accounts: [{ id: 1, name: 'Acc 1', platform: 'openai', type: 'oauth', status: 'active' }] as any,
+        allAccounts: [
+          { id: 1, name: 'Acc 1', platform: 'openai', type: 'oauth', status: 'active' },
+          { id: 2, name: 'Acc 2', platform: 'openai', type: 'apikey', status: 'active' }
+        ] as any
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          TextArea: true,
+          Icon: true
+        }
+      }
+    })
+    await flushPromises()
+
+    expect((wrapper.vm as any).accountStates).toHaveLength(1)
+
+    // 添加第 2 个账号
+    ;(wrapper.vm as any).toggleAccountSelection({ id: 2, name: 'Acc 2', platform: 'openai', type: 'apikey', status: 'active' })
+    await flushPromises()
+
+    expect((wrapper.vm as any).accountStates).toHaveLength(2)
+  })
+
+  it('支持打开和关闭全屏大图预览 Lightbox', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+
+    const state = (wrapper.vm as any).accountStates[0]
+    state.result = { has_html: true, html: '<svg></svg>', downgraded: false, reason: '' }
+
+    ;(wrapper.vm as any).openLightbox(state)
+    expect((wrapper.vm as any).lightboxItem).toBe(state)
+
+    ;(wrapper.vm as any).closeLightbox()
+    expect((wrapper.vm as any).lightboxItem).toBeNull()
+  })
 })

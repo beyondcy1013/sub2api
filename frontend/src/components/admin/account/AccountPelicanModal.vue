@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="accounts.length > 1 ? t('admin.accounts.pelicanBatchTitle') : t('admin.accounts.pelicanAction')"
+    :title="accountStates.length > 1 ? t('admin.accounts.pelicanBatchTitle') : t('admin.accounts.pelicanAction')"
     width="extra-wide"
     @close="handleClose"
   >
@@ -13,8 +13,18 @@
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
               {{ t('admin.accounts.pelicanBatchDesc') }}
             </div>
-            <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.pelicanAccountsCount', { selected: accounts.length, total: accounts.length }) }}
+            <div class="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+              <span>
+                {{ t('admin.accounts.pelicanAccountsCount', { selected: accountStates.length, total: candidateAccounts.length || accountStates.length }) }}
+              </span>
+              <button
+                type="button"
+                @click="showAccountPicker = !showAccountPicker"
+                class="inline-flex items-center gap-1 font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+              >
+                <Icon :name="showAccountPicker ? 'chevronUp' : 'chevronDown'" size="xs" />
+                <span>{{ t('admin.accounts.pelicanSelectAccounts') }} ({{ selectedAccountIds.size }})</span>
+              </button>
             </div>
           </div>
           <div class="flex items-center gap-3">
@@ -37,7 +47,7 @@
             <button
               v-if="!isRunning"
               @click="startAllTests"
-              :disabled="accounts.length === 0"
+              :disabled="accountStates.length === 0"
               class="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-50"
             >
               <Icon name="play" size="sm" />
@@ -51,6 +61,54 @@
               <Icon name="x" size="sm" />
               <span>{{ t('admin.accounts.pelicanStopBatch') }}</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Account Picker Panel -->
+        <div v-if="showAccountPicker" class="mt-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-800">
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-100 dark:border-dark-700">
+            <div class="relative flex-1 min-w-[200px] max-w-xs">
+              <input
+                v-model="accountSearchQuery"
+                type="search"
+                :placeholder="t('admin.accounts.pelicanSearchAccount')"
+                class="w-full rounded-md border border-gray-300 bg-gray-50 py-1 pl-7 pr-2 text-xs text-gray-800 focus:border-primary-500 focus:bg-white focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200"
+              />
+              <Icon name="search" size="xs" class="absolute left-2 top-2 text-gray-400" />
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                @click="selectAllAccounts"
+                class="text-primary-600 hover:text-primary-700 dark:text-primary-400 font-medium"
+              >
+                {{ t('admin.accounts.pelicanSelectAll') }}
+              </button>
+              <span class="text-gray-300 dark:text-dark-600">|</span>
+              <button
+                type="button"
+                @click="clearAllAccounts"
+                class="text-gray-500 hover:text-gray-700 dark:text-gray-400 font-medium"
+              >
+                {{ t('admin.accounts.pelicanClearSelection') }}
+              </button>
+            </div>
+          </div>
+          <div class="mt-2 grid max-h-40 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 overflow-y-auto pr-1">
+            <label
+              v-for="acc in filteredCandidateAccounts"
+              :key="acc.id"
+              class="flex items-center gap-2 rounded p-1.5 text-xs hover:bg-gray-50 cursor-pointer dark:hover:bg-dark-700/60"
+            >
+              <input
+                type="checkbox"
+                :checked="selectedAccountIds.has(acc.id)"
+                @change="toggleAccountSelection(acc)"
+                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              />
+              <span class="truncate font-medium text-gray-800 dark:text-gray-200" :title="acc.name">{{ acc.name }}</span>
+              <span class="text-[10px] text-gray-400 uppercase">({{ acc.type }})</span>
+            </label>
           </div>
         </div>
 
@@ -79,7 +137,7 @@
       <!-- Overall progress bar when testing -->
       <div v-if="isRunning || completedCount > 0" class="flex items-center justify-between text-xs text-gray-500">
         <div class="flex items-center gap-3">
-          <span>完成: {{ completedCount }} / {{ accounts.length }}</span>
+          <span>完成: {{ completedCount }} / {{ accountStates.length }}</span>
           <span class="text-green-600 font-medium">未降智: {{ normalCount }}</span>
           <span class="text-amber-600 font-medium">疑似降智: {{ downgradedCount }}</span>
           <span v-if="failedCount > 0" class="text-red-600 font-medium">失败: {{ failedCount }}</span>
@@ -87,13 +145,33 @@
         <div class="h-2 w-48 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
           <div
             class="h-full bg-primary-600 transition-all duration-300"
-            :style="{ width: `${accounts.length ? (completedCount / accounts.length) * 100 : 0}%` }"
+            :style="{ width: `${accountStates.length ? (completedCount / accountStates.length) * 100 : 0}%` }"
           />
         </div>
       </div>
 
-      <!-- Results Grid -->
-      <div class="grid max-h-[60vh] grid-cols-1 gap-4 overflow-y-auto p-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
+      <!-- Empty account state hint -->
+      <div
+        v-if="accountStates.length === 0"
+        class="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-dark-700 dark:text-gray-400"
+      >
+        <Icon name="search" size="lg" class="mb-2 text-gray-400" />
+        <p class="text-sm font-medium">{{ t('admin.accounts.pelicanNoAccountsSelected') }}</p>
+        <button
+          type="button"
+          @click="showAccountPicker = true"
+          class="mt-3 rounded-lg bg-primary-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-primary-500"
+        >
+          {{ t('admin.accounts.pelicanSelectAccounts') }}
+        </button>
+      </div>
+
+      <!-- Results Grid (Dynamic columns & expanded heights based on account count) -->
+      <div
+        v-else
+        class="grid max-h-[72vh] gap-4 overflow-y-auto p-1"
+        :class="gridColsClass"
+      >
         <div
           v-for="item in accountStates"
           :key="item.account.id"
@@ -165,48 +243,77 @@
 
           <!-- Card Content / Preview -->
           <div class="my-2 flex flex-1 flex-col justify-center">
-            <!-- Animation iframe preview -->
-            <div v-if="item.result?.has_html && item.activeTab === 'preview'" class="relative overflow-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-dark-600">
+            <!-- Animation iframe preview with enlarged responsive height -->
+            <div
+              v-if="item.result?.has_html && item.activeTab === 'preview'"
+              class="group/preview relative overflow-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-dark-600"
+            >
               <iframe
                 :srcdoc="pelicanPreviewDocument(item.result.html || '')"
                 sandbox="allow-scripts"
-                class="h-44 w-full border-0"
+                class="w-full border-0 transition-all duration-200"
+                :class="previewHeightClass"
                 loading="lazy"
                 title="Animation Preview"
               />
+              <!-- Enlarge / Lightbox Button in corner -->
+              <button
+                type="button"
+                @click="openLightbox(item)"
+                class="absolute right-2 top-2 flex items-center gap-1 rounded-lg bg-black/50 px-2 py-1 text-[11px] text-white opacity-80 backdrop-blur-sm transition hover:bg-black/80 hover:opacity-100 group-hover/preview:opacity-100"
+                :title="t('admin.accounts.pelicanZoomIn')"
+              >
+                <Icon name="search" size="xs" />
+                <span>{{ t('admin.accounts.pelicanZoomIn') }}</span>
+              </button>
             </div>
 
             <!-- HTML Source view -->
             <div v-else-if="item.result?.has_html && item.activeTab === 'source'" class="relative">
-              <pre class="h-44 overflow-y-auto rounded-lg bg-gray-900 p-2 font-mono text-[10px] text-gray-200"><code>{{ item.result.html }}</code></pre>
+              <pre
+                class="overflow-y-auto rounded-lg bg-gray-900 p-2.5 font-mono text-[11px] text-gray-200"
+                :class="previewHeightClass"
+              ><code>{{ item.result.html }}</code></pre>
             </div>
 
             <!-- Streaming / Output preview while running -->
-            <div v-else-if="item.status === 'running'" class="flex h-44 flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-3 text-center text-xs text-gray-400 dark:border-dark-700">
+            <div
+              v-else-if="item.status === 'running'"
+              class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400 dark:border-dark-700"
+              :class="previewHeightClass"
+            >
               <Icon name="refresh" size="lg" class="mb-2 animate-spin text-primary-500" />
-              <div class="line-clamp-3 font-mono text-[11px] text-gray-500 dark:text-gray-400">
+              <div class="line-clamp-4 font-mono text-[11px] text-gray-500 dark:text-gray-400">
                 {{ item.streamingContent || t('admin.accounts.connectingToApi') }}
               </div>
             </div>
 
             <!-- Downgraded or failed message without HTML -->
-            <div v-else-if="item.status === 'downgraded' || item.status === 'failed'" class="flex h-44 flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-3 text-center text-xs text-gray-500 dark:border-dark-700">
+            <div
+              v-else-if="item.status === 'downgraded' || item.status === 'failed'"
+              class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-4 text-center text-xs text-gray-500 dark:border-dark-700"
+              :class="previewHeightClass"
+            >
               <Icon :name="item.status === 'downgraded' ? 'exclamationTriangle' : 'xCircle'" size="md" :class="item.status === 'downgraded' ? 'text-amber-500' : 'text-red-500'" class="mb-1" />
               <span class="font-medium text-gray-700 dark:text-gray-300">{{ item.reason || item.error || t('admin.accounts.pelicanNoHtml') }}</span>
-              <p v-if="item.streamingContent" class="mt-1 line-clamp-3 font-mono text-[10px] text-gray-400">
+              <p v-if="item.streamingContent" class="mt-1 line-clamp-4 font-mono text-[11px] text-gray-400">
                 {{ item.streamingContent }}
               </p>
             </div>
 
             <!-- Idle placeholder -->
-            <div v-else class="flex h-44 items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 dark:border-dark-700">
+            <div
+              v-else
+              class="flex items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 dark:border-dark-700"
+              :class="previewHeightClass"
+            >
               <span>{{ t('admin.accounts.pelicanStatusQueued') }}</span>
             </div>
           </div>
 
           <!-- Card Footer Actions -->
           <div class="mt-auto flex items-center justify-between border-t border-gray-100 pt-2 text-xs dark:border-dark-700">
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-1.5">
               <template v-if="item.result?.has_html">
                 <button
                   type="button"
@@ -222,6 +329,14 @@
                   :title="t('admin.accounts.copyOutput')"
                 >
                   <Icon name="copy" size="xs" />
+                </button>
+                <button
+                  type="button"
+                  @click="openLightbox(item)"
+                  class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  :title="t('admin.accounts.pelicanZoomIn')"
+                >
+                  <Icon name="search" size="xs" />
                 </button>
               </template>
               <span v-if="item.elapsedMs" class="ml-1 text-[10px] text-gray-400">
@@ -243,8 +358,82 @@
       </div>
     </div>
 
+    <!-- Lightbox Modal for Large Screen Preview -->
+    <BaseDialog
+      :show="lightboxItem !== null"
+      :title="lightboxItem ? `${lightboxItem.account.name} - ${t('admin.accounts.pelicanAction')}` : ''"
+      width="extra-wide"
+      @close="closeLightbox"
+    >
+      <div v-if="lightboxItem" class="space-y-3">
+        <div class="flex items-center justify-between border-b border-gray-100 pb-2 dark:border-dark-700">
+          <div class="flex items-center gap-2">
+            <span
+              :class="[
+                'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                lightboxItem.status === 'success' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
+                lightboxItem.status === 'downgraded' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
+              ]"
+            >
+              <Icon :name="lightboxItem.status === 'success' ? 'checkCircle' : 'exclamationTriangle'" size="xs" />
+              {{ lightboxItem.status === 'success' ? t('admin.accounts.pelicanStatusSuccess') : t('admin.accounts.pelicanStatusDowngraded') }}
+            </span>
+            <span v-if="lightboxItem.responseModel" class="text-xs text-gray-500">
+              ({{ lightboxItem.responseModel }})
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="lightboxTab = lightboxTab === 'preview' ? 'source' : 'preview'"
+              class="rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700"
+            >
+              {{ lightboxTab === 'preview' ? t('admin.accounts.pelicanSourceTab') : t('admin.accounts.pelicanPreviewTab') }}
+            </button>
+            <button
+              type="button"
+              @click="copyToClipboard(lightboxItem.result?.html || '', t('admin.accounts.outputCopied'))"
+              class="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700"
+            >
+              <Icon name="copy" size="xs" />
+              <span>{{ t('admin.accounts.copyOutput') }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Lightbox Content -->
+        <div v-if="lightboxTab === 'preview'" class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-inner dark:border-dark-600">
+          <iframe
+            :srcdoc="pelicanPreviewDocument(lightboxItem.result?.html || '')"
+            sandbox="allow-scripts"
+            class="h-[65vh] w-full border-0"
+            loading="lazy"
+            title="Pelican Animation Full Preview"
+          />
+        </div>
+        <div v-else class="relative">
+          <pre class="h-[65vh] overflow-y-auto rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-200"><code>{{ lightboxItem.result?.html }}</code></pre>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end">
+          <button
+            type="button"
+            @click="closeLightbox"
+            class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+          >
+            {{ t('common.close') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <template #footer>
-      <div class="flex items-center justify-end gap-3">
+      <div class="flex items-center justify-between gap-3">
+        <div class="text-xs text-gray-400">
+          {{ t('admin.accounts.pelicanAccountsCount', { selected: accountStates.length, total: candidateAccounts.length || accountStates.length }) }}
+        </div>
         <button
           @click="handleClose"
           class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
@@ -268,10 +457,16 @@ import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import type { Account } from '@/types'
 
-const props = defineProps<{
-  show: boolean
-  accounts: Account[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    show: boolean
+    accounts: Account[]
+    allAccounts?: Account[]
+  }>(),
+  {
+    allAccounts: () => []
+  }
+)
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -298,11 +493,114 @@ interface PelicanAccountState {
   }
 }
 
-const concurrency = ref(3)
+// 默认并发数调整为 1
+const concurrency = ref(1)
 const isRunning = ref(false)
 const showPromptEdit = ref(false)
+const showAccountPicker = ref(false)
+const accountSearchQuery = ref('')
 const customPrompt = ref(t('admin.accounts.pelicanPromptDefault'))
 const accountStates = ref<PelicanAccountState[]>([])
+const selectedAccountIds = ref<Set<number>>(new Set())
+
+// Lightbox preview state
+const lightboxItem = ref<PelicanAccountState | null>(null)
+const lightboxTab = ref<'preview' | 'source'>('preview')
+
+const openLightbox = (item: PelicanAccountState) => {
+  lightboxItem.value = item
+  lightboxTab.value = 'preview'
+}
+
+const closeLightbox = () => {
+  lightboxItem.value = null
+}
+
+// 可选候选账号（结合传入的全部账号与已有选中账号）
+const candidateAccounts = computed<Account[]>(() => {
+  const map = new Map<number, Account>()
+  for (const acc of props.allAccounts) {
+    map.set(acc.id, acc)
+  }
+  for (const acc of props.accounts) {
+    map.set(acc.id, acc)
+  }
+  return Array.from(map.values())
+})
+
+const filteredCandidateAccounts = computed(() => {
+  const q = accountSearchQuery.value.trim().toLowerCase()
+  if (!q) return candidateAccounts.value
+  return candidateAccounts.value.filter(
+    acc => acc.name.toLowerCase().includes(q) || String(acc.id).includes(q) || acc.type.toLowerCase().includes(q)
+  )
+})
+
+const toggleAccountSelection = (acc: Account) => {
+  if (selectedAccountIds.value.has(acc.id)) {
+    selectedAccountIds.value.delete(acc.id)
+    accountStates.value = accountStates.value.filter(s => s.account.id !== acc.id)
+  } else {
+    selectedAccountIds.value.add(acc.id)
+    accountStates.value.push({
+      account: acc,
+      status: 'idle',
+      streamingContent: '',
+      activeTab: 'preview'
+    })
+  }
+}
+
+const selectAllAccounts = () => {
+  for (const acc of filteredCandidateAccounts.value) {
+    selectedAccountIds.value.add(acc.id)
+  }
+  syncAccountStatesFromSelected()
+}
+
+const clearAllAccounts = () => {
+  selectedAccountIds.value.clear()
+  accountStates.value = []
+}
+
+const syncAccountStatesFromSelected = () => {
+  const currentStatesMap = new Map<number, PelicanAccountState>()
+  for (const state of accountStates.value) {
+    currentStatesMap.set(state.account.id, state)
+  }
+
+  const newStates: PelicanAccountState[] = []
+  for (const acc of candidateAccounts.value) {
+    if (selectedAccountIds.value.has(acc.id)) {
+      if (currentStatesMap.has(acc.id)) {
+        newStates.push(currentStatesMap.get(acc.id)!)
+      } else {
+        newStates.push({
+          account: acc,
+          status: 'idle',
+          streamingContent: '',
+          activeTab: 'preview'
+        })
+      }
+    }
+  }
+  accountStates.value = newStates
+}
+
+// 动态网格与高度控制：根据账号数量自适应放大
+const gridColsClass = computed(() => {
+  const count = accountStates.value.length
+  if (count <= 1) return 'grid-cols-1'
+  if (count === 2) return 'grid-cols-1 md:grid-cols-2'
+  return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3'
+})
+
+const previewHeightClass = computed(() => {
+  const count = accountStates.value.length
+  if (count <= 1) return 'h-[480px]'
+  if (count === 2) return 'h-[380px]'
+  return 'h-72'
+})
 
 let activeControllers: AbortController[] = []
 let globalAbort: AbortController | null = null
@@ -323,9 +621,11 @@ const failedCount = computed(() =>
 watch(
   () => [props.show, props.accounts] as const,
   ([show, accounts]) => {
-    if (show && accounts) {
+    if (show) {
       customPrompt.value = t('admin.accounts.pelicanPromptDefault')
-      accountStates.value = accounts.map(account => ({
+      const targetAccounts = accounts && accounts.length > 0 ? accounts : props.allAccounts.slice(0, 1)
+      selectedAccountIds.value = new Set(targetAccounts.map(a => a.id))
+      accountStates.value = targetAccounts.map(account => ({
         account,
         status: 'idle',
         streamingContent: '',
@@ -333,6 +633,8 @@ watch(
       }))
     } else {
       stopAllTests()
+      closeLightbox()
+      showAccountPicker.value = false
     }
   },
   { immediate: true }
@@ -340,6 +642,7 @@ watch(
 
 const handleClose = () => {
   stopAllTests()
+  closeLightbox()
   emit('close')
 }
 
@@ -476,7 +779,7 @@ async function startAllTests() {
   const signal = globalAbort.signal
 
   const queue = [...accountStates.value]
-  const limit = Math.max(1, Math.min(10, concurrency.value || 3))
+  const limit = Math.max(1, Math.min(10, concurrency.value || 1))
 
   const workers = Array.from({ length: limit }, async () => {
     while (queue.length > 0 && !signal.aborted) {
@@ -496,5 +799,6 @@ async function startAllTests() {
 
 onUnmounted(() => {
   stopAllTests()
+  closeLightbox()
 })
 </script>

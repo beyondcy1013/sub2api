@@ -23,6 +23,7 @@
             @refresh="handleManualRefresh"
             @create="openCreateAccountModal"
             @scheduling-rules="openSchedulingRulesModal"
+            @pelican-test="handleTablePelicanTest"
           >
             <template #before>
               <AccountSchedulingRuntimeSummary
@@ -574,6 +575,15 @@
               >
                 {{ t('admin.accounts.testConnection') }}
               </button>
+              <button
+                data-test="account-pelican-action"
+                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-cyan-200 px-2 text-xs font-medium leading-none text-cyan-700 transition-colors hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-900/20"
+                :title="t('admin.accounts.pelicanAction')"
+                :aria-label="t('admin.accounts.pelicanAction')"
+                @click="handleSinglePelicanTest(row)"
+              >
+                {{ t('admin.accounts.pelicanAction') }}
+              </button>
               <template v-if="deleted">
                 <button
                   data-test="account-restore-deleted-action"
@@ -627,7 +637,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" />
-    <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" @close="closePelicanModal" />
+    <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" :all-accounts="accounts" @close="closePelicanModal" />
     <SchedulingRulesModal
       :show="showSchedulingRules"
       @close="closeSchedulingRulesModal"
@@ -3068,6 +3078,18 @@ const handleBulkPelicanTest = async () => {
   const fullAccounts = (await Promise.all(selected.map(a => loadAccountDetails(a)))).filter((a): a is Account => a != null)
   pelicanTestAccounts.value = fullAccounts
   showPelicanModal.value = true
+}
+const handleTablePelicanTest = async () => {
+  if (selIds.value.length > 0) {
+    await handleBulkPelicanTest()
+  } else if (accounts.value.length > 0) {
+    const first = await loadAccountDetails(accounts.value[0])
+    pelicanTestAccounts.value = first ? [first] : []
+    showPelicanModal.value = true
+  } else {
+    pelicanTestAccounts.value = []
+    showPelicanModal.value = true
+  }
 }
 const refreshUpstreamBillingAfterSuccessfulTest = async (account: Account) => {
   if (account.platform !== 'openai' || account.type !== 'apikey' || probingUpstreamBilling.has(account.id)) return

@@ -1818,6 +1818,12 @@ export default {
       pelicanStatusFailed: '失败',
       pelicanRetry: '重新测智',
       pelicanAccountsCount: '已选 {selected} / 共 {total} 个账号',
+      pelicanZoomIn: '放大预览',
+      pelicanSelectAccounts: '选择账号',
+      pelicanSelectAll: '全选',
+      pelicanClearSelection: '清空',
+      pelicanSearchAccount: '搜索账号...',
+      pelicanNoAccountsSelected: '尚未选择任何账号，请选择要测试的账号',
       // Stats Modal
       viewStats: '查看统计',
       usageStatistics: '使用统计',

@@ -8,6 +8,15 @@
       <Icon name="cog" size="sm" />
       <span>{{ t('admin.accounts.schedulingRules.title') }}</span>
     </button>
+    <button
+      type="button"
+      @click="$emit('pelican-test')"
+      class="btn btn-secondary gap-2 px-3 text-cyan-600 hover:text-cyan-700 dark:text-cyan-400"
+      :title="t('admin.accounts.pelicanAction')"
+    >
+      <Icon name="play" size="sm" />
+      <span>{{ t('admin.accounts.pelicanAction') }}</span>
+    </button>
     <slot name="after"></slot>
     <slot name="beforeCreate"></slot>
     <button @click="$emit('create')" class="btn btn-primary">{{ t('admin.accounts.createAccount') }}</button>
@@ -46,7 +55,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 
 defineProps(['loading', 'showFilters', 'recycled', 'deleted'])
-defineEmits(['refresh', 'create', 'toggleFilters', 'toggleRecycled', 'toggleDeleted', 'scheduling-rules'])
+defineEmits(['refresh', 'create', 'toggleFilters', 'toggleRecycled', 'toggleDeleted', 'scheduling-rules', 'pelican-test'])
 
 const { t } = useI18n()
 </script>

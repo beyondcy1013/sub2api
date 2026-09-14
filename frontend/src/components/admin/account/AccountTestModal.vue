@@ -223,13 +223,22 @@
         </p>
 
         <!-- Preview View -->
-        <div v-if="pelicanResult.has_html && pelicanActiveTab === 'preview'" class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-dark-600">
+        <div v-if="pelicanResult.has_html && pelicanActiveTab === 'preview'" class="group/pelican relative overflow-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-dark-600">
           <iframe
             :srcdoc="pelicanPreviewDocument(pelicanResult.html || '')"
             sandbox="allow-scripts"
-            class="h-64 w-full border-0"
+            class="h-[460px] w-full border-0"
             title="Pelican Animation Preview"
           />
+          <button
+            type="button"
+            @click="showPelicanLightbox = true"
+            class="absolute right-2 top-2 flex items-center gap-1 rounded-lg bg-black/50 px-2 py-1 text-xs text-white opacity-80 backdrop-blur-sm transition hover:bg-black/80 hover:opacity-100 group-hover/pelican:opacity-100"
+            :title="t('admin.accounts.pelicanZoomIn')"
+          >
+            <Icon name="search" size="xs" />
+            <span>{{ t('admin.accounts.pelicanZoomIn') }}</span>
+          </button>
         </div>
 
         <!-- Source Code View -->
@@ -270,6 +279,40 @@
               alt="preview"
               class="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
             />
+          </div>
+        </Transition>
+      </Teleport>
+
+      <!-- Pelican Fullscreen Lightbox -->
+      <Teleport to="body">
+        <Transition name="fade">
+          <div
+            v-if="showPelicanLightbox && pelicanResult?.html"
+            class="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
+            @click.self="showPelicanLightbox = false"
+          >
+            <div class="relative flex h-[85vh] w-[90vw] max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-dark-800">
+              <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-dark-700">
+                <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  {{ t('admin.accounts.pelicanAction') }} - {{ t('admin.accounts.pelicanZoomIn') }}
+                </span>
+                <button
+                  type="button"
+                  class="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-200"
+                  @click="showPelicanLightbox = false"
+                >
+                  <Icon name="x" size="md" />
+                </button>
+              </div>
+              <div class="flex-1 overflow-hidden p-2">
+                <iframe
+                  :srcdoc="pelicanPreviewDocument(pelicanResult.html)"
+                  sandbox="allow-scripts"
+                  class="h-full w-full border-0"
+                  title="Pelican Animation Fullscreen"
+                />
+              </div>
+            </div>
           </div>
         </Transition>
       </Teleport>
@@ -402,6 +445,7 @@ const selectedModelId = ref('')
 const testPrompt = ref('')
 const pelicanPrompt = ref('')
 const pelicanActiveTab = ref<'preview' | 'source'>('preview')
+const showPelicanLightbox = ref(false)
 const pelicanResult = ref<{
   has_html: boolean
   html?: string
@@ -569,11 +613,13 @@ const resetState = () => {
   errorMessage.value = ''
   generatedImages.value = []
   previewImageUrl.value = ''
+  showPelicanLightbox.value = false
   pelicanResult.value = null
 }
 
 const handleClose = () => {
   abortStream()
+  showPelicanLightbox.value = false
   emit('close')
 }
 

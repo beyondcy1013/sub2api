@@ -1753,6 +1753,12 @@ export default {
       pelicanStatusFailed: 'Failed',
       pelicanRetry: 'Retry',
       pelicanAccountsCount: '{selected} of {total} accounts selected',
+      pelicanZoomIn: 'Enlarge Preview',
+      pelicanSelectAccounts: 'Select Accounts',
+      pelicanSelectAll: 'Select All',
+      pelicanClearSelection: 'Clear',
+      pelicanSearchAccount: 'Search accounts...',
+      pelicanNoAccountsSelected: 'No accounts selected. Please select accounts to test.',
       // Stats Modal
       viewStats: 'View Stats',
       usageStatistics: 'Usage Statistics',
