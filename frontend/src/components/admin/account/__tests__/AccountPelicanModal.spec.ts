@@ -329,10 +329,12 @@ describe('AccountPelicanModal', () => {
     expect((wrapper.vm as any).accountStates[0].responseModel).toBe('old-model')
   })
 
-  it('支持新增提示词方案并持久化选中与内容', async () => {
+  it('使用下拉列表切换提示词方案并持久化选中与内容', async () => {
     const wrapper = mountModal([
       { id: 40, name: 'Prompt Account', platform: 'openai', type: 'oauth', status: 'active' }
     ])
+    await flushPromises()
+    ;(wrapper.vm as any).showPromptEdit = true
     await flushPromises()
 
     ;(wrapper.vm as any).customPrompt = 'Pelican on spaceship'
@@ -343,12 +345,16 @@ describe('AccountPelicanModal', () => {
     ;(wrapper.vm as any).addPromptScenario()
     await flushPromises()
 
+    const selects = wrapper.findAll('select')
+    expect(selects.map(select => (select.element as HTMLSelectElement).value)).toContain((wrapper.vm as any).selectedPromptId)
+    expect(selects.length).toBeGreaterThanOrEqual(3)
+
     expect((wrapper.vm as any).promptScenarios).toHaveLength(2)
     expect((wrapper.vm as any).customPrompt).toContain('admin.accounts.pelicanPromptDefault')
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null').selectedId)
       .not.toBe('default')
 
-    ;(wrapper.vm as any).selectedPromptId = 'default'
+    await selects.find(select => select.findAll('option').length === 2)!.setValue('default')
     await flushPromises()
     expect((wrapper.vm as any).customPrompt).toBe('Pelican on spaceship')
   })

@@ -57,7 +57,7 @@
           </div>
         </div>
 
-        <!-- Controls: Model Selection, Reasoning Effort & Concurrency -->
+        <!-- Controls: Model Selection, Prompt Scenario & Reasoning Effort -->
         <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-12 items-end">
           <!-- Big Model Selector (single dropdown) -->
           <div class="sm:col-span-2 md:col-span-6 space-y-1">
@@ -71,6 +71,22 @@
             >
               <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
                 {{ m.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Prompt Scenario Dropdown -->
+          <div class="sm:col-span-1 md:col-span-3 space-y-1">
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.pelicanPromptScenario') }}
+            </label>
+            <select
+              v-model="selectedPromptId"
+              :disabled="isRunning"
+              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              <option v-for="scenario in promptScenarios" :key="scenario.id" :value="scenario.id">
+                {{ scenario.name }}
               </option>
             </select>
           </div>
@@ -155,20 +171,6 @@
           </button>
           <div v-if="showPromptEdit" class="mt-2 space-y-2">
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-              <div class="space-y-1 lg:col-span-3">
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.accounts.pelicanPromptScenario') }}
-                </label>
-                <select
-                  v-model="selectedPromptId"
-                  :disabled="isRunning"
-                  class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-                >
-                  <option v-for="scenario in promptScenarios" :key="scenario.id" :value="scenario.id">
-                    {{ scenario.name }}
-                  </option>
-                </select>
-              </div>
               <div class="space-y-1 lg:col-span-4">
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.accounts.pelicanPromptScenarioName') }}
