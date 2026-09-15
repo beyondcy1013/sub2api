@@ -1324,8 +1324,9 @@ watch(
       selectedAccountIds.value = new Set(Array.from(selectedAccountIds.value).filter(id =>
         candidateAccounts.value.some(acc => acc.id === id)
       ))
-      syncAccountStatesFromSelected()
-      stopAllTests()
+      if (!isRunning.value) {
+        syncAccountStatesFromSelected()
+      }
       closeLightbox()
       showAccountPicker.value = false
     }

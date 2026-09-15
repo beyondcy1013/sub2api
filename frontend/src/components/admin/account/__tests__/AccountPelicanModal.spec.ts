@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountPelicanModal from '../AccountPelicanModal.vue'
 import {
   clearPelicanResultCache,
+  getCachedPelicanResult,
   setCachedPelicanResult
 } from '@/utils/pelicanResultCache'
 
@@ -250,6 +251,44 @@ describe('AccountPelicanModal', () => {
     expect(global.fetch).not.toHaveBeenCalled()
     expect((wrapper.vm as any).isRunning).toBe(false)
     expect((wrapper.vm as any).accountStates[0].status).toBe('idle')
+    await wrapper.unmount()
+  })
+
+  it('关闭弹窗后测智请求继续执行并保存结果', async () => {
+    let resolveReader = () => {}
+    const readGate = new Promise<void>(resolve => {
+      resolveReader = resolve
+    })
+    global.fetch = vi.fn().mockImplementation(async () => {
+      await readGate
+      return createStreamResponse([
+        'data: {"type":"test_start","model":"gpt-6-astra"}\n',
+        'data: {"type":"pelican_result","text":"测智通过","data":{"has_html":true,"html":"<!doctype html><html><body><svg></svg></body></html>","downgraded":false,"reason":"测智通过","response_model":"gpt-6-astra"}}\n',
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    }) as any
+
+    const wrapper = mountModal([
+      { id: 77, name: 'Background Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+
+    const running = (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    expect((wrapper.vm as any).isRunning).toBe(true)
+
+    await wrapper.setProps({ show: false })
+    await flushPromises()
+    expect((wrapper.vm as any).isRunning).toBe(true)
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+
+    resolveReader()
+    await running
+    await flushPromises()
+
+    expect((wrapper.vm as any).isRunning).toBe(false)
+    expect((wrapper.vm as any).accountStates[0].status).toBe('success')
+    expect(getCachedPelicanResult(77)?.status).toBe('success')
     await wrapper.unmount()
   })
 
