@@ -338,6 +338,8 @@ describe('AccountPelicanModal', () => {
     await flushPromises()
     ;(wrapper.vm as any).customPrompt = 'Pelican on spaceship'
     await flushPromises()
+    await wrapper.get('[data-test="pelican-prompt-save"]').trigger('click')
+    await flushPromises()
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null'))
       .toMatchObject({ selectedId: 'default', scenarios: [{ prompt: 'Pelican on spaceship' }] })
 
@@ -356,5 +358,42 @@ describe('AccountPelicanModal', () => {
     await selects.find(select => select.findAll('option').length === 2)!.setValue('default')
     await flushPromises()
     expect((wrapper.vm as any).customPrompt).toBe('Pelican on spaceship')
+
+    await selects.find(select => select.findAll('option').length === 2)!.setValue((wrapper.vm as any).selectedPromptId === 'default'
+      ? (wrapper.vm as any).promptScenarios[1].id
+      : 'default')
+    await flushPromises()
+    expect((wrapper.vm as any).customPrompt).toBe('admin.accounts.pelicanPromptDefault')
+  })
+
+  it('keeps prompt options previewable and saves edited drafts explicitly', async () => {
+    const wrapper = mountModal([
+      { id: 41, name: 'Prompt Save Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.accounts.pelicanPromptScenario')
+    expect(wrapper.text()).not.toContain('admin.accounts.pelicanPromptScenarioName')
+
+    const saveButton = wrapper.get('[data-test="pelican-prompt-save"]')
+    expect(saveButton.attributes()).toHaveProperty('disabled')
+
+    await wrapper.get('textarea.textarea-stub').setValue(
+      'Create a long pelican SVG animation prompt that should be previewed directly'
+    )
+    await flushPromises()
+    expect((wrapper.vm as any).promptDirty).toBe(true)
+    const beforeSave = (wrapper.vm as any).promptScenarios[0].prompt
+    expect(beforeSave).toBe('admin.accounts.pelicanPromptDefault')
+    expect((wrapper.vm as any).customPrompt).not.toBe(beforeSave)
+
+    await saveButton.trigger('click')
+    await flushPromises()
+
+    expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null').scenarios[0])
+      .toMatchObject({ prompt: (wrapper.vm as any).customPrompt })
+    expect((wrapper.vm as any).promptScenarios[0].name).toContain('Create a long pelican')
+    expect(wrapper.findAll('select')[1]?.text()).toContain('Create a long pelican')
+    expect(wrapper.get('[data-test="pelican-prompt-save"]').attributes()).toHaveProperty('disabled')
   })
 })

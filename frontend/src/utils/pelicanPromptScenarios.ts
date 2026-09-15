@@ -101,3 +101,9 @@ export function savePelicanPromptScenarios(state: PelicanPromptScenarioState): v
     // Ignore storage failures such as private browsing quotas.
   }
 }
+
+export function pelicanPromptOptionLabel(prompt: string, maxLength = 28): string {
+  const normalized = prompt.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}...`
+}

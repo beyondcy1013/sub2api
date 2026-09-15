@@ -76,17 +76,15 @@
           </div>
 
           <!-- Prompt Scenario Dropdown -->
-          <div class="sm:col-span-1 md:col-span-3 space-y-1">
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.pelicanPromptScenario') }}
-            </label>
+          <div class="sm:col-span-1 md:col-span-3">
             <select
               v-model="selectedPromptId"
+              :aria-label="t('admin.accounts.pelicanPromptScenario')"
               :disabled="isRunning"
               class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
             >
               <option v-for="scenario in promptScenarios" :key="scenario.id" :value="scenario.id">
-                {{ scenario.name }}
+                {{ pelicanPromptOptionLabel(scenario.prompt) }}
               </option>
             </select>
           </div>
@@ -162,22 +160,11 @@
         <!-- Customizable Prompt editor (always visible for immediate preview) -->
         <div class="mt-3">
           <div class="pt-3 border-t border-gray-100 dark:border-dark-700">
-            <div class="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.pelicanPromptLabel') }}
-            </div>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-              <div class="space-y-1 lg:col-span-4">
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.accounts.pelicanPromptScenarioName') }}
-                </label>
-                <input
-                  v-model="selectedPromptName"
-                  :disabled="isRunning"
-                  class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-                  :placeholder="t('admin.accounts.pelicanPromptScenarioName')"
-                />
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div class="text-xs font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.accounts.pelicanPromptLabel') }}
               </div>
-              <div class="flex items-center gap-2 lg:col-span-5">
+              <div class="flex items-center gap-2">
                 <button
                   type="button"
                   :disabled="isRunning || promptScenarios.length >= 20"
@@ -195,6 +182,16 @@
                 >
                   <Icon name="trash" size="xs" />
                   <span>{{ t('admin.accounts.pelicanPromptDelete') }}</span>
+                </button>
+                <button
+                  type="button"
+                  data-test="pelican-prompt-save"
+                  :disabled="isRunning || !promptDirty"
+                  class="inline-flex items-center gap-1 rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-primary-500 disabled:opacity-50"
+                  @click="savePromptScenario"
+                >
+                  <Icon name="checkCircle" size="xs" />
+                  <span>{{ t('common.save') }}</span>
                 </button>
               </div>
             </div>
@@ -604,6 +601,7 @@ import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import {
+  pelicanPromptOptionLabel,
   loadPelicanPromptScenarios,
   savePelicanPromptScenarios
 } from '@/utils/pelicanPromptScenarios'
@@ -680,8 +678,14 @@ const promptState = loadPelicanPromptScenarios(
 )
 const promptScenarios = ref(promptState.scenarios)
 const selectedPromptId = ref(promptState.selectedId)
-const selectedPromptName = ref(promptState.scenarios.find(item => item.id === selectedPromptId.value)?.name || '')
 const customPrompt = ref(promptState.scenarios.find(item => item.id === selectedPromptId.value)?.prompt || '')
+
+const selectedPromptScenario = computed(() =>
+  promptScenarios.value.find(item => item.id === selectedPromptId.value)
+)
+const promptDirty = computed(() =>
+  customPrompt.value !== (selectedPromptScenario.value?.prompt || '')
+)
 
 const updateSelectedScenario = (mutator: (scenario: (typeof promptScenarios.value)[number]) => void) => {
   const scenario = promptScenarios.value.find(item => item.id === selectedPromptId.value)
@@ -693,38 +697,32 @@ const updateSelectedScenario = (mutator: (scenario: (typeof promptScenarios.valu
   })
 }
 
-watch(customPrompt, value => {
-  updateSelectedScenario(scenario => {
-    scenario.prompt = value
-  })
-})
-
-watch(selectedPromptName, value => {
-  const name = value.trim()
-  if (!name) return
-  updateSelectedScenario(scenario => {
-    scenario.name = name
-  })
-})
-
 watch(selectedPromptId, value => {
   const scenario = promptScenarios.value.find(item => item.id === value)
   if (!scenario) return
-  selectedPromptName.value = scenario.name
   customPrompt.value = scenario.prompt
-  savePelicanPromptScenarios({ scenarios: promptScenarios.value, selectedId: value })
 })
+
+const savePromptScenario = () => {
+  if (isRunning.value || !promptDirty.value) return
+  const prompt = customPrompt.value
+  updateSelectedScenario(scenario => {
+    scenario.prompt = prompt
+    scenario.name = pelicanPromptOptionLabel(prompt, 40)
+  })
+}
 
 const addPromptScenario = () => {
   const id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const name = t('admin.accounts.pelicanPromptScenarioNew')
+  const prompt = t('admin.accounts.pelicanPromptDefault')
   promptScenarios.value.push({
     id,
-    name,
-    prompt: t('admin.accounts.pelicanPromptDefault')
+    name: pelicanPromptOptionLabel(prompt, 40),
+    prompt
   })
-  selectedPromptName.value = name
   selectedPromptId.value = id
+  customPrompt.value = prompt
+  savePelicanPromptScenarios({ scenarios: promptScenarios.value, selectedId: id })
 }
 
 const deletePromptScenario = () => {
@@ -733,8 +731,8 @@ const deletePromptScenario = () => {
   if (index < 0) return
   promptScenarios.value.splice(index, 1)
   const nextScenario = promptScenarios.value[Math.min(index, promptScenarios.value.length - 1)]
-  selectedPromptName.value = nextScenario.name
   selectedPromptId.value = nextScenario.id
+  customPrompt.value = nextScenario.prompt
 }
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
