@@ -1,6 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountPelicanModal from '../AccountPelicanModal.vue'
+import {
+  clearPelicanResultCache,
+  setCachedPelicanResult
+} from '@/utils/pelicanResultCache'
 
 const { copyToClipboard } = vi.hoisted(() => ({
   copyToClipboard: vi.fn()
@@ -76,6 +80,8 @@ function mountModal(
 
 describe('AccountPelicanModal', () => {
   beforeEach(() => {
+    localStorage.clear()
+    clearPelicanResultCache()
     copyToClipboard.mockReset()
     global.fetch = vi.fn().mockImplementation(() =>
       createStreamResponse([
@@ -162,11 +168,23 @@ describe('AccountPelicanModal', () => {
     expect(state.status).toBe('success')
   })
 
-  it('并发数默认值必须为 1', async () => {
-    const wrapper = mountModal()
+  it('开始测智时所有选中账号同时发起请求', async () => {
+    const wrapper = mountModal([
+      { id: 31, name: 'Concurrent 1', platform: 'openai', type: 'oauth', status: 'active' },
+      { id: 32, name: 'Concurrent 2', platform: 'openai', type: 'oauth', status: 'active' },
+      { id: 33, name: 'Concurrent 3', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
     await flushPromises()
 
-    expect((wrapper.vm as any).concurrency).toBe(1)
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(3)
+    expect((wrapper.vm as any).accountStates.map((item: any) => item.status)).toEqual([
+      'success',
+      'success',
+      'success'
+    ])
   })
 
   it('支持在弹窗内选择和切换账号', async () => {
@@ -221,6 +239,7 @@ describe('AccountPelicanModal', () => {
     expect(global.fetch).not.toHaveBeenCalled()
     expect((wrapper.vm as any).isRunning).toBe(false)
     expect((wrapper.vm as any).accountStates[0].status).toBe('idle')
+    await wrapper.unmount()
   })
 
   it('显式传入 autoStart 为 true 时自动启动测智', async () => {
@@ -263,5 +282,50 @@ describe('AccountPelicanModal', () => {
 
     expect((wrapper.vm as any).selectedModel).toBe('gpt-6-astra')
     expect((wrapper.vm as any).reasoningEffort).toBe('low')
+  })
+
+  it('点击账号历史按钮可展开并快速浏览历史结果', async () => {
+    setCachedPelicanResult({
+      account: { id: 20, name: 'History Account', type: 'oauth' },
+      status: 'downgraded',
+      responseModel: 'old-model',
+      reason: 'old failure',
+      testedAt: 1000
+    })
+    setCachedPelicanResult({
+      account: { id: 20, name: 'History Account', type: 'oauth' },
+      status: 'success',
+      result: {
+        has_html: true,
+        html: '<svg></svg>',
+        downgraded: false,
+        reason: 'ok',
+        response_model: 'new-model'
+      },
+      responseModel: 'new-model',
+      reason: 'ok',
+      testedAt: 2000
+    })
+    const wrapper = mountModal([
+      { id: 20, name: 'History Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+
+    expect((wrapper.vm as any).historyCount(20)).toBe(2)
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect((wrapper.vm as any).accountStates[0].responseModel).toBe('new-model')
+
+    await wrapper.find('button[title="admin.accounts.pelicanHistory"]').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.vm as any).expandedHistoryAccountIds.has(20)).toBe(true)
+    const historyButtons = wrapper.findAll('button[title="admin.accounts.pelicanHistory"]')
+    expect(historyButtons).toHaveLength(1)
+    expect(wrapper.text()).toContain('old-model')
+
+    await (wrapper.vm as any).selectHistoryResult((wrapper.vm as any).accountStates[0], 1)
+    await flushPromises()
+    expect((wrapper.vm as any).accountStates[0].status).toBe('downgraded')
+    expect((wrapper.vm as any).accountStates[0].responseModel).toBe('old-model')
   })
 })

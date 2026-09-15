@@ -26,6 +26,7 @@
                 <span>{{ t('admin.accounts.pelicanSelectAccounts') }} ({{ selectedAccountIds.size }})</span>
               </button>
             </div>
+
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -38,7 +39,15 @@
               <span>{{ t('admin.accounts.pelicanStartBatch') }}</span>
             </button>
             <button
-              v-else
+              type="button"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+              :title="t('admin.accounts.pelicanClearCache')"
+              @click="handleClearCache"
+            >
+              <span>{{ t('admin.accounts.pelicanClearCache') }}</span>
+            </button>
+            <button
+              v-if="isRunning"
               @click="stopAllTests"
               class="flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-red-500"
             >
@@ -84,23 +93,6 @@
             </select>
           </div>
 
-          <!-- Concurrency -->
-          <div class="sm:col-span-1 md:col-span-3 space-y-1">
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.pelicanConcurrency') }}
-            </label>
-            <select
-              v-model.number="concurrency"
-              :disabled="isRunning"
-              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-            >
-              <option :value="1">1</option>
-              <option :value="2">2</option>
-              <option :value="3">3</option>
-              <option :value="5">5</option>
-              <option :value="10">10</option>
-            </select>
-          </div>
         </div>
 
         <!-- Account Picker Panel -->
@@ -236,6 +228,9 @@
                 <span v-if="item.responseModel" class="rounded bg-gray-100 px-1 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-300">
                   {{ item.responseModel }}
                 </span>
+                <span v-if="item.testedAt" class="text-[10px]">
+                  {{ t('admin.accounts.pelicanCachedAt', { time: formatTestedAt(item.testedAt) }) }}
+                </span>
               </div>
             </div>
 
@@ -278,6 +273,44 @@
                 {{ t('admin.accounts.pelicanStatusFailed') }}
               </span>
             </div>
+
+            <!-- History Toggle -->
+            <button
+              type="button"
+              class="ml-1 flex shrink-0 items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 transition hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600"
+              :title="t('admin.accounts.pelicanHistory')"
+              @click="toggleHistory(item.account.id)"
+            >
+              <Icon name="clock" size="xs" />
+              <span>{{ historyCount(item.account.id) }}</span>
+              <Icon :name="expandedHistoryAccountIds.has(item.account.id) ? 'chevronUp' : 'chevronDown'" size="xs" />
+            </button>
+          </div>
+
+          <!-- Historical Results -->
+          <div
+            v-if="expandedHistoryAccountIds.has(item.account.id) && getCachedPelicanHistory(item.account.id).length > 0"
+            class="mt-2 max-h-36 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-900/40"
+          >
+            <button
+              v-for="(entry, index) in getCachedPelicanHistory(item.account.id)"
+              :key="`${item.account.id}-${entry.testedAt}`"
+              type="button"
+              class="mb-1 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition last:mb-0"
+              :class="index === 0 ? 'bg-white shadow-sm dark:bg-dark-800' : 'hover:bg-white dark:hover:bg-dark-800'"
+              @click="selectHistoryResult(item, index)"
+            >
+              <span class="flex min-w-0 items-center gap-2">
+                <span
+                  class="inline-block size-1.5 shrink-0 rounded-full"
+                  :class="entry.status === 'success' ? 'bg-green-500' : entry.status === 'downgraded' ? 'bg-amber-500' : 'bg-red-500'"
+                />
+                <span class="truncate text-gray-700 dark:text-gray-300" :title="entry.reason || entry.error">
+                  {{ entry.responseModel || entry.reason || entry.error || t('admin.accounts.pelicanAction') }}
+                </span>
+              </span>
+              <span class="shrink-0 text-[10px] text-gray-400">{{ formatTestedAt(entry.testedAt) }}</span>
+            </button>
           </div>
 
           <!-- Card Content / Preview -->
@@ -526,6 +559,13 @@ import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
+import {
+  clearPelicanResultCache,
+  getCachedPelicanHistory,
+  getCachedPelicanResult,
+  setCachedPelicanResult,
+  type PelicanCachedResult
+} from '@/utils/pelicanResultCache'
 import type { Account } from '@/types'
 
 const DEFAULT_PELICAN_MODEL = 'gpt-6-astra'
@@ -568,6 +608,7 @@ interface PelicanAccountState {
   reason?: string
   error?: string
   elapsedMs?: number
+  testedAt?: number
   activeTab: 'preview' | 'source'
   result?: {
     has_html: boolean
@@ -578,10 +619,9 @@ interface PelicanAccountState {
   }
 }
 
-// 默认模型选择、思考程度与并发数
+// 默认模型选择与思考程度；点击开始后所有选中账号同时测试
 const selectedModel = ref(DEFAULT_PELICAN_MODEL)
 const reasoningEffort = ref('low')
-const concurrency = ref(1)
 
 const isRunning = ref(false)
 const showPromptEdit = ref(false)
@@ -590,6 +630,7 @@ const accountSearchQuery = ref('')
 const customPrompt = ref(t('admin.accounts.pelicanPromptDefault'))
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
+const expandedHistoryAccountIds = ref<Set<number>>(new Set())
 
 // Lightbox preview state
 const lightboxItem = ref<PelicanAccountState | null>(null)
@@ -624,18 +665,87 @@ const filteredCandidateAccounts = computed(() => {
   )
 })
 
+const toCachedResult = (item: PelicanAccountState): PelicanCachedResult => ({
+  account: {
+    id: item.account.id,
+    name: item.account.name,
+    type: item.account.type
+  },
+  status: item.status === 'idle' || item.status === 'running' ? 'failed' : item.status,
+  result: item.result,
+  responseModel: item.responseModel,
+  reason: item.reason,
+  error: item.error,
+  elapsedMs: item.elapsedMs,
+  testedAt: Date.now()
+})
+
+const applyCachedResult = (item: PelicanAccountState, cached: PelicanCachedResult) => {
+  item.status = cached.status
+  item.result = cached.result
+  item.responseModel = cached.responseModel
+  item.reason = cached.reason
+  item.error = cached.error
+  item.elapsedMs = cached.elapsedMs
+  item.testedAt = cached.testedAt
+}
+
+const hydrateFromCache = (item: PelicanAccountState): boolean => {
+  const cached = getCachedPelicanResult(item.account.id)
+  if (!cached) return false
+  applyCachedResult(item, cached)
+  return true
+}
+
+const historyCount = (accountId: number) => getCachedPelicanHistory(accountId).length
+
+const toggleHistory = (accountId: number) => {
+  const next = new Set(expandedHistoryAccountIds.value)
+  if (next.has(accountId)) {
+    next.delete(accountId)
+  } else {
+    next.add(accountId)
+  }
+  expandedHistoryAccountIds.value = next
+}
+
+const selectHistoryResult = (item: PelicanAccountState, index: number) => {
+  const entry = getCachedPelicanHistory(item.account.id)[index]
+  if (!entry || item.status === 'running') return
+  applyCachedResult(item, entry)
+}
+
+const formatTestedAt = (testedAt: number) => new Date(testedAt).toLocaleString()
+
+const handleClearCache = () => {
+  clearPelicanResultCache()
+  expandedHistoryAccountIds.value = new Set()
+  for (const item of accountStates.value) {
+    item.status = 'idle'
+    item.streamingContent = ''
+    item.result = undefined
+    item.responseModel = undefined
+    item.reason = undefined
+    item.error = undefined
+    item.elapsedMs = undefined
+    item.testedAt = undefined
+  }
+}
+
 const toggleAccountSelection = (acc: Account) => {
   if (selectedAccountIds.value.has(acc.id)) {
     selectedAccountIds.value.delete(acc.id)
     accountStates.value = accountStates.value.filter(s => s.account.id !== acc.id)
   } else {
     selectedAccountIds.value.add(acc.id)
-    accountStates.value.push({
+    const item: PelicanAccountState = {
       account: acc,
       status: 'idle',
       streamingContent: '',
       activeTab: 'preview'
-    })
+    }
+    hydrateFromCache(item)
+    accountStates.value.push(item)
   }
 }
 
@@ -663,12 +773,14 @@ const syncAccountStatesFromSelected = () => {
       if (currentStatesMap.has(acc.id)) {
         newStates.push(currentStatesMap.get(acc.id)!)
       } else {
-        newStates.push({
+        const item: PelicanAccountState = {
           account: acc,
           status: 'idle',
           streamingContent: '',
           activeTab: 'preview'
-        })
+        }
+        hydrateFromCache(item)
+        newStates.push(item)
       }
     }
   }
@@ -719,12 +831,16 @@ watch(
       }
       const targetAccounts = accounts && accounts.length > 0 ? accounts : props.allAccounts.slice(0, 1)
       selectedAccountIds.value = new Set(targetAccounts.map(a => a.id))
-      accountStates.value = targetAccounts.map(account => ({
-        account,
-        status: 'idle',
-        streamingContent: '',
-        activeTab: 'preview'
-      }))
+      accountStates.value = targetAccounts.map(account => {
+        const item: PelicanAccountState = {
+          account,
+          status: 'idle',
+          streamingContent: '',
+          activeTab: 'preview'
+        }
+        hydrateFromCache(item)
+        return item
+      })
 
       // 默认不在打开弹窗时直接开始，需在弹出窗口中选择好大模型后点击“开始测智”手动开始
       if (props.autoStart && targetAccounts.length > 0) {
@@ -735,6 +851,10 @@ watch(
         }, 50)
       }
     } else {
+      selectedAccountIds.value = new Set(Array.from(selectedAccountIds.value).filter(id =>
+        candidateAccounts.value.some(acc => acc.id === id)
+      ))
+      syncAccountStatesFromSelected()
       stopAllTests()
       closeLightbox()
       showAccountPicker.value = false
@@ -868,6 +988,10 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
     item.error = err instanceof Error ? err.message : 'Unknown error'
   } finally {
     item.elapsedMs = Date.now() - startAt
+    if (item.status !== 'idle') {
+      item.testedAt = Date.now()
+      setCachedPelicanResult(toCachedResult(item))
+    }
   }
 }
 
@@ -889,16 +1013,13 @@ async function startAllTests() {
 
   // 将所有未成功的账号重置为就绪/排队
   for (const item of accountStates.value) {
-    if (item.status !== 'success') {
+    if (item.status !== 'idle' && item.status !== 'running') {
       item.status = 'idle'
     }
   }
 
-  const queue = [...accountStates.value.filter(s => s.status !== 'success')]
-  const runQueue = queue.length > 0 ? queue : [...accountStates.value]
-  const limit = Math.max(1, Math.min(10, concurrency.value || 1))
-
-  const workers = Array.from({ length: limit }, async () => {
+  const runQueue = [...accountStates.value]
+  const workers = accountStates.value.map(async () => {
     while (runQueue.length > 0 && !signal.aborted) {
       const item = runQueue.shift()
       if (!item) break
