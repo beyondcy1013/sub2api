@@ -656,7 +656,7 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" />
-    <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" :all-accounts="accounts" @close="closePelicanModal" />
+    <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" :all-accounts="accounts" @close="closePelicanModal" @updated="handlePelicanAccountUpdated" @running-change="handlePelicanRunningChange" />
     <SchedulingRulesModal
       :show="showSchedulingRules"
       @close="closeSchedulingRulesModal"
@@ -696,7 +696,7 @@
       @updated="handleBulkUpdated"
     />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
-    <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <ConfirmDialog v-if="!pelicanTestRunning" :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showPermanentDeleteDialog" :title="t('admin.accounts.permanentDelete')" :message="t('admin.accounts.permanentDeleteConfirm', { name: permanentDeletingAcc?.name })" :confirm-text="t('admin.accounts.permanentDelete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmPermanentDelete" @cancel="showPermanentDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
     <ConfirmDialog :show="showTestRecoveryDialog" :title="t('admin.accounts.testRecoveryTitle')" :message="t('admin.accounts.testRecoveryMessage', { name: testRecoveryAcc?.name })" :confirm-text="t('admin.accounts.recoverState')" :cancel-text="t('common.cancel')" @confirm="confirmTestRecovery" @cancel="cancelTestRecovery" />
@@ -916,6 +916,7 @@ const showReAuth = ref(false)
 const showTest = ref(false)
 const showPelicanModal = ref(false)
 const pelicanTestAccounts = ref<Account[]>([])
+const pelicanTestRunning = ref(false)
 const showTestRecoveryDialog = ref(false)
 const showTestFailedDialog = ref(false)
 const showSchedulingRules = ref(false)
@@ -3090,6 +3091,24 @@ const closePelicanModal = () => {
   showPelicanModal.value = false
   pelicanTestAccounts.value = []
 }
+
+const handlePelicanRunningChange = (running: boolean) => {
+  pelicanTestRunning.value = running
+}
+
+const handlePelicanAccountUpdated = (payload: { id: number; downgraded: boolean }) => {
+  const current = accounts.value.find(account => account.id === payload.id)
+  if (!current) return
+  patchAccountInList({
+    ...current,
+    extra: {
+      ...(current.extra || {}),
+      pelican_downgraded: payload.downgraded
+    }
+  })
+  enterAutoRefreshSilentWindow()
+}
+
 const handleSinglePelicanTest = async (a: AccountListItem | Account) => {
   const account = await loadAccountDetails(a)
   if (!account) return
