@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-PNPM9="/home/root/.npm/_npx/8959f4e966f464e2/node_modules/pnpm/bin/pnpm.cjs"
 PNPM_CMD=()
 BUILD_OUT="$BACKEND_DIR/bin/sub2api-unified.new"
 BUILD_TMP="$BUILD_OUT.tmp.$$"
@@ -162,13 +161,17 @@ build_embedded_binary() {
     ./cmd/server/
 }
 
-if [ -f "$PNPM9" ]; then
-  PNPM_CMD=(node "$PNPM9")
-elif command -v corepack >/dev/null 2>&1; then
+if command -v pnpm >/dev/null 2>&1 && [[ "$(pnpm --version 2>/dev/null)" == 9.* ]]; then
+  PNPM_CMD=(pnpm)
+elif command -v corepack >/dev/null 2>&1 && [[ "$(corepack pnpm --version 2>/dev/null)" == 9.* ]]; then
   PNPM_CMD=(corepack pnpm)
 else
-  echo "ERROR: pnpm 9 is required but neither $PNPM9 nor corepack is available" >&2
-  exit 1
+  PNPM_VERSION="$(npm exec --yes --package=pnpm@9.15.9 -- pnpm --version 2>/dev/null || true)"
+  if [[ "$PNPM_VERSION" != 9.* ]]; then
+    echo "ERROR: pnpm 9 is required; system pnpm, corepack, and npm exec fallback are unavailable" >&2
+    exit 1
+  fi
+  PNPM_CMD=(npm exec --yes --package=pnpm@9.15.9 -- pnpm)
 fi
 PNPM_VERSION="$("${PNPM_CMD[@]}" --version)"
 if [[ "$PNPM_VERSION" != 9.* ]]; then
