@@ -113,7 +113,7 @@
           <th
             v-if="selectable"
             scope="col"
-            class="sticky-header-cell w-9 min-w-9 max-w-9 px-1 py-3 text-center"
+            :class="['sticky-header-cell w-9 min-w-9 max-w-9 px-1 text-center', compactRows ? 'py-1.5' : 'py-3']"
           >
             <input
               type="checkbox"
@@ -132,7 +132,8 @@
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :style="getColumnStyle(column)"
             :class="[
-              'sticky-header-cell whitespace-nowrap py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              'sticky-header-cell whitespace-nowrap text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              compactRows ? 'py-1.5' : 'py-3',
               getAdaptivePaddingClass(),
               { 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700': column.sortable },
               getStickyColumnClass(column, index),

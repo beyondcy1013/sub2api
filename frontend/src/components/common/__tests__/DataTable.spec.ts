@@ -173,6 +173,35 @@ describe('DataTable', () => {
     expect(cells.every(cell => !cell.classes().includes('py-4'))).toBe(true)
   })
 
+  it('keeps default table headers unchanged when compact mode is off', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 1, name: 'Default header' }]
+      }
+    })
+
+    const header = wrapper.get('thead th')
+    expect(header.classes()).toContain('py-3')
+    expect(header.classes()).not.toContain('py-1.5')
+  })
+
+  it('keeps compact account table headers low-profile', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 1, name: 'Compact header' }],
+        compactRows: true,
+        selectable: true
+      }
+    })
+
+    const headers = wrapper.findAll('thead th')
+    expect(headers).toHaveLength(2)
+    expect(headers.every(header => header.classes().includes('py-1.5'))).toBe(true)
+    expect(headers.every(header => !header.classes().includes('py-3'))).toBe(true)
+  })
+
   it('keeps the default desktop row spacing when compact mode is off', () => {
     const wrapper = mount(DataTable, {
       props: {

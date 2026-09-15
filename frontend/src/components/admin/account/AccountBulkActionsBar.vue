@@ -156,7 +156,7 @@
         <div
           v-if="mobileMenuOpen"
           data-test="mobile-bulk-actions-panel"
-          class="absolute right-0 z-50 mt-2 w-[min(calc(100vw-2rem),20rem)] rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-dark-700 dark:bg-dark-800"
+          class="absolute right-0 z-50 mt-2 w-[min(calc(100vw-2rem),16rem)] rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-dark-700 dark:bg-dark-800"
         >
           <input
             data-test="bulk-account-filter"
@@ -390,7 +390,7 @@ const handleQuickGroupChange = (value: string | number | boolean | null) => {
   align-items: center;
   justify-content: flex-start;
   border-radius: 0.5rem;
-  padding: 0.5rem 0.625rem;
+  padding: 0.375rem 0.5rem;
   text-align: left;
   font-size: 0.8125rem;
   line-height: 1.25rem;
