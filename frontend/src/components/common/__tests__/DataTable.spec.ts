@@ -47,7 +47,7 @@ describe('DataTable', () => {
     localStorage.clear()
   })
 
-  it('renders paired sort arrows and highlights the active direction', async () => {
+  it('renders only the active sort direction symbol', async () => {
     const wrapper = mount(DataTable, {
       props: {
         columns: [
@@ -71,16 +71,40 @@ describe('DataTable', () => {
     const nameHeader = wrapper.findAll('th')[0]
     expect(nameHeader.find('[data-test="custom-name-header"]').exists()).toBe(true)
     expect(nameHeader.attributes('aria-sort')).toBe('ascending')
-    expect(nameHeader.findAll('svg')).toHaveLength(2)
-    expect(nameHeader.findAll('svg')[0].classes()).toContain('text-primary-600')
-    expect(nameHeader.findAll('svg')[1].classes()).toContain('text-gray-300')
+    expect(nameHeader.findAll('svg')).toHaveLength(1)
+    expect(nameHeader.get('svg').classes()).toContain('text-primary-600')
+    expect(nameHeader.get('svg').attributes('viewBox')).toBe('0 0 10 10')
 
     await nameHeader.trigger('click')
     await wrapper.vm.$nextTick()
 
     expect(nameHeader.attributes('aria-sort')).toBe('descending')
-    expect(nameHeader.findAll('svg')[0].classes()).toContain('text-gray-300')
-    expect(nameHeader.findAll('svg')[1].classes()).toContain('text-primary-600')
+    expect(nameHeader.findAll('svg')).toHaveLength(1)
+    expect(nameHeader.get('svg').classes()).toContain('text-primary-600')
+    expect(nameHeader.get('svg').attributes('viewBox')).toBe('0 0 10 10')
+  })
+
+  it('shows one neutral bidirectional symbol for inactive sortable columns', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'name', label: 'Name', sortable: true },
+          { key: 'created_at', label: 'Created', sortable: true }
+        ],
+        data: [
+          { id: 1, name: 'Beta', created_at: '2026-01-02T00:00:00Z' },
+          { id: 2, name: 'Alpha', created_at: '2026-01-01T00:00:00Z' }
+        ],
+        defaultSortKey: 'name',
+        defaultSortOrder: 'asc'
+      }
+    })
+
+    const createdHeader = wrapper.findAll('th')[1]
+    expect(createdHeader.attributes('aria-sort')).toBe('none')
+    expect(createdHeader.findAll('svg')).toHaveLength(1)
+    expect(createdHeader.get('svg').classes()).toContain('text-gray-300')
+    expect(createdHeader.get('svg').attributes('viewBox')).toBe('0 0 10 14')
   })
 
   it('keeps sortable header labels on one line within fixed-width columns', () => {

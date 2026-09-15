@@ -156,16 +156,25 @@
                 aria-hidden="true"
               >
                 <svg
-                  class="h-2.5 w-2.5"
-                  :class="getSortIndicatorClass(column.key, 'asc')"
+                  v-if="sortKey !== column.key"
+                  class="h-2.5 w-2.5 text-gray-300 transition-colors dark:text-dark-500"
+                  fill="currentColor"
+                  viewBox="0 0 10 14"
+                >
+                  <path d="M5 1L8.5 5h-7L5 1z" />
+                  <path d="M5 13L1.5 9h7L5 13z" />
+                </svg>
+                <svg
+                  v-else-if="sortOrder === 'asc'"
+                  class="h-2.5 w-2.5 text-primary-600 dark:text-primary-400"
                   fill="currentColor"
                   viewBox="0 0 10 10"
                 >
                   <path d="M5 2L1.5 6.5h7L5 2z" />
                 </svg>
                 <svg
-                  class="-mt-0.5 h-2.5 w-2.5"
-                  :class="getSortIndicatorClass(column.key, 'desc')"
+                  v-else
+                  class="h-2.5 w-2.5 text-primary-600 dark:text-primary-400"
                   fill="currentColor"
                   viewBox="0 0 10 10"
                 >
@@ -590,12 +599,6 @@ const applySortState = (state: PersistedSortState | null) => {
   if (!state) return
   sortKey.value = state.key
   sortOrder.value = state.order
-}
-
-const getSortIndicatorClass = (key: string, order: 'asc' | 'desc') => {
-  return sortKey.value === key && sortOrder.value === order
-    ? 'text-primary-600 dark:text-primary-400'
-    : 'text-gray-300 transition-colors dark:text-dark-500'
 }
 
 const getColumnAriaSort = (key: string) => {
