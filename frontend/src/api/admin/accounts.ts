@@ -478,9 +478,13 @@ export async function markAccountFailed(id: number, message: string): Promise<Ac
  * @param id - Account ID
  * @returns Updated account
  */
-export async function refreshCredentials(id: number): Promise<Account> {
-  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/refresh`)
-  return data
+export type RefreshCredentialsResult =
+  | { account: Account; message: string; warning: 'missing_project_id_temporary' }
+  | { account: Account; message?: never; warning?: never }
+
+export async function refreshCredentials(id: number): Promise<RefreshCredentialsResult> {
+  const { data } = await apiClient.post<Account | RefreshCredentialsResult>(`/admin/accounts/${id}/refresh`)
+  return 'account' in data ? data : { account: data }
 }
 
 /**
@@ -823,7 +827,26 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
 
 export interface SyncUpstreamModelsResult {
   models: string[]
-  warnings?: Array<{ code: string; message?: string }>
+  metadata?: Record<string, UpstreamModelMetadata>
+  warnings?: UpstreamModelSyncWarning[]
+}
+
+export interface UpstreamModelSyncWarning {
+  code: string
+  message: string
+}
+
+export interface UpstreamModelMetadata {
+  id: string
+  display_name?: string
+  description?: string
+  reasoning?: boolean
+  default_reasoning_level?: string
+  supported_reasoning_levels?: string[]
+  input_modalities?: string[]
+  context_window?: number
+  max_context_window?: number
+  max_output_tokens?: number
 }
 
 /**
