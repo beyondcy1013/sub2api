@@ -2127,7 +2127,7 @@ function getAntigravityTierClass(row: any): string {
 
 const ACCOUNT_STICKY_LEFT_COLUMN_KEYS = ['select', 'actions', 'name']
 const accountStickyLeftColumnKeys = useAndroidTableLayout
-  ? ['select']
+  ? ACCOUNT_STICKY_LEFT_COLUMN_KEYS
   : ACCOUNT_STICKY_LEFT_COLUMN_KEYS
 
 // All available columns
