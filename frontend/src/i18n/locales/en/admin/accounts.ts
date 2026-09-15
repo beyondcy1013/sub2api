@@ -700,6 +700,7 @@ export default {
         selectingAll: 'Selecting all results...',
         selectAllFailed: 'Failed to load all accounts. The previous selection was kept.',
         clear: 'Clear selection',
+        mobileMenu: 'Bulk Menu',
         filterPlaceholder: 'Filter ID, name, notes, and more',
         edit: 'Bulk Edit',
         delete: 'Bulk Delete',

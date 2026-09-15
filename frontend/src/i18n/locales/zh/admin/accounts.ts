@@ -794,6 +794,7 @@ export default {
         selectingAll: '正在选择全部结果...',
         selectAllFailed: '获取全部账号失败，原有选择未改变',
         clear: '清除选择',
+        mobileMenu: '批量菜单',
         filterPlaceholder: '过滤 ID、名称、备注等',
         edit: '批量编辑账号',
         delete: '批量删除',

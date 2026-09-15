@@ -139,4 +139,22 @@ describe('AccountBulkActionsBar', () => {
     expect(button.attributes()).toHaveProperty('disabled')
     expect(button.text()).toBe('admin.accounts.bulkActions.testingAndMarking')
   })
+
+  it('移动端默认隐藏完整批量栏并按需弹出操作面板', async () => {
+    const wrapper = mountBar([1, 2])
+
+    expect(wrapper.find('[data-test="mobile-bulk-actions-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="mobile-bulk-actions-panel"]').exists()).toBe(false)
+
+    await wrapper.get('[data-test="mobile-bulk-actions-trigger"]').trigger('click')
+    const panel = wrapper.get('[data-test="mobile-bulk-actions-panel"]')
+    expect(panel.get('[data-test="bulk-account-filter"]').exists()).toBe(true)
+    expect(panel.get('[data-test="quick-proxy-select"]').exists()).toBe(true)
+    expect(panel.get('[data-test="quick-group-select"]').exists()).toBe(true)
+    expect(panel.get('[data-test="batch-test-and-mark"]').exists()).toBe(true)
+    expect(panel.get('[data-test="bulk-primary-action"]').exists()).toBe(true)
+
+    await panel.get('[data-test="batch-test-and-mark"]').trigger('click')
+    expect(wrapper.emitted('test-and-mark')).toEqual([[]])
+  })
 })
