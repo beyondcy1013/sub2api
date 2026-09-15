@@ -917,6 +917,23 @@ const previewHeightClass = computed(() => {
 let activeControllers: AbortController[] = []
 let globalAbort: AbortController | null = null
 
+const stopAllTests = () => {
+  isRunning.value = false
+  if (globalAbort) {
+    globalAbort.abort()
+    globalAbort = null
+  }
+  for (const ac of activeControllers) {
+    ac.abort()
+  }
+  activeControllers = []
+  for (const item of accountStates.value) {
+    if (item.status === 'running') {
+      item.status = 'idle'
+    }
+  }
+}
+
 const completedCount = computed(() =>
   accountStates.value.filter(s => s.status === 'success' || s.status === 'downgraded' || s.status === 'failed').length
 )
@@ -978,23 +995,6 @@ const handleClose = () => {
   stopAllTests()
   closeLightbox()
   emit('close')
-}
-
-const stopAllTests = () => {
-  isRunning.value = false
-  if (globalAbort) {
-    globalAbort.abort()
-    globalAbort = null
-  }
-  for (const ac of activeControllers) {
-    ac.abort()
-  }
-  activeControllers = []
-  for (const item of accountStates.value) {
-    if (item.status === 'running') {
-      item.status = 'idle'
-    }
-  }
 }
 
 async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal) {

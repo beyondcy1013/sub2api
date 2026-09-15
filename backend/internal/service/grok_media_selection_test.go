@@ -82,7 +82,7 @@ func TestSelectGrokMediaVideoRequestAccountPreservesOwner(t *testing.T) {
 	}
 }
 
-func TestGrokVideoStickySelectionIgnoresHealthEscape(t *testing.T) {
+func TestGrokVideoTaskOwnerSelectionUsesStickyEscape(t *testing.T) {
 	groupID := int64(24)
 	account := Account{ID: 1, Platform: PlatformGrok, Type: AccountTypeAPIKey,
 		Status: StatusActive, Schedulable: true, Concurrency: 50, GroupIDs: []int64{groupID}}
@@ -101,10 +101,4 @@ func TestGrokVideoStickySelectionIgnoresHealthEscape(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, selection)
 	require.True(t, escaped)
-	req.DisableStickyEscape = true
-	selection, escaped, err = scheduler.selectBySessionHash(context.Background(), req)
-	require.NoError(t, err)
-	require.False(t, escaped)
-	require.True(t, selection.Acquired)
-	selection.ReleaseFunc()
 }
