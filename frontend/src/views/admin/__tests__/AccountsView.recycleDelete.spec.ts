@@ -305,6 +305,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
       'admin.accounts.testConnection',
+      'admin.accounts.pelicanAction',
       'admin.accounts.restoreDeleted',
       'common.more'
     ])
@@ -383,6 +384,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
       'admin.accounts.testConnection',
+      'admin.accounts.pelicanAction',
       'admin.accounts.restore',
       'common.more'
     ])
@@ -397,6 +399,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
       'admin.accounts.testConnection',
+      'admin.accounts.pelicanAction',
       'admin.accounts.recycle',
       'common.more'
     ])
@@ -537,6 +540,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
 
   it('loads the newest matching account and pins it when the active sort omits it from page one', async () => {
     vi.useFakeTimers()
+    vi.advanceTimersByTime(1_000)
     vi.setSystemTime(new Date('2026-07-27T10:00:00Z'))
     const createdAccount = {
       ...account,
