@@ -153,11 +153,58 @@
             <Icon :name="showPromptEdit ? 'chevronUp' : 'chevronDown'" size="xs" />
             <span>{{ t('admin.accounts.pelicanPromptLabel') }}</span>
           </button>
-          <div v-if="showPromptEdit" class="mt-2">
+          <div v-if="showPromptEdit" class="mt-2 space-y-2">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+              <div class="space-y-1 lg:col-span-3">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.accounts.pelicanPromptScenario') }}
+                </label>
+                <select
+                  v-model="selectedPromptId"
+                  :disabled="isRunning"
+                  class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+                >
+                  <option v-for="scenario in promptScenarios" :key="scenario.id" :value="scenario.id">
+                    {{ scenario.name }}
+                  </option>
+                </select>
+              </div>
+              <div class="space-y-1 lg:col-span-4">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.accounts.pelicanPromptScenarioName') }}
+                </label>
+                <input
+                  v-model="selectedPromptName"
+                  :disabled="isRunning"
+                  class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+                  :placeholder="t('admin.accounts.pelicanPromptScenarioName')"
+                />
+              </div>
+              <div class="flex items-center gap-2 lg:col-span-5">
+                <button
+                  type="button"
+                  :disabled="isRunning || promptScenarios.length >= 20"
+                  class="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+                  @click="addPromptScenario"
+                >
+                  <Icon name="plus" size="xs" />
+                  <span>{{ t('admin.accounts.pelicanPromptAdd') }}</span>
+                </button>
+                <button
+                  type="button"
+                  :disabled="isRunning || promptScenarios.length <= 1"
+                  class="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/30"
+                  @click="deletePromptScenario"
+                >
+                  <Icon name="trash" size="xs" />
+                  <span>{{ t('admin.accounts.pelicanPromptDelete') }}</span>
+                </button>
+              </div>
+            </div>
             <TextArea
               v-model="customPrompt"
               :disabled="isRunning"
-              rows="2"
+              rows="3"
               class="text-xs"
               :placeholder="t('admin.accounts.pelicanPromptPlaceholder')"
             />
@@ -560,6 +607,10 @@ import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import {
+  loadPelicanPromptScenarios,
+  savePelicanPromptScenarios
+} from '@/utils/pelicanPromptScenarios'
+import {
   clearPelicanResultCache,
   getCachedPelicanHistory,
   getCachedPelicanResult,
@@ -627,7 +678,68 @@ const isRunning = ref(false)
 const showPromptEdit = ref(false)
 const showAccountPicker = ref(false)
 const accountSearchQuery = ref('')
-const customPrompt = ref(t('admin.accounts.pelicanPromptDefault'))
+const promptState = loadPelicanPromptScenarios(
+  t('admin.accounts.pelicanPromptScenarioDefault'),
+  t('admin.accounts.pelicanPromptDefault')
+)
+const promptScenarios = ref(promptState.scenarios)
+const selectedPromptId = ref(promptState.selectedId)
+const selectedPromptName = ref(promptState.scenarios.find(item => item.id === selectedPromptId.value)?.name || '')
+const customPrompt = ref(promptState.scenarios.find(item => item.id === selectedPromptId.value)?.prompt || '')
+
+const updateSelectedScenario = (mutator: (scenario: (typeof promptScenarios.value)[number]) => void) => {
+  const scenario = promptScenarios.value.find(item => item.id === selectedPromptId.value)
+  if (!scenario) return
+  mutator(scenario)
+  savePelicanPromptScenarios({
+    scenarios: promptScenarios.value,
+    selectedId: selectedPromptId.value
+  })
+}
+
+watch(customPrompt, value => {
+  updateSelectedScenario(scenario => {
+    scenario.prompt = value
+  })
+})
+
+watch(selectedPromptName, value => {
+  const name = value.trim()
+  if (!name) return
+  updateSelectedScenario(scenario => {
+    scenario.name = name
+  })
+})
+
+watch(selectedPromptId, value => {
+  const scenario = promptScenarios.value.find(item => item.id === value)
+  if (!scenario) return
+  selectedPromptName.value = scenario.name
+  customPrompt.value = scenario.prompt
+  savePelicanPromptScenarios({ scenarios: promptScenarios.value, selectedId: value })
+})
+
+const addPromptScenario = () => {
+  const id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const name = t('admin.accounts.pelicanPromptScenarioNew')
+  promptScenarios.value.push({
+    id,
+    name,
+    prompt: t('admin.accounts.pelicanPromptDefault')
+  })
+  selectedPromptName.value = name
+  selectedPromptId.value = id
+}
+
+const deletePromptScenario = () => {
+  if (promptScenarios.value.length <= 1) return
+  const index = promptScenarios.value.findIndex(item => item.id === selectedPromptId.value)
+  if (index < 0) return
+  promptScenarios.value.splice(index, 1)
+  const nextScenario = promptScenarios.value[Math.min(index, promptScenarios.value.length - 1)]
+  selectedPromptName.value = nextScenario.name
+  selectedPromptId.value = nextScenario.id
+}
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
 const expandedHistoryAccountIds = ref<Set<number>>(new Set())
@@ -822,7 +934,6 @@ watch(
   () => [props.show, props.accounts] as const,
   ([show, accounts]) => {
     if (show) {
-      customPrompt.value = t('admin.accounts.pelicanPromptDefault')
       if (!selectedModel.value) {
         selectedModel.value = DEFAULT_PELICAN_MODEL
       }

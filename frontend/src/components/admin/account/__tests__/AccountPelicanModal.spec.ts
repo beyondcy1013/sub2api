@@ -328,4 +328,28 @@ describe('AccountPelicanModal', () => {
     expect((wrapper.vm as any).accountStates[0].status).toBe('downgraded')
     expect((wrapper.vm as any).accountStates[0].responseModel).toBe('old-model')
   })
+
+  it('支持新增提示词方案并持久化选中与内容', async () => {
+    const wrapper = mountModal([
+      { id: 40, name: 'Prompt Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+
+    ;(wrapper.vm as any).customPrompt = 'Pelican on spaceship'
+    await flushPromises()
+    expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null'))
+      .toMatchObject({ selectedId: 'default', scenarios: [{ prompt: 'Pelican on spaceship' }] })
+
+    ;(wrapper.vm as any).addPromptScenario()
+    await flushPromises()
+
+    expect((wrapper.vm as any).promptScenarios).toHaveLength(2)
+    expect((wrapper.vm as any).customPrompt).toContain('admin.accounts.pelicanPromptDefault')
+    expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null').selectedId)
+      .not.toBe('default')
+
+    ;(wrapper.vm as any).selectedPromptId = 'default'
+    await flushPromises()
+    expect((wrapper.vm as any).customPrompt).toBe('Pelican on spaceship')
+  })
 })
