@@ -1300,17 +1300,34 @@ watch(
         reasoningEffort.value = 'low'
       }
       const targetAccounts = accounts && accounts.length > 0 ? accounts : props.allAccounts.slice(0, 1)
-      selectedAccountIds.value = new Set(targetAccounts.map(a => a.id))
-      accountStates.value = targetAccounts.map(account => {
-        const item: PelicanAccountState = {
-          account,
-          status: 'idle',
-          streamingContent: '',
-          activeTab: 'preview'
+
+      if (isRunning.value) {
+        const existingIds = new Set(accountStates.value.map(item => item.account.id))
+        for (const account of targetAccounts) {
+          if (existingIds.has(account.id)) continue
+          const item: PelicanAccountState = {
+            account,
+            status: 'idle',
+            streamingContent: '',
+            activeTab: 'preview'
+          }
+          hydrateFromCache(item)
+          accountStates.value.push(item)
+          selectedAccountIds.value.add(account.id)
         }
-        hydrateFromCache(item)
-        return item
-      })
+      } else {
+        selectedAccountIds.value = new Set(targetAccounts.map(a => a.id))
+        accountStates.value = targetAccounts.map(account => {
+          const item: PelicanAccountState = {
+            account,
+            status: 'idle',
+            streamingContent: '',
+            activeTab: 'preview'
+          }
+          hydrateFromCache(item)
+          return item
+        })
+      }
 
       // 默认不在打开弹窗时直接开始，需在弹出窗口中选择好大模型后点击“开始测智”手动开始
       if (props.autoStart && targetAccounts.length > 0) {

@@ -282,6 +282,13 @@ describe('AccountPelicanModal', () => {
     expect((wrapper.vm as any).isRunning).toBe(true)
     expect(global.fetch).toHaveBeenCalledTimes(1)
 
+    await wrapper.setProps({
+      accounts: [{ id: 77, name: 'Background Account', platform: 'openai', type: 'oauth', status: 'active' }]
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect((wrapper.vm as any).accountStates[0].status).toBe('running')
+
     resolveReader()
     await running
     await flushPromises()
