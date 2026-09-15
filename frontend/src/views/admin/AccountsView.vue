@@ -364,6 +364,17 @@
               <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
             </div>
           </template>
+          <template #cell-downgraded="{ row }">
+            <span
+              v-if="row.extra?.pelican_downgraded === true"
+              class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+              :title="t('admin.accounts.pelicanDowngraded')"
+            >
+              <Icon name="exclamationTriangle" size="xs" />
+              <span>{{ t('admin.accounts.pelicanDowngraded') }}</span>
+            </span>
+            <span v-else class="text-gray-400 dark:text-dark-500">-</span>
+          </template>
           <template #cell-schedulable="{ row }">
             <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable && row.quota_rate_limit ? 'bg-amber-500 hover:bg-amber-600' : row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable && row.quota_rate_limit ? t('admin.accounts.schedulableQuotaRateLimited', { window: row.quota_rate_limit.window }) : row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
@@ -2138,6 +2149,7 @@ const allColumns = computed(() => {
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '212px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
+    { key: 'downgraded', label: t('admin.accounts.columns.downgraded'), sortable: false, width: '72px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },

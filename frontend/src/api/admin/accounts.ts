@@ -275,6 +275,13 @@ export async function update(id: number, updates: UpdateAccountRequest): Promise
   return data
 }
 
+export async function updateDowngradedFlag(id: number, downgraded: boolean): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}`, {
+    extra: { pelican_downgraded: downgraded }
+  })
+  return data
+}
+
 export async function getGrokMediaEligibility(id: number): Promise<GrokMediaEligibilityState> {
   const { data } = await apiClient.get<GrokMediaEligibilityState>(
     `/admin/accounts/${id}/grok-media-eligibility`
@@ -1336,6 +1343,7 @@ export const accountsAPI = {
   duplicate,
   clone,
   update,
+  updateDowngradedFlag,
   getGrokMediaEligibility,
   updateGrokMediaEligibility,
   checkMixedChannelRisk,

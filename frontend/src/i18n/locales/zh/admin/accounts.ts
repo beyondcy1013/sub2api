@@ -212,6 +212,7 @@ export default {
         weight: '权重',
         schedulerScore: '调度权值',
         status: '状态',
+        downgraded: '降智',
         schedulable: '调度',
         todayCost: '今日费用',
         totalCost: '累计费用',

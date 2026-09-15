@@ -338,6 +338,7 @@ export default {
         weight: 'Weight',
         schedulerScore: 'Scheduler Score',
         status: 'Status',
+        downgraded: 'Downgraded',
         schedulable: 'Schedulable',
         todayCost: 'Today Cost',
         totalCost: 'Lifetime Cost',

@@ -612,6 +612,7 @@ import {
   setCachedPelicanResult,
   type PelicanCachedResult
 } from '@/utils/pelicanResultCache'
+import { adminAPI } from '@/api'
 import type { Account } from '@/types'
 
 const DEFAULT_PELICAN_MODEL = 'gpt-6-astra'
@@ -1096,6 +1097,18 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
     if (item.status !== 'idle') {
       item.testedAt = Date.now()
       setCachedPelicanResult(toCachedResult(item))
+      try {
+        await adminAPI.accounts.updateDowngradedFlag(
+          item.account.id,
+          item.status === 'downgraded'
+        )
+        item.account.extra = {
+          ...(item.account.extra || {}),
+          pelican_downgraded: item.status === 'downgraded'
+        }
+      } catch (error) {
+        console.error('Failed to persist pelican downgrade state:', error)
+      }
     }
   }
 }
