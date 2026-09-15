@@ -159,17 +159,12 @@
           </div>
         </div>
 
-        <!-- Customizable Prompt toggle / view -->
+        <!-- Customizable Prompt editor (always visible for immediate preview) -->
         <div class="mt-3">
-          <button
-            type="button"
-            @click="showPromptEdit = !showPromptEdit"
-            class="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400"
-          >
-            <Icon :name="showPromptEdit ? 'chevronUp' : 'chevronDown'" size="xs" />
-            <span>{{ t('admin.accounts.pelicanPromptLabel') }}</span>
-          </button>
-          <div v-if="showPromptEdit" class="mt-2 space-y-2">
+          <div class="pt-3 border-t border-gray-100 dark:border-dark-700">
+            <div class="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.pelicanPromptLabel') }}
+            </div>
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
               <div class="space-y-1 lg:col-span-4">
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -677,7 +672,6 @@ const selectedModel = ref(DEFAULT_PELICAN_MODEL)
 const reasoningEffort = ref('low')
 
 const isRunning = ref(false)
-const showPromptEdit = ref(false)
 const showAccountPicker = ref(false)
 const accountSearchQuery = ref('')
 const promptState = loadPelicanPromptScenarios(

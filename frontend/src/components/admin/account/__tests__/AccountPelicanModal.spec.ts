@@ -104,6 +104,8 @@ describe('AccountPelicanModal', () => {
     expect(wrapper.text()).toContain('OpenAI Account 2')
     expect((wrapper.vm as any).accountStates).toHaveLength(2)
     expect((wrapper.vm as any).accountStates[0].status).toBe('idle')
+    expect(wrapper.text()).toContain('admin.accounts.pelicanPromptLabel')
+    expect(wrapper.find('textarea.textarea-stub').exists()).toBe(true)
   })
 
   it('点击开始测智并发向后端请求 pelican 模式测试并展示预览', async () => {
@@ -334,9 +336,6 @@ describe('AccountPelicanModal', () => {
       { id: 40, name: 'Prompt Account', platform: 'openai', type: 'oauth', status: 'active' }
     ])
     await flushPromises()
-    ;(wrapper.vm as any).showPromptEdit = true
-    await flushPromises()
-
     ;(wrapper.vm as any).customPrompt = 'Pelican on spaceship'
     await flushPromises()
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null'))
