@@ -339,6 +339,24 @@ export async function restoreAccount(id: number): Promise<{ message: string }> {
 }
 
 /**
+ * Pin account to top
+ * @param id - Account ID
+ */
+export async function pinAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/pin`)
+  return data
+}
+
+/**
+ * Unpin account
+ * @param id - Account ID
+ */
+export async function unpinAccount(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`/admin/accounts/${id}/unpin`)
+  return data
+}
+
+/**
  * List legacy soft-deleted accounts created by older builds.
  */
 export async function listTrashedAccounts(params: {
@@ -1350,6 +1368,8 @@ export const accountsAPI = {
   delete: deleteAccount,
   recycle: recycleAccount,
   restore: restoreAccount,
+  pin: pinAccount,
+  unpin: unpinAccount,
   listTrashed: listTrashedAccounts,
   restoreFromTrash,
   permanentDelete: permanentDeleteAccount,

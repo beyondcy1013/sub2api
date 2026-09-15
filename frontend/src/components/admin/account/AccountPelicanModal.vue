@@ -39,6 +39,30 @@
               <span>{{ t('admin.accounts.pelicanStartBatch') }}</span>
             </button>
             <button
+              v-if="!isRunning"
+              type="button"
+              data-test="pelican-mark-downgraded-batch"
+              :disabled="accountStates.length === 0 || isBatchMarking"
+              @click="markSelectedAccounts(true)"
+              class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
+              :title="t('admin.accounts.pelicanMarkDowngraded')"
+            >
+              <Icon name="exclamationTriangle" size="xs" />
+              <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkDowngraded') }}</span>
+            </button>
+            <button
+              v-if="!isRunning"
+              type="button"
+              data-test="pelican-mark-normal-batch"
+              :disabled="accountStates.length === 0 || isBatchMarking"
+              @click="markSelectedAccounts(false)"
+              class="flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 shadow-sm transition hover:bg-green-100 disabled:opacity-50 dark:border-green-700/60 dark:bg-green-950/30 dark:text-green-300 dark:hover:bg-green-900/40"
+              :title="t('admin.accounts.pelicanMarkNormal')"
+            >
+              <Icon name="checkCircle" size="xs" />
+              <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkNormal') }}</span>
+            </button>
+            <button
               type="button"
               data-test="pelican-history-toggle"
               class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
@@ -617,19 +641,51 @@
               </span>
             </div>
 
-            <button
-              v-if="item.status !== 'running'"
-              type="button"
-              @click="runSingleTest(item)"
-              class="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-950/30"
-            >
-              <Icon name="refresh" size="xs" />
-              <span>{{ t('admin.accounts.pelicanRetry') }}</span>
-            </button>
+            <div class="flex items-center gap-1">
+              <!-- Manual mark buttons: available whenever not running -->
+              <template v-if="item.status !== 'running'">
+                <button
+                  type="button"
+                  :disabled="manualMarkingIds.has(item.account.id)"
+                  @click="manualMarkItem(item, true)"
+                  class="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition disabled:opacity-50"
+                  :class="item.status === 'downgraded' || item.account.extra?.pelican_downgraded === true
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-semibold'
+                    : 'text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30'"
+                  :title="t('admin.accounts.pelicanMarkDowngraded')"
+                >
+                  <Icon name="exclamationTriangle" size="xs" />
+                  <span>{{ manualMarkingIds.has(item.account.id) ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkDowngraded') }}</span>
+                </button>
+                <button
+                  type="button"
+                  :disabled="manualMarkingIds.has(item.account.id)"
+                  @click="manualMarkItem(item, false)"
+                  class="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition disabled:opacity-50"
+                  :class="item.status === 'success' || (item.status !== 'downgraded' && item.account.extra?.pelican_downgraded === false)
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 font-semibold'
+                    : 'text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-950/30'"
+                  :title="t('admin.accounts.pelicanMarkNormal')"
+                >
+                  <Icon name="checkCircle" size="xs" />
+                  <span>{{ manualMarkingIds.has(item.account.id) ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkNormal') }}</span>
+                </button>
+              </template>
+              <button
+                v-if="item.status !== 'running'"
+                type="button"
+                @click="runSingleTest(item)"
+                class="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-950/30"
+              >
+                <Icon name="refresh" size="xs" />
+                <span>{{ t('admin.accounts.pelicanRetry') }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
 
     <!-- Lightbox Modal for Large Screen Preview -->
     <BaseDialog
@@ -724,6 +780,28 @@
             <span>{{ t('admin.accounts.pelicanStartBatch') }}</span>
           </button>
           <button
+            v-if="!isRunning"
+            type="button"
+            :disabled="accountStates.length === 0 || isBatchMarking"
+            @click="markSelectedAccounts(true)"
+            class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
+            :title="t('admin.accounts.pelicanMarkDowngraded')"
+          >
+            <Icon name="exclamationTriangle" size="xs" />
+            <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkDowngraded') }}</span>
+          </button>
+          <button
+            v-if="!isRunning"
+            type="button"
+            :disabled="accountStates.length === 0 || isBatchMarking"
+            @click="markSelectedAccounts(false)"
+            class="flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 shadow-sm transition hover:bg-green-100 disabled:opacity-50 dark:border-green-700/60 dark:bg-green-950/30 dark:text-green-300 dark:hover:bg-green-900/40"
+            :title="t('admin.accounts.pelicanMarkNormal')"
+          >
+            <Icon name="checkCircle" size="xs" />
+            <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkNormal') }}</span>
+          </button>
+          <button
             v-else
             @click="stopAllTests"
             class="flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-500"
@@ -792,6 +870,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'updated', payload: { id: number; downgraded: boolean }): void
+  (e: 'running-change', running: boolean): void
 }>()
 
 const { t } = useI18n()
@@ -1132,6 +1212,53 @@ const previewHeightClass = computed(() => {
 let activeControllers: AbortController[] = []
 let globalAbort: AbortController | null = null
 
+// Track which accounts are being manually marked (id → promise in flight)
+const manualMarkingIds = ref<Set<number>>(new Set())
+
+const manualMarkItem = async (item: PelicanAccountState, markAsDowngraded: boolean) => {
+  if (manualMarkingIds.value.has(item.account.id)) return
+  const next = new Set(manualMarkingIds.value)
+  next.add(item.account.id)
+  manualMarkingIds.value = next
+  try {
+    await adminAPI.accounts.updateDowngradedFlag(item.account.id, markAsDowngraded)
+    emit('updated', { id: item.account.id, downgraded: markAsDowngraded })
+    item.status = markAsDowngraded ? 'downgraded' : 'success'
+    item.account.extra = {
+      ...(item.account.extra || {}),
+      pelican_downgraded: markAsDowngraded
+    }
+    // Keep result in sync so the cached entry also reflects the override
+    if (item.result) {
+      item.result = { ...item.result, downgraded: markAsDowngraded }
+    }
+    if (item.testedAt) {
+      setCachedPelicanResult({ ...toCachedResult(item), prompt: customPrompt.value.trim() })
+    }
+  } catch (error) {
+    console.error('Failed to manually set pelican downgrade state:', error)
+  } finally {
+    const done = new Set(manualMarkingIds.value)
+    done.delete(item.account.id)
+    manualMarkingIds.value = done
+  }
+}
+
+const isBatchMarking = ref(false)
+
+const markSelectedAccounts = async (markAsDowngraded: boolean) => {
+  if (isBatchMarking.value || accountStates.value.length === 0) return
+  isBatchMarking.value = true
+  try {
+    for (const item of accountStates.value) {
+      await manualMarkItem(item, markAsDowngraded)
+    }
+  } finally {
+    isBatchMarking.value = false
+  }
+}
+
+
 const stopAllTests = () => {
   isRunning.value = false
   if (globalAbort) {
@@ -1207,8 +1334,8 @@ watch(
 )
 
 const handleClose = () => {
-  stopAllTests()
   closeLightbox()
+  showAccountPicker.value = false
   emit('close')
 }
 
@@ -1326,6 +1453,7 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
           item.account.id,
           item.status === 'downgraded'
         )
+        emit('updated', { id: item.account.id, downgraded: item.status === 'downgraded' })
         item.account.extra = {
           ...(item.account.extra || {}),
           pelican_downgraded: item.status === 'downgraded'
@@ -1350,6 +1478,7 @@ async function runSingleTest(item: PelicanAccountState) {
 async function startAllTests() {
   if (isRunning.value) return
   isRunning.value = true
+  emit('running-change', true)
   globalAbort = new AbortController()
   const signal = globalAbort.signal
 
@@ -1374,6 +1503,7 @@ async function startAllTests() {
   } finally {
     isRunning.value = false
     globalAbort = null
+    emit('running-change', false)
   }
 }
 

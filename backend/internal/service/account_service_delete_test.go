@@ -85,6 +85,12 @@ func (s *accountRepoStub) PermanentDelete(context.Context, int64) error       { 
 func (s *accountRepoStub) RestoreAccount(context.Context, int64) error {
 	panic("unexpected RestoreAccount call")
 }
+func (s *accountRepoStub) PinAccount(context.Context, int64) error {
+	panic("unexpected PinAccount call")
+}
+func (s *accountRepoStub) UnpinAccount(context.Context, int64) error {
+	panic("unexpected UnpinAccount call")
+}
 
 // 以下是接口要求实现但本测试不关心的方法
 

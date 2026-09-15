@@ -1912,6 +1912,14 @@ func (s *stubAccountRepo) RestoreAccount(context.Context, int64) error {
 	return errors.New("not implemented")
 }
 
+func (s *stubAccountRepo) PinAccount(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubAccountRepo) UnpinAccount(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
 func (s *stubAccountRepo) ListTrashedAccounts(context.Context, pagination.PaginationParams, string, string, string) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }

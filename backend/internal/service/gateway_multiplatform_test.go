@@ -100,6 +100,12 @@ func (m *mockAccountRepoForPlatform) PermanentDelete(context.Context, int64) err
 func (m *mockAccountRepoForPlatform) RestoreAccount(ctx context.Context, id int64) error {
 	return nil
 }
+func (m *mockAccountRepoForPlatform) PinAccount(ctx context.Context, id int64) error {
+	return nil
+}
+func (m *mockAccountRepoForPlatform) UnpinAccount(ctx context.Context, id int64) error {
+	return nil
+}
 func (m *mockAccountRepoForPlatform) List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }

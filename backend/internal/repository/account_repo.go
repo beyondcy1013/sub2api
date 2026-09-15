@@ -70,6 +70,7 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"session_window_utilization":     {},
 	"balance":                        {},
 	service.BalanceCheckTypeExtraKey: {},
+	service.AccountPinnedExtraKey:    {},
 }
 
 const postgresParameterBatchSize = 50000
@@ -1057,6 +1058,16 @@ func (r *accountRepository) RecycleAccount(ctx context.Context, id int64) error 
 // RestoreAccount removes the recycled mark by setting extra.recycled=false.
 func (r *accountRepository) RestoreAccount(ctx context.Context, id int64) error {
 	return r.UpdateExtra(ctx, id, map[string]any{"recycled": false})
+}
+
+// PinAccount marks an account as pinned to top by setting extra.pinned=true.
+func (r *accountRepository) PinAccount(ctx context.Context, id int64) error {
+	return r.UpdateExtra(ctx, id, map[string]any{service.AccountPinnedExtraKey: true})
+}
+
+// UnpinAccount removes the pinned mark by setting extra.pinned=false.
+func (r *accountRepository) UnpinAccount(ctx context.Context, id int64) error {
+	return r.UpdateExtra(ctx, id, map[string]any{service.AccountPinnedExtraKey: false})
 }
 
 func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {

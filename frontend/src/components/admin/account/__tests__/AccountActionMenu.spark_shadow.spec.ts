@@ -348,22 +348,43 @@ describe('AccountActionMenu — spark shadow 按钮可见性', () => {
     wrapper.unmount()
   })
 
-  it('正常账号也始终显示恢复状态操作并可触发', async () => {
-    const account = makeAccount({ status: 'active', schedulable: true })
+  it('未置顶账号显示「置顶」并在点击时触发 pin 事件', async () => {
+    const account = makeAccount({ extra: { pinned: false } })
     const wrapper = mount(AccountActionMenu, {
       props: { show: true, account, position },
       attachTo: document.body,
     })
 
-    const recoverButton = getBodyButtons().find(button =>
-      button.textContent?.includes('admin.accounts.recoverState')
+    const pinButton = getBodyButtons().find(button =>
+      button.textContent?.includes('admin.accounts.pin')
     )
-    expect(recoverButton).toBeDefined()
+    expect(pinButton).toBeDefined()
 
-    recoverButton!.click()
+    pinButton!.click()
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.emitted('recover-state')?.[0]?.[0]).toMatchObject({ id: account.id })
+    expect(wrapper.emitted('pin')?.[0]?.[0]).toMatchObject({ id: account.id })
+    expect(wrapper.emitted('close')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('已置顶账号显示「取消置顶」并在点击时触发 unpin 事件', async () => {
+    const account = makeAccount({ extra: { pinned: true } })
+    const wrapper = mount(AccountActionMenu, {
+      props: { show: true, account, position },
+      attachTo: document.body,
+    })
+
+    const unpinButton = getBodyButtons().find(button =>
+      button.textContent?.includes('admin.accounts.unpin')
+    )
+    expect(unpinButton).toBeDefined()
+
+    unpinButton!.click()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.emitted('unpin')?.[0]?.[0]).toMatchObject({ id: account.id })
+    expect(wrapper.emitted('close')).toBeDefined()
     wrapper.unmount()
   })
 })

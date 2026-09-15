@@ -391,6 +391,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.DELETE("/:id", h.Admin.Account.Delete)
 		accounts.POST("/:id/recycle", h.Admin.Account.Recycle)
 		accounts.POST("/:id/restore", h.Admin.Account.Restore)
+		accounts.POST("/:id/pin", h.Admin.Account.Pin)
+		accounts.POST("/:id/unpin", h.Admin.Account.Unpin)
 		accounts.POST("/:id/restore-from-trash", h.Admin.Account.RestoreFromTrash)
 		accounts.DELETE("/:id/permanent-delete", h.Admin.Account.PermanentDelete)
 		accounts.POST("/:id/test", h.Admin.Account.Test)

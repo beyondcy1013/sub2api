@@ -487,6 +487,10 @@ func (s *stubAdminService) RecycleAccount(context.Context, int64) error { return
 
 func (s *stubAdminService) RestoreAccount(context.Context, int64) error { return nil }
 
+func (s *stubAdminService) PinAccount(context.Context, int64) error { return nil }
+
+func (s *stubAdminService) UnpinAccount(context.Context, int64) error { return nil }
+
 func (s *stubAdminService) ListTrashedAccounts(context.Context, int, int, string, string, string) ([]service.Account, int64, error) {
 	return nil, 0, nil
 }

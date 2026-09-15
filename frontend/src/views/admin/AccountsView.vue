@@ -373,6 +373,14 @@
               <Icon name="exclamationTriangle" size="xs" />
               <span>{{ t('admin.accounts.pelicanDowngraded') }}</span>
             </span>
+            <span
+              v-else-if="row.extra?.pelican_downgraded === false"
+              class="inline-flex items-center gap-1 rounded bg-green-100 px-1.5 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-300"
+              :title="t('admin.accounts.pelicanPassed')"
+            >
+              <Icon name="checkCircle" size="xs" />
+              <span>{{ t('admin.accounts.pelicanNormal') }}</span>
+            </span>
             <span v-else class="text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-schedulable="{ row }">
@@ -672,7 +680,7 @@
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @stats="handleViewStats" @schedule="handleSchedule" @pelican-test="handleSinglePelicanTest" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @pin="handlePin" @unpin="handleUnpin" @stats="handleViewStats" @schedule="handleSchedule" @pelican-test="handleSinglePelicanTest" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="handleAccountsCreated" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -1438,12 +1446,16 @@ const sortedAccounts = computed(() => {
         })
         .map(({ row }) => row)
 
-  if (recentlyCreatedAccounts.value.length === 0) return baseRows
+  const pinnedRows = baseRows.filter(account => Boolean(account.extra?.pinned))
+  const unpinnedRows = baseRows.filter(account => !account.extra?.pinned)
+  const orderedRows = [...pinnedRows, ...unpinnedRows]
 
-  const pinnedIds = new Set(recentlyCreatedAccounts.value.map(account => account.id))
+  if (recentlyCreatedAccounts.value.length === 0) return orderedRows
+
+  const recentlyCreatedIds = new Set(recentlyCreatedAccounts.value.map(account => account.id))
   return [
     ...recentlyCreatedAccounts.value,
-    ...baseRows.filter(account => !pinnedIds.has(account.id))
+    ...orderedRows.filter(account => !recentlyCreatedIds.has(account.id))
   ].slice(0, pagination.page_size)
 })
 
@@ -3388,6 +3400,36 @@ const handleRestore = async (a: Account) => {
     reload()
   } catch (error) {
     console.error('Failed to restore account:', error)
+  }
+}
+
+const handlePin = async (a: Account) => {
+  try {
+    await adminAPI.accounts.pin(a.id)
+    patchAccountInList({
+      ...a,
+      extra: { ...a.extra, pinned: true }
+    })
+    appStore.showSuccess(t('admin.accounts.pinSuccess'))
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    console.error('Failed to pin account:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.pinFailed')))
+  }
+}
+
+const handleUnpin = async (a: Account) => {
+  try {
+    await adminAPI.accounts.unpin(a.id)
+    patchAccountInList({
+      ...a,
+      extra: { ...a.extra, pinned: false }
+    })
+    appStore.showSuccess(t('admin.accounts.unpinSuccess'))
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    console.error('Failed to unpin account:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.unpinFailed')))
   }
 }
 

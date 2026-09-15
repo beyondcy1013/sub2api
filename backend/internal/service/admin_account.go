@@ -1348,6 +1348,14 @@ func (s *adminServiceImpl) RestoreAccount(ctx context.Context, id int64) error {
 	return s.accountRepo.RestoreAccount(ctx, id)
 }
 
+func (s *adminServiceImpl) PinAccount(ctx context.Context, id int64) error {
+	return s.accountRepo.PinAccount(ctx, id)
+}
+
+func (s *adminServiceImpl) UnpinAccount(ctx context.Context, id int64) error {
+	return s.accountRepo.UnpinAccount(ctx, id)
+}
+
 func (s *adminServiceImpl) ListTrashedAccounts(ctx context.Context, page, pageSize int, platform, accountType, search string) ([]Account, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
 	accounts, result, err := s.accountRepo.ListTrashedAccounts(ctx, params, platform, accountType, search)

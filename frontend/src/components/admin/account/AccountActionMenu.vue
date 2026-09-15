@@ -9,6 +9,14 @@
       >
         <div class="py-1">
           <template v-if="account">
+            <button v-if="!isPinned" @click="$emit('pin', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="arrowUp" size="sm" class="text-amber-500" />
+              {{ t('admin.accounts.pin') }}
+            </button>
+            <button v-else @click="$emit('unpin', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-600 hover:bg-gray-100 dark:hover:bg-dark-700">
+              <Icon name="arrowUp" size="sm" class="text-amber-500" />
+              {{ t('admin.accounts.unpin') }}
+            </button>
             <button @click="$emit('schedule', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
@@ -93,12 +101,13 @@ import type { Account } from '@/types'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
 const props = defineProps<{ show: boolean; account: Account | null; position: { top: number; left: number } | null }>()
-const emit = defineEmits(['close', 'stats', 'schedule', 'pelican-test', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete', 'permanent-delete'])
+const emit = defineEmits(['close', 'stats', 'schedule', 'pelican-test', 'duplicate', 'query-balance', 'sticky-sessions', 'reauth', 'refresh-token', 'recover-state', 'scheduled-action', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'delete', 'permanent-delete', 'pin', 'unpin'])
 const { t } = useI18n()
 
 
 // Measure after rendering; menu items and translated labels can change its size.
 
+const isPinned = computed(() => Boolean(props.account?.extra?.pinned))
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false
   return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)

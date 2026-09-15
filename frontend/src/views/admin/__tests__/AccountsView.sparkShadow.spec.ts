@@ -16,6 +16,8 @@ const {
   getAllGroups,
   duplicateAccount,
   createSparkShadow,
+  pinAccount,
+  unpinAccount,
   showSuccess,
   showError
 } = vi.hoisted(() => ({
@@ -26,6 +28,8 @@ const {
   getAllGroups: vi.fn(),
   duplicateAccount: vi.fn(),
   createSparkShadow: vi.fn(),
+  pinAccount: vi.fn(),
+  unpinAccount: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn()
 }))
@@ -39,6 +43,8 @@ vi.mock('@/api/admin', () => ({
       duplicate: duplicateAccount,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
       createSparkShadow,
+      pin: pinAccount,
+      unpin: unpinAccount,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -134,6 +140,34 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     expect(duplicateAccount).toHaveBeenCalledWith(42)
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.duplicateSuccess')
     expect(listAccounts.mock.calls.length).toBeGreaterThan(1)
+    wrapper.unmount()
+  })
+
+  it('AccountActionMenu 的 pin 事件调用 pin API 并显示成功提示', async () => {
+    pinAccount.mockResolvedValueOnce({ message: 'Account pinned' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.findComponent(AccountActionMenu).vm.$emit('pin', { id: 42, name: 'test-acc' })
+    await flushPromises()
+
+    expect(pinAccount).toHaveBeenCalledTimes(1)
+    expect(pinAccount).toHaveBeenCalledWith(42)
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.pinSuccess')
+    wrapper.unmount()
+  })
+
+  it('AccountActionMenu 的 unpin 事件调用 unpin API 并显示成功提示', async () => {
+    unpinAccount.mockResolvedValueOnce({ message: 'Account unpinned' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.findComponent(AccountActionMenu).vm.$emit('unpin', { id: 42, name: 'test-acc' })
+    await flushPromises()
+
+    expect(unpinAccount).toHaveBeenCalledTimes(1)
+    expect(unpinAccount).toHaveBeenCalledWith(42)
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.unpinSuccess')
     wrapper.unmount()
   })
 

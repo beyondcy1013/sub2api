@@ -69,6 +69,10 @@ type AccountRepository interface {
 	RecycleAccount(ctx context.Context, id int64) error
 	// RestoreAccount un-marks a recycled account by removing extra.recycled.
 	RestoreAccount(ctx context.Context, id int64) error
+	// PinAccount pins an account to top in the admin account table by setting extra.pinned=true.
+	PinAccount(ctx context.Context, id int64) error
+	// UnpinAccount unpins an account by setting extra.pinned=false.
+	UnpinAccount(ctx context.Context, id int64) error
 	// ListTrashedAccounts returns soft-deleted accounts for the recycle bin.
 	ListTrashedAccounts(ctx context.Context, params pagination.PaginationParams, platform, accountType, search string) ([]Account, *pagination.PaginationResult, error)
 	// RestoreTrashedAccount un-deletes a soft-deleted account and restores its group associations.

@@ -1448,6 +1448,36 @@ func (h *AccountHandler) Restore(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Account restored"})
 }
 
+// Pin pins an account to top by setting extra.pinned=true.
+// POST /api/v1/admin/accounts/:id/pin
+func (h *AccountHandler) Pin(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.PinAccount(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Account pinned"})
+}
+
+// Unpin unpins an account by setting extra.pinned=false.
+// POST /api/v1/admin/accounts/:id/unpin
+func (h *AccountHandler) Unpin(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.UnpinAccount(c.Request.Context(), accountID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Account unpinned"})
+}
+
 // ListTrash returns soft-deleted accounts for the recycle bin.
 // GET /api/v1/admin/accounts/trash
 func (h *AccountHandler) ListTrash(c *gin.Context) {

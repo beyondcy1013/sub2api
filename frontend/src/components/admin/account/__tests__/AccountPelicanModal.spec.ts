@@ -6,14 +6,23 @@ import {
   setCachedPelicanResult
 } from '@/utils/pelicanResultCache'
 
-const { copyToClipboard } = vi.hoisted(() => ({
-  copyToClipboard: vi.fn()
+const { copyToClipboard, updateDowngradedFlag } = vi.hoisted(() => ({
+  copyToClipboard: vi.fn(),
+  updateDowngradedFlag: vi.fn().mockResolvedValue({})
 }))
 
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
     copyToClipboard
   })
+}))
+
+vi.mock('@/api', () => ({
+  adminAPI: {
+    accounts: {
+      updateDowngradedFlag: (...args: any[]) => updateDowngradedFlag(...args)
+    }
+  }
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -401,5 +410,38 @@ describe('AccountPelicanModal', () => {
     expect((wrapper.vm as any).promptScenarios[0].name).toContain('Create a long pelican')
     expect(wrapper.findAll('select')[1]?.text()).toContain('Create a long pelican')
     expect(wrapper.get('[data-test="pelican-prompt-save"]').attributes()).toHaveProperty('disabled')
+  })
+
+  it('支持在选中账号后直接在“开始测智”后面点击标记降智或满血', async () => {
+    updateDowngradedFlag.mockClear()
+    const wrapper = mountModal([{ id: 1, name: 'Test Account', platform: 'openai', type: 'oauth', status: 'active' }])
+    await flushPromises()
+
+    const item = (wrapper.vm as any).accountStates[0]
+    expect(item.status).toBe('idle')
+
+    // 选中账号后，在“开始测智”后面即可看到“标记降智”与“标记满血”按钮
+    const markDowngradedBtn = wrapper.get('[data-test="pelican-mark-downgraded-batch"]')
+    const markNormalBtn = wrapper.get('[data-test="pelican-mark-normal-batch"]')
+    expect(markDowngradedBtn.text()).toContain('admin.accounts.pelicanMarkDowngraded')
+    expect(markNormalBtn.text()).toContain('admin.accounts.pelicanMarkNormal')
+    expect(markDowngradedBtn.attributes('disabled')).toBeUndefined()
+    expect(markNormalBtn.attributes('disabled')).toBeUndefined()
+
+    // 点击“标记降智”
+    await markDowngradedBtn.trigger('click')
+    await flushPromises()
+
+    expect(updateDowngradedFlag).toHaveBeenCalledWith(1, true)
+    expect(item.status).toBe('downgraded')
+    expect(item.account.extra.pelican_downgraded).toBe(true)
+
+    // 点击“标记满血”
+    await markNormalBtn.trigger('click')
+    await flushPromises()
+
+    expect(updateDowngradedFlag).toHaveBeenCalledWith(1, false)
+    expect(item.status).toBe('success')
+    expect(item.account.extra.pelican_downgraded).toBe(false)
   })
 })

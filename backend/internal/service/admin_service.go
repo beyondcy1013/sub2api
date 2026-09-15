@@ -95,6 +95,8 @@ type AdminService interface {
 	DeleteAccount(ctx context.Context, id int64) error
 	RecycleAccount(ctx context.Context, id int64) error
 	RestoreAccount(ctx context.Context, id int64) error
+	PinAccount(ctx context.Context, id int64) error
+	UnpinAccount(ctx context.Context, id int64) error
 	// Legacy recycle bin compatibility for accounts soft-deleted by older builds.
 	ListTrashedAccounts(ctx context.Context, page, pageSize int, platform, accountType, search string) ([]Account, int64, error)
 	// RestoreFromTrash un-deletes a soft-deleted account, re-creates its group associations,

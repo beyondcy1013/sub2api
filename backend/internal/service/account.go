@@ -91,6 +91,9 @@ type Account struct {
 // automated routing and probe workers must ignore it.
 const AccountDeletedStagingExtraKey = "deleted"
 
+// AccountPinnedExtraKey marks whether the account is pinned to top in the admin account table.
+const AccountPinnedExtraKey = "pinned"
+
 type OpenAIEndpointCapability string
 
 const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
@@ -160,6 +163,10 @@ func (a *Account) IsSyntheticUITest() bool {
 
 func (a *Account) IsDeletedStaging() bool {
 	return a != nil && a.getExtraBool(AccountDeletedStagingExtraKey)
+}
+
+func (a *Account) IsPinned() bool {
+	return a != nil && a.getExtraBool(AccountPinnedExtraKey)
 }
 
 // BillingRateMultiplier 返回账号计费倍率。

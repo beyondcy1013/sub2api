@@ -92,6 +92,12 @@ func (m *sessionWindowMockRepo) PermanentDelete(context.Context, int64) error   
 func (m *sessionWindowMockRepo) RestoreAccount(context.Context, int64) error {
 	panic("unexpected")
 }
+func (m *sessionWindowMockRepo) PinAccount(context.Context, int64) error {
+	panic("unexpected")
+}
+func (m *sessionWindowMockRepo) UnpinAccount(context.Context, int64) error {
+	panic("unexpected")
+}
 func (m *sessionWindowMockRepo) List(context.Context, pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	panic("unexpected")
 }
