@@ -171,6 +171,46 @@ func mustMarshal(t *testing.T, v any) []byte {
 	return b
 }
 
+// GLM 的 Anthropic 兼容层把 tool_result.content 的类型定义为
+// string | ClaudeContentBlock[]。Responses 的 function_call_output 可以是 JSON
+// null；直接透传会触发上游 422 "Input should be a valid string/list"。
+func TestResponsesToAnthropic_NullToolResultContentIsSendable(t *testing.T) {
+	messages := responsesToAnthropicMessages(t, `[
+		{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"cmd\":\"ls\"}"},
+		{"type":"function_call_output","call_id":"call_1","output":null}
+	]`)
+
+	require.Len(t, messages, 2)
+	require.Equal(t, "assistant", messages[0].Role)
+	require.Equal(t, "user", messages[1].Role)
+
+	blocks := parseContentBlocks(messages[1].Content)
+	require.Len(t, blocks, 1)
+	require.Equal(t, "tool_result", blocks[0].Type)
+	require.Equal(t, `"(empty)"`, string(blocks[0].Content))
+	require.Contains(t, string(mustMarshal(t, messages)), `{"type":"tool_result","tool_use_id":"call_1","content":"(empty)"}`)
+}
+
+func TestSanitizeAnthropicMessageContentsRepairsNullToolResult(t *testing.T) {
+	messages := []AnthropicMessage{{
+		Role: "user",
+		Content: json.RawMessage(
+			`[{"type":"tool_result","tool_use_id":"call_1","content":null}]`,
+		),
+	}}
+
+	sanitized := sanitizeAnthropicMessageContents(messages)
+	require.Contains(t, string(mustMarshal(t, sanitized)), `"content":"(empty)"`)
+	require.NotContains(t, string(mustMarshal(t, sanitized)), `"content":null`)
+}
+
+func TestSanitizeAnthropicMessageContentsRepairsNullMessageContent(t *testing.T) {
+	messages := []AnthropicMessage{{Role: "assistant", Content: json.RawMessage("null")}}
+
+	sanitized := sanitizeAnthropicMessageContents(messages)
+	require.Equal(t, `[{"type":"text","text":"(empty)"}]`, string(sanitized[0].Content))
+}
+
 func TestAnthropicContentIsEmpty(t *testing.T) {
 	cases := []struct {
 		raw  string

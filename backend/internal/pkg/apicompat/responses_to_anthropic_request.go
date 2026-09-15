@@ -232,6 +232,7 @@ func convertResponsesInputToAnthropic(instructions string, inputRaw json.RawMess
 	messages = mergeConsecutiveMessages(messages)
 	messages = normalizeAnthropicToolPairing(messages)
 	messages = mergeConsecutiveMessages(messages)
+	messages = sanitizeAnthropicMessageContents(messages)
 
 	var system json.RawMessage
 	if len(systemParts) > 0 {
@@ -278,6 +279,42 @@ func responsesFunctionOutputToAnthropicContent(item ResponsesInputItem) json.Raw
 
 	content, _ := json.Marshal(item.Output)
 	return content
+}
+
+// sanitizeAnthropicMessageContents removes the one JSON shape that strict
+// Anthropic-compatible providers reject even though Go's RawMessage can carry
+// it: content must be a string or a block list, never null. It also repairs a
+// null tool_result content in place so tool_use/tool_result pairing survives.
+func sanitizeAnthropicMessageContents(messages []AnthropicMessage) []AnthropicMessage {
+	for i := range messages {
+		trimmed := strings.TrimSpace(string(messages[i].Content))
+		if trimmed == "" || trimmed == "null" {
+			messages[i].Content = json.RawMessage(`[{"type":"text","text":"(empty)"}]`)
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "[") {
+			continue
+		}
+
+		blocks := parseContentBlocks(messages[i].Content)
+		changed := false
+		for j := range blocks {
+			if blocks[j].Type != "tool_result" {
+				continue
+			}
+			resultContent := strings.TrimSpace(string(blocks[j].Content))
+			if resultContent == "" || resultContent == "null" {
+				blocks[j].Content = json.RawMessage(`"(empty)"`)
+				changed = true
+			}
+		}
+		if changed {
+			if content, err := json.Marshal(blocks); err == nil {
+				messages[i].Content = content
+			}
+		}
+	}
+	return messages
 }
 
 // normalizeAnthropicToolPairing rebuilds the message sequence so it satisfies
