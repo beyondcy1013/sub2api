@@ -241,33 +241,50 @@
         >
           {{ t('admin.accounts.pelicanNoHistory') }}
         </div>
-        <div v-else class="mt-2 grid gap-3 lg:grid-cols-[minmax(280px,360px)_1fr]">
-          <div class="max-h-64 space-y-1 overflow-y-auto pr-1">
-            <button
-              v-for="entry in allCachedPelicanResults"
-              :key="`${entry.account.id}-${entry.testedAt}`"
-              type="button"
-              data-test="pelican-global-history-entry"
-              class="w-full rounded-lg border px-2.5 py-2 text-left text-xs transition"
-              :class="isHistoryPreview(entry) ? 'border-primary-300 bg-primary-50/60 dark:border-primary-800 dark:bg-primary-950/20' : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700/60'"
-              @click="historyPreview = entry"
-            >
-              <span class="flex items-center justify-between gap-2">
-                <span class="min-w-0 flex-1 truncate font-medium text-gray-800 dark:text-gray-200" :title="entry.account.name">
-                  {{ entry.account.name }}
+        <div v-else class="mt-2 grid gap-3 lg:grid-cols-[minmax(420px,1fr)_minmax(300px,420px)]">
+          <div class="min-w-0">
+            <div class="grid grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] gap-2 border-b border-gray-100 px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:border-dark-700">
+              <span>{{ t('admin.accounts.columns.name') }}</span>
+              <span>{{ t('admin.accounts.pelicanModel') }}</span>
+              <span>{{ t('admin.accounts.pelicanResultColumn') }}</span>
+              <span>{{ t('admin.accounts.pelicanPromptColumn') }}</span>
+              <span>{{ t('admin.accounts.pelicanUserRating') }}</span>
+            </div>
+            <div class="max-h-[calc(16rem+34px)] overflow-y-auto">
+              <button
+                v-for="entry in allCachedPelicanResults"
+                :key="`${entry.account.id}-${entry.testedAt}`"
+                type="button"
+                data-test="pelican-global-history-entry"
+                class="grid w-full grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] items-center gap-2 border-b border-gray-100 px-1 py-1.5 text-left text-[11px] transition last:border-b-0 dark:border-dark-700"
+                :class="isHistoryPreview(entry) ? 'bg-primary-50/60 dark:bg-primary-950/20' : 'hover:bg-gray-50 dark:hover:bg-dark-700/60'"
+                @click="historyPreview = entry"
+              >
+                <span class="min-w-0">
+                  <span class="block truncate font-medium text-gray-800 dark:text-gray-200" :title="entry.account.name">
+                    {{ entry.account.name }}
+                  </span>
+                  <span class="block truncate text-[10px] text-gray-400">
+                    {{ formatTestedAt(entry.testedAt) }}
+                  </span>
                 </span>
-                <span
-                  class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                  :class="historyStatusClass(entry)"
-                >
+                <span class="truncate text-gray-700 dark:text-gray-300">
+                  {{ entry.responseModel || '-' }}
+                </span>
+                <span class="flex min-w-0 items-center gap-1">
+                  <span class="inline-block size-1.5 shrink-0 rounded-full" :class="historyStatusDotClass(entry)" />
+                  <span class="truncate" :class="historyResultTextClass(entry)" :title="historyResultText(entry)">
+                    {{ historyResultText(entry) }}
+                  </span>
+                </span>
+                <span class="truncate text-gray-500 dark:text-gray-400" :title="entry.prompt || t('admin.accounts.pelicanPromptMissing')">
+                  {{ pelicanPromptOptionLabel(entry.prompt || '', 10) || t('admin.accounts.pelicanPromptMissing') }}
+                </span>
+                <span class="truncate rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="historyStatusClass(entry)">
                   {{ historyStatusLabel(entry) }}
                 </span>
-              </span>
-              <span class="mt-1 flex items-center justify-between gap-2 text-[10px] text-gray-500 dark:text-gray-400">
-                <span class="truncate">{{ entry.responseModel || entry.reason || entry.error || entry.account.id }}</span>
-                <span class="shrink-0">{{ formatTestedAt(entry.testedAt) }}</span>
-              </span>
-            </button>
+              </button>
+            </div>
           </div>
 
           <div v-if="historyPreview" class="min-w-0 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
@@ -297,6 +314,29 @@
             >
               {{ historyPreview.reason || historyPreview.error }}
             </p>
+            <div class="mt-2 rounded-md bg-gray-50 p-2 text-xs dark:bg-dark-900/50">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="font-medium text-gray-600 dark:text-gray-300">
+                  {{ t('admin.accounts.pelicanUserRating') }}
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    v-for="option in (['accurate', 'inaccurate'] as const)"
+                    :key="option"
+                    type="button"
+                    :data-test="`pelican-rating-${option}`"
+                    class="rounded-md border px-2 py-1 text-[11px] font-medium transition"
+                    :class="historyPreview.userRating === option ? ratingButtonActiveClass(option) : ratingButtonIdleClass(option)"
+                    @click="rateHistoryResult(historyPreview, option)"
+                  >
+                    {{ option === 'accurate' ? t('admin.accounts.pelicanRatingAccurate') : t('admin.accounts.pelicanRatingInaccurate') }}
+                  </button>
+                </div>
+              </div>
+              <div class="mt-1 truncate text-[10px] text-gray-500 dark:text-gray-400" :title="historyPreview.prompt">
+                {{ t('admin.accounts.pelicanPromptColumn') }}: {{ pelicanPromptOptionLabel(historyPreview.prompt || '', 24) || t('admin.accounts.pelicanPromptMissing') }}
+              </div>
+            </div>
             <div
               v-if="historyPreview.result?.has_html"
               class="mt-2 overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
@@ -718,7 +758,9 @@ import {
   getCachedPelicanHistory,
   getCachedPelicanResult,
   setCachedPelicanResult,
-  type PelicanCachedResult
+  setCachedPelicanUserRating,
+  type PelicanCachedResult,
+  type PelicanUserRating
 } from '@/utils/pelicanResultCache'
 import { adminAPI } from '@/api'
 import type { Account } from '@/types'
@@ -951,9 +993,46 @@ const historyStatusClass = (entry: PelicanCachedResult) => {
   return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
 }
 
+const historyStatusDotClass = (entry: PelicanCachedResult) => {
+  if (entry.status === 'success') return 'bg-green-500'
+  if (entry.status === 'downgraded') return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
+const historyResultText = (entry: PelicanCachedResult) => {
+  if (entry.status === 'success') return t('admin.accounts.pelicanStatusSuccess')
+  if (entry.status === 'downgraded') return t('admin.accounts.pelicanStatusDowngraded')
+  return entry.error || entry.reason || t('admin.accounts.pelicanStatusFailed')
+}
+
+const historyResultTextClass = (entry: PelicanCachedResult) => {
+  if (entry.status === 'success') return 'text-green-600 dark:text-green-400'
+  if (entry.status === 'downgraded') return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
 const isHistoryPreview = (entry: PelicanCachedResult) =>
   historyPreview.value?.account.id === entry.account.id &&
   historyPreview.value?.testedAt === entry.testedAt
+
+const ratingButtonActiveClass = (rating: PelicanUserRating) => (
+  rating === 'accurate'
+    ? 'border-green-300 bg-green-100 text-green-700 dark:border-green-700 dark:bg-green-900/40 dark:text-green-300'
+    : 'border-red-300 bg-red-100 text-red-700 dark:border-red-700 dark:bg-red-900/40 dark:text-red-300'
+)
+
+const ratingButtonIdleClass = (rating: PelicanUserRating) => (
+  rating === 'accurate'
+    ? 'border-gray-300 text-gray-600 hover:bg-green-50 hover:text-green-700 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-green-950/30'
+    : 'border-gray-300 text-gray-600 hover:bg-red-50 hover:text-red-700 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-red-950/30'
+)
+
+const rateHistoryResult = (entry: PelicanCachedResult, rating: PelicanUserRating) => {
+  const updated = setCachedPelicanUserRating(entry.account.id, entry.testedAt, rating)
+  if (updated && isHistoryPreview(entry)) {
+    historyPreview.value = updated
+  }
+}
 
 const selectHistoryResult = (item: PelicanAccountState, index: number) => {
   const entry = getCachedPelicanHistory(item.account.id)[index]
@@ -1134,6 +1213,7 @@ const handleClose = () => {
 }
 
 async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal) {
+  let testPrompt = customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
   item.status = 'running'
   item.streamingContent = ''
   item.error = undefined
@@ -1149,7 +1229,7 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
       reasoning_effort?: string
     } = {
       model_id: selectedModel.value.trim() || DEFAULT_PELICAN_MODEL,
-      prompt: customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault'),
+      prompt: testPrompt,
       mode: 'pelican',
       reasoning_effort: reasoningEffort.value || 'low'
     }
@@ -1237,7 +1317,10 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
     item.elapsedMs = Date.now() - startAt
     if (item.status !== 'idle') {
       item.testedAt = Date.now()
-      setCachedPelicanResult(toCachedResult(item))
+      setCachedPelicanResult({
+        ...toCachedResult(item),
+        prompt: testPrompt
+      })
       try {
         await adminAPI.accounts.updateDowngradedFlag(
           item.account.id,

@@ -6,6 +6,8 @@ export interface PelicanTestResult {
   response_model?: string
 }
 
+export type PelicanUserRating = 'accurate' | 'inaccurate'
+
 export interface PelicanCachedResult {
   account: {
     id: number
@@ -19,6 +21,8 @@ export interface PelicanCachedResult {
   error?: string
   elapsedMs?: number
   testedAt: number
+  prompt?: string
+  userRating?: PelicanUserRating
 }
 
 interface StoredPelicanResult extends Omit<PelicanCachedResult, 'account'> {
@@ -51,7 +55,9 @@ function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
     reason: stored.reason,
     error: stored.error,
     elapsedMs: stored.elapsedMs,
-    testedAt: stored.testedAt
+    testedAt: stored.testedAt,
+    prompt: stored.prompt,
+    userRating: stored.userRating === 'accurate' || stored.userRating === 'inaccurate' ? stored.userRating : undefined
   }
 }
 
@@ -66,7 +72,9 @@ function toStoredResult(item: PelicanCachedResult): StoredPelicanResult {
     reason: item.reason,
     error: item.error,
     elapsedMs: item.elapsedMs,
-    testedAt: item.testedAt
+    testedAt: item.testedAt,
+    prompt: item.prompt,
+    userRating: item.userRating
   }
 }
 
@@ -155,6 +163,18 @@ export function setCachedPelicanResult(item: PelicanCachedResult): void {
   history.set(item.account.id, results.slice(0, MAX_HISTORY_PER_ACCOUNT))
   trimToStorageLimit()
   persistToStorage()
+}
+
+export function setCachedPelicanUserRating(
+  accountId: number,
+  testedAt: number,
+  userRating: PelicanUserRating
+): PelicanCachedResult | undefined {
+  const entry = history.get(accountId)?.find(item => item.testedAt === testedAt)
+  if (!entry) return undefined
+  entry.userRating = entry.userRating === userRating ? undefined : userRating
+  persistToStorage()
+  return { ...entry }
 }
 
 export function clearPelicanResultCache(): void {

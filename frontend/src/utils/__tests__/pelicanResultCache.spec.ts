@@ -5,6 +5,7 @@ import {
   getCachedPelicanHistory,
   getCachedPelicanResult,
   setCachedPelicanResult,
+  setCachedPelicanUserRating,
   reloadPelicanResultCacheFromStorage
 } from '../pelicanResultCache'
 
@@ -27,10 +28,12 @@ describe('pelicanResultCache', () => {
       },
       responseModel: 'gpt-6-astra',
       reason: 'ok',
-      testedAt: 1234
+      testedAt: 1234,
+      prompt: 'Create a pelican animation'
     })
 
     expect(getCachedPelicanResult(7)?.account.name).toBe('Cached Account')
+    expect(getCachedPelicanResult(7)?.prompt).toBe('Create a pelican animation')
     expect(getAllCachedPelicanResults().map(item => item.account.id)).toEqual([7])
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-results:v1') || '[]')).toHaveLength(1)
   })
@@ -86,5 +89,21 @@ describe('pelicanResultCache', () => {
     reloadPelicanResultCacheFromStorage()
 
     expect(getCachedPelicanHistory(9)[0]?.account.name).toBe('Legacy Account')
+  })
+
+  it('stores and toggles a user rating for an exact cached run', () => {
+    setCachedPelicanResult({
+      account: { id: 12, name: 'Rated Account' },
+      status: 'success',
+      prompt: 'Create a pelican',
+      testedAt: 5000
+    })
+
+    expect(setCachedPelicanUserRating(12, 5000, 'accurate')?.userRating).toBe('accurate')
+    expect(getCachedPelicanResult(12)?.userRating).toBe('accurate')
+    expect(setCachedPelicanUserRating(12, 5000, 'inaccurate')?.userRating).toBe('inaccurate')
+    expect(getCachedPelicanResult(12)?.userRating).toBe('inaccurate')
+    expect(setCachedPelicanUserRating(12, 5000, 'inaccurate')?.userRating).toBeUndefined()
+    expect(getCachedPelicanResult(12)?.userRating).toBeUndefined()
   })
 })
