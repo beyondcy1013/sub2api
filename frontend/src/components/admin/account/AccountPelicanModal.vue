@@ -40,6 +40,15 @@
             </button>
             <button
               type="button"
+              data-test="pelican-history-toggle"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+              :title="t('admin.accounts.pelicanHistory')"
+              @click="toggleHistoryPanel"
+            >
+              <span>{{ t('admin.accounts.pelicanHistory') }} ({{ allCachedPelicanResults.length }})</span>
+            </button>
+            <button
+              type="button"
               class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
               :title="t('admin.accounts.pelicanClearCache')"
               @click="handleClearCache"
@@ -202,6 +211,104 @@
               class="text-xs"
               :placeholder="t('admin.accounts.pelicanPromptPlaceholder')"
             />
+          </div>
+        </div>
+      </div>
+
+      <!-- Global cached history browser -->
+      <div
+        v-if="showHistoryPanel"
+        data-test="pelican-history-panel"
+        class="rounded-xl border border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-800/60"
+      >
+        <div class="flex items-center justify-between gap-2 border-b border-gray-100 pb-2 dark:border-dark-700">
+          <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
+            {{ t('admin.accounts.pelicanHistory') }}
+          </div>
+          <button
+            type="button"
+            class="rounded p-1 text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+            :title="t('common.close')"
+            @click="showHistoryPanel = false"
+          >
+            <Icon name="x" size="xs" />
+          </button>
+        </div>
+
+        <div
+          v-if="allCachedPelicanResults.length === 0"
+          class="flex h-24 items-center justify-center text-xs text-gray-500 dark:text-gray-400"
+        >
+          {{ t('admin.accounts.pelicanNoHistory') }}
+        </div>
+        <div v-else class="mt-2 grid gap-3 lg:grid-cols-[minmax(280px,360px)_1fr]">
+          <div class="max-h-64 space-y-1 overflow-y-auto pr-1">
+            <button
+              v-for="entry in allCachedPelicanResults"
+              :key="`${entry.account.id}-${entry.testedAt}`"
+              type="button"
+              data-test="pelican-global-history-entry"
+              class="w-full rounded-lg border px-2.5 py-2 text-left text-xs transition"
+              :class="isHistoryPreview(entry) ? 'border-primary-300 bg-primary-50/60 dark:border-primary-800 dark:bg-primary-950/20' : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700/60'"
+              @click="historyPreview = entry"
+            >
+              <span class="flex items-center justify-between gap-2">
+                <span class="min-w-0 flex-1 truncate font-medium text-gray-800 dark:text-gray-200" :title="entry.account.name">
+                  {{ entry.account.name }}
+                </span>
+                <span
+                  class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                  :class="historyStatusClass(entry)"
+                >
+                  {{ historyStatusLabel(entry) }}
+                </span>
+              </span>
+              <span class="mt-1 flex items-center justify-between gap-2 text-[10px] text-gray-500 dark:text-gray-400">
+                <span class="truncate">{{ entry.responseModel || entry.reason || entry.error || entry.account.id }}</span>
+                <span class="shrink-0">{{ formatTestedAt(entry.testedAt) }}</span>
+              </span>
+            </button>
+          </div>
+
+          <div v-if="historyPreview" class="min-w-0 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {{ historyPreview.account.name }}
+                </div>
+                <div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  <span class="uppercase">{{ historyPreview.account.type || '-' }}</span>
+                  <span>•</span>
+                  <span>ID: {{ historyPreview.account.id }}</span>
+                  <span v-if="historyPreview.responseModel">• {{ historyPreview.responseModel }}</span>
+                  <span>• {{ formatTestedAt(historyPreview.testedAt) }}</span>
+                </div>
+              </div>
+              <span
+                class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                :class="historyStatusClass(historyPreview)"
+              >
+                {{ historyStatusLabel(historyPreview) }}
+              </span>
+            </div>
+            <p
+              v-if="historyPreview.reason || historyPreview.error"
+              class="mt-2 rounded-md bg-gray-50 p-2 text-xs text-gray-600 dark:bg-dark-900/50 dark:text-gray-300"
+            >
+              {{ historyPreview.reason || historyPreview.error }}
+            </p>
+            <div
+              v-if="historyPreview.result?.has_html"
+              class="mt-2 overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+            >
+              <iframe
+                :srcdoc="pelicanPreviewDocument(historyPreview.result.html || '')"
+                sandbox="allow-scripts"
+                class="h-[42vh] w-full border-0"
+                loading="lazy"
+                title="Pelican History Preview"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -607,6 +714,7 @@ import {
 } from '@/utils/pelicanPromptScenarios'
 import {
   clearPelicanResultCache,
+  getAllCachedPelicanResults,
   getCachedPelicanHistory,
   getCachedPelicanResult,
   setCachedPelicanResult,
@@ -738,6 +846,10 @@ const deletePromptScenario = () => {
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
 const expandedHistoryAccountIds = ref<Set<number>>(new Set())
+const showHistoryPanel = ref(false)
+const historyPreview = ref<PelicanCachedResult | null>(null)
+
+const allCachedPelicanResults = computed(() => getAllCachedPelicanResults())
 
 // Lightbox preview state
 const lightboxItem = ref<PelicanAccountState | null>(null)
@@ -816,6 +928,33 @@ const toggleHistory = (accountId: number) => {
   expandedHistoryAccountIds.value = next
 }
 
+const toggleHistoryPanel = () => {
+  showHistoryPanel.value = !showHistoryPanel.value
+  if (showHistoryPanel.value && !historyPreview.value) {
+    historyPreview.value = allCachedPelicanResults.value[0] || null
+  }
+}
+
+const historyStatusLabel = (entry: PelicanCachedResult) => {
+  if (entry.status === 'success') return t('admin.accounts.pelicanStatusSuccess')
+  if (entry.status === 'downgraded') return t('admin.accounts.pelicanStatusDowngraded')
+  return t('admin.accounts.pelicanStatusFailed')
+}
+
+const historyStatusClass = (entry: PelicanCachedResult) => {
+  if (entry.status === 'success') {
+    return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+  }
+  if (entry.status === 'downgraded') {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+  }
+  return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+}
+
+const isHistoryPreview = (entry: PelicanCachedResult) =>
+  historyPreview.value?.account.id === entry.account.id &&
+  historyPreview.value?.testedAt === entry.testedAt
+
 const selectHistoryResult = (item: PelicanAccountState, index: number) => {
   const entry = getCachedPelicanHistory(item.account.id)[index]
   if (!entry || item.status === 'running') return
@@ -827,6 +966,8 @@ const formatTestedAt = (testedAt: number) => new Date(testedAt).toLocaleString()
 const handleClearCache = () => {
   clearPelicanResultCache()
   expandedHistoryAccountIds.value = new Set()
+  showHistoryPanel.value = false
+  historyPreview.value = null
   for (const item of accountStates.value) {
     item.status = 'idle'
     item.streamingContent = ''

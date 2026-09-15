@@ -138,6 +138,12 @@ export function getCachedPelicanHistory(accountId: number): PelicanCachedResult[
   return [...(history.get(accountId) || [])]
 }
 
+export function getAllCachedPelicanResults(): PelicanCachedResult[] {
+  return Array.from(history.values())
+    .flat()
+    .sort((a, b) => b.testedAt - a.testedAt)
+}
+
 export function setCachedPelicanResult(item: PelicanCachedResult): void {
   const results = history.get(item.account.id) || []
   const existingIndex = results.findIndex(entry => entry.testedAt === item.testedAt)

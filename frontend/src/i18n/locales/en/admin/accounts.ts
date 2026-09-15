@@ -1777,6 +1777,7 @@ export default {
       pelicanClearCache: 'Clear Cache',
       pelicanCachedAt: 'Cached {time}',
       pelicanHistory: 'History',
+      pelicanNoHistory: 'No historical results',
       pelicanStopBatch: 'Stop',
       pelicanStatusReady: 'Ready',
       pelicanStatusQueued: 'Queued',

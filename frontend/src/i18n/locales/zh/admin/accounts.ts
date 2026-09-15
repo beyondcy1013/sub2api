@@ -1840,6 +1840,7 @@ export default {
       pelicanClearCache: '清除结果缓存',
       pelicanCachedAt: '缓存 {time}',
       pelicanHistory: '历史结果',
+      pelicanNoHistory: '暂无历史结果',
       pelicanStopBatch: '停止',
       pelicanStatusReady: '待测试',
       pelicanStatusQueued: '排队中',

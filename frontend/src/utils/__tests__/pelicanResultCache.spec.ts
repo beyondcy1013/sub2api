@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearPelicanResultCache,
+  getAllCachedPelicanResults,
   getCachedPelicanHistory,
   getCachedPelicanResult,
   setCachedPelicanResult,
@@ -30,6 +31,7 @@ describe('pelicanResultCache', () => {
     })
 
     expect(getCachedPelicanResult(7)?.account.name).toBe('Cached Account')
+    expect(getAllCachedPelicanResults().map(item => item.account.id)).toEqual([7])
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-results:v1') || '[]')).toHaveLength(1)
   })
 

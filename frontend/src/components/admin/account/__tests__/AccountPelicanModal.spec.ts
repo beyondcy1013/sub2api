@@ -317,13 +317,19 @@ describe('AccountPelicanModal', () => {
     expect(wrapper.find('iframe').exists()).toBe(true)
     expect((wrapper.vm as any).accountStates[0].responseModel).toBe('new-model')
 
-    await wrapper.find('button[title="admin.accounts.pelicanHistory"]').trigger('click')
+    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
     await flushPromises()
 
-    expect((wrapper.vm as any).expandedHistoryAccountIds.has(20)).toBe(true)
-    const historyButtons = wrapper.findAll('button[title="admin.accounts.pelicanHistory"]')
-    expect(historyButtons).toHaveLength(1)
+    expect(wrapper.get('[data-test="pelican-history-panel"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(2)
     expect(wrapper.text()).toContain('old-model')
+    expect(wrapper.findAll('iframe')).toHaveLength(2)
+
+    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('old-model')
+    expect(wrapper.text()).toContain('new-model')
 
     await (wrapper.vm as any).selectHistoryResult((wrapper.vm as any).accountStates[0], 1)
     await flushPromises()
