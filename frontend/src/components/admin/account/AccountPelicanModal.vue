@@ -1358,12 +1358,16 @@ const handleClose = () => {
 }
 
 async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal) {
+  const testModel = selectedModel.value.trim() || DEFAULT_PELICAN_MODEL
   let testPrompt = customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
   item.status = 'running'
   item.streamingContent = ''
   item.error = undefined
   item.reason = undefined
   item.result = undefined
+  item.responseModel = testModel
+  item.testedAt = undefined
+  item.elapsedMs = undefined
   const startAt = Date.now()
 
   try {
@@ -1373,7 +1377,7 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
       mode: string
       reasoning_effort?: string
     } = {
-      model_id: selectedModel.value.trim() || DEFAULT_PELICAN_MODEL,
+      model_id: testModel,
       prompt: testPrompt,
       mode: 'pelican',
       reasoning_effort: reasoningEffort.value || 'low'

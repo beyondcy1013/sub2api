@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,3 +173,38 @@ func TestAccountTestService_TestAccountConnection_OpenAIPelican(t *testing.T) {
 	})
 }
 
+func TestAccountTestService_PelicanUsesSelectedModel(t *testing.T) {
+	for _, accountType := range []string{AccountTypeAPIKey, AccountTypeOAuth} {
+		for _, mappingKey := range []string{"gpt-6-astra", "*"} {
+			for _, mode := range []string{AccountTestModePelican, ""} {
+				t.Run(accountType+"/"+mappingKey+"/"+mode, func(t *testing.T) {
+					account := &Account{
+						ID: 95, Platform: PlatformOpenAI, Type: accountType, Concurrency: 1,
+						Credentials: map[string]any{
+							"api_key": "test-key", "access_token": "test-token",
+							"model_mapping": map[string]any{mappingKey: "gpt-5.6-luna"},
+						},
+					}
+					upstream := &httpUpstreamRecorder{resp: &http.Response{
+						StatusCode: 200,
+						Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+						Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\"}\n\n")),
+					}}
+					svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{}}
+					rec := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(rec)
+					c.Request = httptest.NewRequest("POST", "/api/v1/admin/accounts/95/test", nil)
+					require.NoError(t, svc.testOpenAIAccountConnection(c, account, "gpt-6-astra", "", mode))
+					var sent map[string]any
+					require.NoError(t, json.Unmarshal(upstream.lastBody, &sent))
+					expected := "gpt-6-astra"
+					if mode != AccountTestModePelican {
+						expected = "gpt-5.6-luna"
+					}
+					assert.Equal(t, expected, sent["model"])
+					assert.Contains(t, rec.Body.String(), "\"model\":\""+expected+"\"")
+				})
+			}
+		}
+	}
+}

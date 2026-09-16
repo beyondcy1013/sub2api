@@ -121,6 +121,12 @@ node --test android/tests/client-contract.test.mjs
 
 Both profiles must preserve all of the following:
 
+- Pelican batch tests and single-account retries use the current model dropdown
+  selection. Pelican requests bypass account `model_mapping` (including wildcard
+  aliases), so all accounts are compared against the same selected model.
+  Ordinary connection tests keep their existing model-mapping behavior.
+  Starting a test clears the previous result's model/timestamp/duration and
+  displays the selected model until the current upstream reports its model.
 - Admin account identifiers remain visible in plaintext.
 - Admin responses and edit forms expose `credentials.api_key` in plaintext.
 - `api_key` stays out of `SensitiveCredentialKeys`.

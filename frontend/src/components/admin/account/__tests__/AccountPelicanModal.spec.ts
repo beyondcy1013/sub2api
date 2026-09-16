@@ -180,6 +180,32 @@ describe('AccountPelicanModal', () => {
     expect(state.status).toBe('success')
   })
 
+  it('下拉选择模型后批量测试和重测均使用当前选择，重测清除旧模型与缓存时间', async () => {
+    const wrapper = mountModal()
+    await wrapper.find('select').setValue('gpt-5.4')
+    await (wrapper.vm as any).startAllTests()
+    for (const [, request] of vi.mocked(fetch).mock.calls) {
+      expect(JSON.parse(request!.body as string).model_id).toBe('gpt-5.4')
+    }
+
+    await wrapper.find('select').setValue('gpt-6-astra')
+    const state = (wrapper.vm as any).accountStates[0]
+    state.responseModel = 'gpt-5.6-luna'
+    state.testedAt = 123
+    state.elapsedMs = 300
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 502 } as Response)
+    const retry = (wrapper.vm as any).runSingleTest(state)
+    expect(state.responseModel).toBe('gpt-6-astra')
+    expect(state.testedAt).toBeUndefined()
+    expect(state.elapsedMs).toBeUndefined()
+    await retry
+    const [, request] = vi.mocked(fetch).mock.calls.at(-1)!
+    expect(JSON.parse(request!.body as string).model_id).toBe('gpt-6-astra')
+    expect(state.responseModel).toBe('gpt-6-astra')
+    expect(state.status).toBe('failed')
+    wrapper.unmount()
+  })
+
   it('开始测智时所有选中账号同时发起请求', async () => {
     const wrapper = mountModal([
       { id: 31, name: 'Concurrent 1', platform: 'openai', type: 'oauth', status: 'active' },
