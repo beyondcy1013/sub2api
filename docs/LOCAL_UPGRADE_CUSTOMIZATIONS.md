@@ -127,6 +127,9 @@ Both profiles must preserve all of the following:
   Ordinary connection tests keep their existing model-mapping behavior.
   Starting a test clears the previous result's model/timestamp/duration and
   displays the selected model until the current upstream reports its model.
+- Pelican cards expose independent test/stop actions, each with its own abort
+  controller even during batch tests. Test all runs the current selected list;
+  stopping one account never aborts others or records a false failed result.
 - Pelican history reactively refreshes after each run and retains its original
   prompt, raw output, HTML, error, and timestamp. Selecting a history entry
   exposes the full prompt/output and sandboxed animation preview; manual ratings

@@ -226,6 +226,39 @@ describe('AccountPelicanModal', () => {
     ])
   })
 
+  it('单账号可独立开始和停止，批量中停止一个不影响其他账号', async () => {
+    const signals: AbortSignal[] = []
+    vi.mocked(fetch).mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      const signal = init!.signal as AbortSignal
+      signals.push(signal)
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }))
+    const wrapper = mountModal([
+      { id: 31, name: 'One', platform: 'openai', type: 'oauth', status: 'active' },
+      { id: 32, name: 'Two', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    expect(wrapper.text()).toContain('admin.accounts.pelicanTestAll')
+    await wrapper.get('[data-test="pelican-test-31"]').trigger('click')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect((wrapper.vm as any).accountStates[1].status).toBe('idle')
+    await wrapper.get('[data-test="pelican-stop-31"]').trigger('click')
+    await flushPromises()
+    expect(signals[0].aborted).toBe(true)
+    expect(getCachedPelicanResult(31)).toBeUndefined()
+    const batch = (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    await wrapper.get('[data-test="pelican-stop-31"]').trigger('click')
+    await flushPromises()
+    expect(signals[1].aborted).toBe(true)
+    expect(signals[2].aborted).toBe(false)
+    expect((wrapper.vm as any).accountStates[1].status).toBe('running')
+    expect((wrapper.vm as any).isRunning).toBe(true)
+    await wrapper.get('[data-test="pelican-stop-32"]').trigger('click')
+    await batch
+    expect((wrapper.vm as any).isRunning).toBe(false)
+    wrapper.unmount()
+  })
+
   it('支持在弹窗内选择和切换账号', async () => {
     const wrapper = mount(AccountPelicanModal, {
       props: {

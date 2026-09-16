@@ -36,7 +36,7 @@
               class="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-50"
             >
               <Icon name="play" size="sm" />
-              <span>{{ t('admin.accounts.pelicanStartBatch') }}</span>
+              <span>{{ t('admin.accounts.pelicanTestAll') }}</span>
             </button>
             <button
               v-if="!isRunning"
@@ -677,13 +677,21 @@
                 </button>
               </template>
               <button
-                v-if="item.status !== 'running'"
+                v-if="item.status === 'running'"
                 type="button"
+                :data-test="`pelican-stop-${item.account.id}`"
+                @click="stopSingleTest(item)"
+                class="rounded px-2 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50"
+              >{{ t('admin.accounts.pelicanStop') }}</button>
+              <button
+                v-else
+                type="button"
+                :data-test="`pelican-test-${item.account.id}`"
                 @click="runSingleTest(item)"
                 class="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-primary-600 hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-950/30"
               >
                 <Icon name="refresh" size="xs" />
-                <span>{{ t('admin.accounts.pelicanRetry') }}</span>
+                <span>{{ t('admin.accounts.pelicanTestSingle') }}</span>
               </button>
             </div>
           </div>
@@ -782,7 +790,7 @@
             class="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-50"
           >
             <Icon name="play" size="sm" />
-            <span>{{ t('admin.accounts.pelicanStartBatch') }}</span>
+            <span>{{ t('admin.accounts.pelicanTestAll') }}</span>
           </button>
           <button
             v-if="!isRunning"
@@ -1221,8 +1229,7 @@ const previewHeightClass = computed(() => {
   return 'h-72'
 })
 
-let activeControllers: AbortController[] = []
-let globalAbort: AbortController | null = null
+const accountControllers = new Map<number, AbortController>()
 
 // Track which accounts are being manually marked (id → promise in flight)
 const manualMarkingIds = ref<Set<number>>(new Set())
@@ -1271,21 +1278,12 @@ const markSelectedAccounts = async (markAsDowngraded: boolean) => {
 }
 
 
+const stopSingleTest = (item: PelicanAccountState) => {
+  accountControllers.get(item.account.id)?.abort()
+}
+
 const stopAllTests = () => {
-  isRunning.value = false
-  if (globalAbort) {
-    globalAbort.abort()
-    globalAbort = null
-  }
-  for (const ac of activeControllers) {
-    ac.abort()
-  }
-  activeControllers = []
-  for (const item of accountStates.value) {
-    if (item.status === 'running') {
-      item.status = 'idle'
-    }
-  }
+  for (const controller of accountControllers.values()) controller.abort()
 }
 
 const completedCount = computed(() =>
@@ -1421,6 +1419,7 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
 
     while (true) {
       const { done, value } = await reader.read()
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
@@ -1477,6 +1476,7 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
     item.error = err instanceof Error ? err.message : 'Unknown error'
   } finally {
     item.elapsedMs = Date.now() - startAt
+    if (signal.aborted) item.status = 'idle'
     if (item.status !== 'idle') {
       item.testedAt = Date.now()
       setCachedPelicanResult({
@@ -1501,45 +1501,23 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
 }
 
 async function runSingleTest(item: PelicanAccountState) {
-  const ac = new AbortController()
-  activeControllers.push(ac)
+  if (accountControllers.has(item.account.id)) return
+  const controller = new AbortController()
+  accountControllers.set(item.account.id, controller)
+  isRunning.value = true
+  emit('running-change', true)
   try {
-    await testSingleAccount(item, ac.signal)
+    await testSingleAccount(item, controller.signal)
   } finally {
-    activeControllers = activeControllers.filter(c => c !== ac)
+    accountControllers.delete(item.account.id)
+    isRunning.value = accountControllers.size > 0
+    emit('running-change', isRunning.value)
   }
 }
 
 async function startAllTests() {
   if (isRunning.value) return
-  isRunning.value = true
-  emit('running-change', true)
-  globalAbort = new AbortController()
-  const signal = globalAbort.signal
-
-  // 将所有未成功的账号重置为就绪/排队
-  for (const item of accountStates.value) {
-    if (item.status !== 'idle' && item.status !== 'running') {
-      item.status = 'idle'
-    }
-  }
-
-  const runQueue = [...accountStates.value]
-  const workers = accountStates.value.map(async () => {
-    while (runQueue.length > 0 && !signal.aborted) {
-      const item = runQueue.shift()
-      if (!item) break
-      await testSingleAccount(item, signal)
-    }
-  })
-
-  try {
-    await Promise.all(workers)
-  } finally {
-    isRunning.value = false
-    globalAbort = null
-    emit('running-change', false)
-  }
+  await Promise.all(accountStates.value.map(item => runSingleTest(item)))
 }
 
 onUnmounted(() => {
