@@ -430,7 +430,7 @@ describe('AccountPelicanModal', () => {
   ])('历史默认显示沙箱动画并折叠源码，兼容旧缓存 %#', async (content) => {
     setCachedPelicanResult({ account: { id: 20, name: 'Animation' }, status: 'success', testedAt: 1000, ...content })
     reloadPelicanResultCacheFromStorage()
-    const wrapper = mountModal()
+    const wrapper = mountModal([{ id: 20, name: 'Animation', platform: 'openai', type: 'apikey', status: 'active' }])
     await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
     const preview = wrapper.get('[data-test="pelican-history-preview"]')
     expect(preview.attributes('srcdoc')).toContain('<svg><animate /></svg>')
@@ -444,6 +444,39 @@ describe('AccountPelicanModal', () => {
     expect(wrapper.find('[data-test="pelican-history-preview"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="pelican-history-source"]').attributes('open')).toBeDefined()
     expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('普通文本，无动画')
+    wrapper.unmount()
+  })
+
+  it('API Key 历史按账号 ID 隔离，单账号详情与选择变化不串号', async () => {
+    const accounts = [95, 96, 97].map(id => ({
+      id, name: '同名账号', platform: 'openai', type: 'apikey', status: 'active'
+    }))
+    for (const account of accounts) {
+      setCachedPelicanResult({
+        account, status: 'success', testedAt: account.id,
+        responseModel: 'gpt-6-astra', prompt: `prompt-${account.id}`,
+        output: `output-${account.id}`
+      })
+    }
+    const wrapper = mountModal([accounts[0]])
+    await wrapper.setProps({ allAccounts: accounts as any })
+    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(1)
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-95')
+    const vm = wrapper.vm as any
+    await vm.toggleAccountSelection(accounts[1])
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(2)
+    await vm.selectHistoryResult(vm.accountStates[1], 0)
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(1)
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-96')
+    await wrapper.get('[data-test="pelican-history-account"]').setValue('95')
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-95')
+    await vm.toggleAccountSelection(accounts[0])
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-96')
+    await vm.toggleAccountSelection(accounts[1])
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(0)
+    expect(wrapper.find('[data-test="pelican-history-output"]').exists()).toBe(false)
+    expect(getCachedPelicanResult(97)?.output).toBe('output-97')
     wrapper.unmount()
   })
 

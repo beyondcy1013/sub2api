@@ -680,3 +680,9 @@ browser reload can retain cached version state; after deployment use
 - 动画在提示词与折叠源码之前展示；普通文本/失败详情默认展开输出。切换历史记录重新加载对应预览，不发起上游请求。
 - 旧缓存缺少 `has_html` 或结果结构时，从已有 HTML/SVG 原始输出（包括 Markdown 代码块）恢复预览；保留原始输出和提示词。
 - 回归：`frontend/src/components/admin/account/__tests__/AccountPelicanModal.spec.ts`。
+
+### 测智历史账号隔离
+
+- 历史面板只读取当前已选账号 ID 的记录，不按 OpenAI/API Key 类型、名称或模型合并账号；同名账号仍独立。
+- 多账号历史可按账号筛选，从账号行进入详情时锁定该账号；取消选择后同步更新列表与详情，空选择不显示其他缓存。
+- 保留全部原始缓存及动画预览，筛选不删除历史、不触发上游请求。

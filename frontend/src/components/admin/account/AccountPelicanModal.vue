@@ -239,7 +239,7 @@
         </div>
       </div>
 
-      <!-- Global cached history browser -->
+      <!-- History scoped to selected account IDs, never account type/model -->
       <div
         v-if="showHistoryPanel"
         data-test="pelican-history-panel"
@@ -259,8 +259,17 @@
           </button>
         </div>
 
+        <label class="mt-2 flex items-center gap-2 text-xs">
+          {{ t('admin.accounts.pelicanHistoryAccount') }}
+          <select v-model="historyAccountId" data-test="pelican-history-account" class="rounded border border-gray-200 bg-white p-1 dark:border-dark-600 dark:bg-dark-800">
+            <option :value="null">{{ t('admin.accounts.pelicanHistorySelected') }}</option>
+            <option v-for="item in accountStates" :key="item.account.id" :value="item.account.id">
+              {{ item.account.name }} · ID: {{ item.account.id }}
+            </option>
+          </select>
+        </label>
         <div
-          v-if="allCachedPelicanResults.length === 0"
+          v-if="visibleHistoryResults.length === 0"
           class="flex h-24 items-center justify-center text-xs text-gray-500 dark:text-gray-400"
         >
           {{ t('admin.accounts.pelicanNoHistory') }}
@@ -276,7 +285,7 @@
             </div>
             <div class="max-h-[calc(16rem+34px)] overflow-y-auto">
               <button
-                v-for="entry in allCachedPelicanResults"
+                v-for="entry in visibleHistoryResults"
                 :key="`${entry.account.id}-${entry.testedAt}`"
                 type="button"
                 data-test="pelican-global-history-entry"
@@ -286,7 +295,7 @@
               >
                 <span class="min-w-0">
                   <span class="block truncate font-medium text-gray-800 dark:text-gray-200" :title="entry.account.name">
-                    {{ entry.account.name }}
+                    {{ entry.account.name }} · ID: {{ entry.account.id }}
                   </span>
                   <span class="block truncate text-[10px] text-gray-400">
                     {{ formatTestedAt(entry.testedAt) }}
@@ -995,7 +1004,25 @@ const historyPreviewHtml = computed(() => {
   return entry?.result?.html?.trim() || extractPelicanPreviewHtml(entry?.output || '')
 })
 
-const allCachedPelicanResults = computed(() => getAllCachedPelicanResults())
+const historyAccountId = ref<number | null>(null)
+const allCachedPelicanResults = computed(() =>
+  getAllCachedPelicanResults().filter(entry => selectedAccountIds.value.has(entry.account.id))
+)
+const visibleHistoryResults = computed(() =>
+  allCachedPelicanResults.value.filter(entry =>
+    historyAccountId.value === null || entry.account.id === historyAccountId.value
+  )
+)
+watch([visibleHistoryResults, historyAccountId], () => {
+  if (historyAccountId.value !== null && !selectedAccountIds.value.has(historyAccountId.value)) {
+    historyAccountId.value = null
+    return
+  }
+  const current = historyPreview.value
+  historyPreview.value = visibleHistoryResults.value.find(entry =>
+    entry.account.id === current?.account.id && entry.testedAt === current?.testedAt
+  ) || visibleHistoryResults.value[0] || null
+})
 
 // Lightbox preview state
 const lightboxItem = ref<PelicanAccountState | null>(null)
@@ -1079,6 +1106,7 @@ const toggleHistory = (accountId: number) => {
 }
 
 const toggleHistoryPanel = () => {
+  historyAccountId.value = null
   showHistoryPanel.value = !showHistoryPanel.value
   if (showHistoryPanel.value && !historyPreview.value) {
     historyPreview.value = allCachedPelicanResults.value[0] || null
@@ -1146,6 +1174,7 @@ const selectHistoryResult = (item: PelicanAccountState, index: number) => {
   const entry = getCachedPelicanHistory(item.account.id)[index]
   if (!entry || item.status === 'running') return
   applyCachedResult(item, entry)
+  historyAccountId.value = item.account.id
   historyPreview.value = entry
   showHistoryPanel.value = true
 }

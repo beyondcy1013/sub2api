@@ -1785,6 +1785,8 @@ export default {
       pelicanStartBatch: 'Start Pelican Test',
       pelicanClearCache: 'Clear Cache',
       pelicanCachedAt: 'Cached {time}',
+      pelicanHistoryAccount: 'History account',
+      pelicanHistorySelected: 'Currently selected accounts',
       pelicanHistory: 'History',
       pelicanNoHistory: 'No historical results',
       pelicanResultColumn: 'Result',

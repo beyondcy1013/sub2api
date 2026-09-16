@@ -1849,6 +1849,8 @@ export default {
       pelicanStartBatch: '开始测智',
       pelicanClearCache: '清除结果缓存',
       pelicanCachedAt: '缓存 {time}',
+      pelicanHistoryAccount: '历史账号',
+      pelicanHistorySelected: '当前已选账号',
       pelicanHistory: '历史结果',
       pelicanNoHistory: '暂无历史结果',
       pelicanResultColumn: '结果',
