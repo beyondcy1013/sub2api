@@ -422,6 +422,31 @@ describe('AccountPelicanModal', () => {
     reopened.unmount()
   })
 
+  it.each([
+    { result: { has_html: true, html: '<html><body><svg><animate /></svg></body></html>', downgraded: false, reason: '' } },
+    { result: { has_html: false, html: '<svg><animate /></svg>', downgraded: true, reason: '' } },
+    { output: '动画如下：\n```html\n<html><body><svg><animate /></svg></body></html>\n```' },
+    { output: '```svg\n<svg><animate /></svg>\n```' }
+  ])('历史默认显示沙箱动画并折叠源码，兼容旧缓存 %#', async (content) => {
+    setCachedPelicanResult({ account: { id: 20, name: 'Animation' }, status: 'success', testedAt: 1000, ...content })
+    reloadPelicanResultCacheFromStorage()
+    const wrapper = mountModal()
+    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
+    const preview = wrapper.get('[data-test="pelican-history-preview"]')
+    expect(preview.attributes('srcdoc')).toContain('<svg><animate /></svg>')
+    expect(preview.attributes('srcdoc')).not.toContain('```')
+    expect(preview.attributes('sandbox')).toBe('allow-scripts')
+    expect(preview.attributes('srcdoc')).toContain("connect-src 'none'")
+    expect(wrapper.get('[data-test="pelican-history-source"]').attributes('open')).toBeUndefined()
+    setCachedPelicanResult({ account: { id: 20, name: 'Animation' }, status: 'failed', testedAt: 2000, output: '普通文本，无动画' })
+    await flushPromises()
+    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
+    expect(wrapper.find('[data-test="pelican-history-preview"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="pelican-history-source"]').attributes('open')).toBeDefined()
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('普通文本，无动画')
+    wrapper.unmount()
+  })
+
   it('历史普通文本和失败详情可查看，标记不会改写原始提示词或新增记录', async () => {
     setCachedPelicanResult({
       account: { id: 20, name: 'History Account' }, status: 'downgraded',

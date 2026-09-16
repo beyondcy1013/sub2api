@@ -108,3 +108,15 @@ const FIT_STYLE = `
 export function pelicanPreviewDocument(html: string): string {
   return `<meta http-equiv="Content-Security-Policy" content="${POLICY}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${FIT_STYLE}</style><script>${LOCKDOWN}</script><script>${FIT_SCRIPT}</script>${html}`
 }
+
+// Older history entries may contain only raw model output, without result metadata.
+export function extractPelicanPreviewHtml(output: string): string {
+  const fenced = /```(?:html|svg|xml)?\s*\n([\s\S]*?)```/gi
+  for (const match of output.matchAll(fenced)) {
+    const html = extractPelicanPreviewHtml(match[1])
+    if (html) return html
+  }
+  return output.match(/(?:<!doctype\s+html[^>]*>\s*)?<html\b[\s\S]*?<\/html\s*>/i)?.[0]
+    || output.match(/<svg\b[\s\S]*?<\/svg\s*>/i)?.[0]
+    || ''
+}

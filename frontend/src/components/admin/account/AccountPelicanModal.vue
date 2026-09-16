@@ -358,26 +358,32 @@
                 </div>
               </div>
             </div>
+            <div
+              v-if="historyPreviewHtml"
+              class="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-600"
+            >
+              <iframe
+                :key="`${historyPreview.account.id}:${historyPreview.testedAt}`"
+                data-test="pelican-history-preview"
+                :srcdoc="pelicanPreviewDocument(historyPreviewHtml)"
+                sandbox="allow-scripts"
+                class="h-[56vh] min-h-[320px] w-full border-0"
+                title="Pelican History Preview"
+              />
+            </div>
             <div class="mt-2 space-y-1">
               <div class="text-xs font-medium">{{ t('admin.accounts.pelicanPromptColumn') }}</div>
               <pre data-test="pelican-history-prompt" class="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs dark:bg-dark-900/50">{{ historyPreview.prompt || t('admin.accounts.pelicanPromptMissing') }}</pre>
             </div>
-            <div class="mt-2 space-y-1">
-              <div class="text-xs font-medium">{{ t('admin.accounts.pelicanResultColumn') }} / {{ t('admin.accounts.pelicanSourceTab') }}</div>
-              <pre data-test="pelican-history-output" class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
-            </div>
-            <div
-              v-if="historyPreview.result?.has_html"
-              class="mt-2 overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+            <details
+              :key="`source:${historyPreview.account.id}:${historyPreview.testedAt}`"
+              data-test="pelican-history-source"
+              :open="!historyPreviewHtml"
+              class="mt-2 space-y-1"
             >
-              <iframe
-                :srcdoc="pelicanPreviewDocument(historyPreview.result.html || '')"
-                sandbox="allow-scripts"
-                class="h-[42vh] w-full border-0"
-                loading="lazy"
-                title="Pelican History Preview"
-              />
-            </div>
+              <summary class="cursor-pointer text-xs font-medium">{{ t('admin.accounts.pelicanResultColumn') }} / {{ t('admin.accounts.pelicanSourceTab') }}</summary>
+              <pre data-test="pelican-history-output" class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
+            </details>
           </div>
         </div>
       </div>
@@ -837,7 +843,7 @@ import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
-import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
+import { extractPelicanPreviewHtml, pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
 import {
   pelicanPromptOptionLabel,
   loadPelicanPromptScenarios,
@@ -984,6 +990,10 @@ const selectedAccountIds = ref<Set<number>>(new Set())
 const expandedHistoryAccountIds = ref<Set<number>>(new Set())
 const showHistoryPanel = ref(false)
 const historyPreview = ref<PelicanCachedResult | null>(null)
+const historyPreviewHtml = computed(() => {
+  const entry = historyPreview.value
+  return entry?.result?.html?.trim() || extractPelicanPreviewHtml(entry?.output || '')
+})
 
 const allCachedPelicanResults = computed(() => getAllCachedPelicanResults())
 

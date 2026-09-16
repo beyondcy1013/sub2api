@@ -673,3 +673,10 @@ identified. Full mode forces the complete backend suite with `-count=1` and
 the full Vitest suite before the same typecheck/build/deploy gates. A soft
 browser reload can retain cached version state; after deployment use
 `Ctrl+Shift+R` or `Cmd+Shift+R`.
+
+### 测智历史动画预览
+
+- 历史详情优先显示动画，复用实时结果的 `pelicanPreviewDocument` 与 `sandbox="allow-scripts"` 隔离；不得直接把生成 HTML 插入管理页 DOM。
+- 动画在提示词与折叠源码之前展示；普通文本/失败详情默认展开输出。切换历史记录重新加载对应预览，不发起上游请求。
+- 旧缓存缺少 `has_html` 或结果结构时，从已有 HTML/SVG 原始输出（包括 Markdown 代码块）恢复预览；保留原始输出和提示词。
+- 回归：`frontend/src/components/admin/account/__tests__/AccountPelicanModal.spec.ts`。
