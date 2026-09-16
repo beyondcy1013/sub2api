@@ -1850,6 +1850,7 @@ export default {
       pelicanNoHistory: '暂无历史结果',
       pelicanResultColumn: '结果',
       pelicanPromptColumn: '提示词',
+      pelicanHistoryContentMissing: '该历史记录未保存输出内容',
       pelicanPromptMissing: '未记录',
       pelicanUserRating: '用户评价',
       pelicanRatingAccurate: '准确',

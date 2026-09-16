@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountPelicanModal from '../AccountPelicanModal.vue'
 import {
   clearPelicanResultCache,
+  reloadPelicanResultCacheFromStorage,
   getCachedPelicanResult,
   setCachedPelicanResult
 } from '@/utils/pelicanResultCache'
@@ -365,6 +366,51 @@ describe('AccountPelicanModal', () => {
 
     expect((wrapper.vm as any).selectedModel).toBe('gpt-6-astra')
     expect((wrapper.vm as any).reasoningEffort).toBe('low')
+  })
+
+  it('新测试立即刷新历史并展示完整提示词、输出，重开后仍可读取', async () => {
+    const wrapper = mountModal()
+    const prompt = '完整提示词\n' + '动画要求'.repeat(30)
+    ;(wrapper.vm as any).customPrompt = prompt
+    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(0)
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]').length).toBeGreaterThan(0)
+    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
+    expect(wrapper.get('[data-test="pelican-history-prompt"]').text()).toBe(prompt)
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toContain('<svg>')
+    wrapper.unmount()
+    reloadPelicanResultCacheFromStorage()
+    const reopened = mountModal()
+    await reopened.get('[data-test="pelican-history-toggle"]').trigger('click')
+    expect(reopened.get('[data-test="pelican-history-prompt"]').text()).toBe(prompt)
+    expect(reopened.get('[data-test="pelican-history-output"]').text()).toContain('<svg>')
+    reopened.unmount()
+  })
+
+  it('历史普通文本和失败详情可查看，标记不会改写原始提示词或新增记录', async () => {
+    setCachedPelicanResult({
+      account: { id: 20, name: 'History Account' }, status: 'downgraded',
+      testedAt: 1000, prompt: '原始提示词', output: '纯文本输出\n第二行'
+    })
+    const wrapper = mountModal([
+      { id: 20, name: 'History Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    const vm = wrapper.vm as any
+    vm.customPrompt = '另一个提示词'
+    await vm.selectHistoryResult(vm.accountStates[0], 0)
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('纯文本输出\n第二行')
+    expect(wrapper.get('[data-test="pelican-history-prompt"]').text()).toBe('原始提示词')
+    await vm.manualMarkItem(vm.accountStates[0], false)
+    expect(vm.historyCount(20)).toBe(1)
+    expect(getCachedPelicanResult(20)?.prompt).toBe('原始提示词')
+    setCachedPelicanResult({ account: { id: 20, name: 'History Account' }, status: 'failed', testedAt: 2000, error: 'HTTP 404 model missing' })
+    await flushPromises()
+    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
+    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('HTTP 404 model missing')
+    expect(wrapper.get('[data-test="pelican-history-prompt"]').text()).toBe('admin.accounts.pelicanPromptMissing')
+    wrapper.unmount()
   })
 
   it('点击账号历史按钮可展开并快速浏览历史结果', async () => {

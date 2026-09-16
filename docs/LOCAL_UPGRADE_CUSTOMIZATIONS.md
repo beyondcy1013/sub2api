@@ -127,6 +127,10 @@ Both profiles must preserve all of the following:
   Ordinary connection tests keep their existing model-mapping behavior.
   Starting a test clears the previous result's model/timestamp/duration and
   displays the selected model until the current upstream reports its model.
+- Pelican history reactively refreshes after each run and retains its original
+  prompt, raw output, HTML, error, and timestamp. Selecting a history entry
+  exposes the full prompt/output and sandboxed animation preview; manual ratings
+  must not replace the historical prompt with the current editor content.
 - Admin account identifiers remain visible in plaintext.
 - Admin responses and edit forms expose `credentials.api_key` in plaintext.
 - `api_key` stays out of `SensitiveCredentialKeys`.

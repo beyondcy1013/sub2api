@@ -29,9 +29,12 @@ describe('pelicanResultCache', () => {
       responseModel: 'gpt-6-astra',
       reason: 'ok',
       testedAt: 1234,
+      output: 'Raw response with HTML',
       prompt: 'Create a pelican animation'
     })
 
+    reloadPelicanResultCacheFromStorage()
+    expect(getCachedPelicanResult(7)?.output).toBe('Raw response with HTML')
     expect(getCachedPelicanResult(7)?.account.name).toBe('Cached Account')
     expect(getCachedPelicanResult(7)?.prompt).toBe('Create a pelican animation')
     expect(getAllCachedPelicanResults().map(item => item.account.id)).toEqual([7])

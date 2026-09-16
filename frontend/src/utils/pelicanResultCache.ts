@@ -1,3 +1,5 @@
+import { reactive } from 'vue'
+
 export interface PelicanTestResult {
   has_html: boolean
   html?: string
@@ -21,6 +23,7 @@ export interface PelicanCachedResult {
   error?: string
   elapsedMs?: number
   testedAt: number
+  output?: string
   prompt?: string
   userRating?: PelicanUserRating
 }
@@ -40,7 +43,7 @@ const CACHE_STORAGE_KEY = 'sub2api:account-pelican-results:v1'
 const MAX_CACHE_ENTRIES = 100
 const MAX_HISTORY_PER_ACCOUNT = 20
 
-const history = new Map<number, PelicanCachedResult[]>()
+const history = reactive(new Map<number, PelicanCachedResult[]>())
 
 function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
   return {
@@ -56,6 +59,7 @@ function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
     error: stored.error,
     elapsedMs: stored.elapsedMs,
     testedAt: stored.testedAt,
+    output: stored.output,
     prompt: stored.prompt,
     userRating: stored.userRating === 'accurate' || stored.userRating === 'inaccurate' ? stored.userRating : undefined
   }
@@ -73,6 +77,7 @@ function toStoredResult(item: PelicanCachedResult): StoredPelicanResult {
     error: item.error,
     elapsedMs: item.elapsedMs,
     testedAt: item.testedAt,
+    output: item.output,
     prompt: item.prompt,
     userRating: item.userRating
   }

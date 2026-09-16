@@ -1786,6 +1786,7 @@ export default {
       pelicanNoHistory: 'No historical results',
       pelicanResultColumn: 'Result',
       pelicanPromptColumn: 'Prompt',
+      pelicanHistoryContentMissing: 'No output was saved for this historical run',
       pelicanPromptMissing: 'Not recorded',
       pelicanUserRating: 'User rating',
       pelicanRatingAccurate: 'Accurate',

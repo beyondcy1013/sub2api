@@ -357,9 +357,14 @@
                   </button>
                 </div>
               </div>
-              <div class="mt-1 truncate text-[10px] text-gray-500 dark:text-gray-400" :title="historyPreview.prompt">
-                {{ t('admin.accounts.pelicanPromptColumn') }}: {{ pelicanPromptOptionLabel(historyPreview.prompt || '', 24) || t('admin.accounts.pelicanPromptMissing') }}
-              </div>
+            </div>
+            <div class="mt-2 space-y-1">
+              <div class="text-xs font-medium">{{ t('admin.accounts.pelicanPromptColumn') }}</div>
+              <pre data-test="pelican-history-prompt" class="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs dark:bg-dark-900/50">{{ historyPreview.prompt || t('admin.accounts.pelicanPromptMissing') }}</pre>
+            </div>
+            <div class="mt-2 space-y-1">
+              <div class="text-xs font-medium">{{ t('admin.accounts.pelicanResultColumn') }} / {{ t('admin.accounts.pelicanSourceTab') }}</div>
+              <pre data-test="pelican-history-output" class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
             </div>
             <div
               v-if="historyPreview.result?.has_html"
@@ -881,6 +886,7 @@ interface PelicanAccountState {
   account: Account
   status: 'idle' | 'running' | 'success' | 'downgraded' | 'failed'
   streamingContent: string
+  prompt?: string
   responseModel?: string
   reason?: string
   error?: string
@@ -1013,17 +1019,21 @@ const toCachedResult = (item: PelicanAccountState): PelicanCachedResult => ({
     type: item.account.type
   },
   status: item.status === 'idle' || item.status === 'running' ? 'failed' : item.status,
-  result: item.result,
+  result: item.result ? { ...item.result } : undefined,
+  prompt: item.prompt,
+  output: item.streamingContent,
   responseModel: item.responseModel,
   reason: item.reason,
   error: item.error,
   elapsedMs: item.elapsedMs,
-  testedAt: Date.now()
+  testedAt: item.testedAt ?? Date.now()
 })
 
 const applyCachedResult = (item: PelicanAccountState, cached: PelicanCachedResult) => {
   item.status = cached.status
-  item.result = cached.result
+  item.prompt = cached.prompt
+  item.streamingContent = cached.output || cached.result?.html || ''
+  item.result = cached.result ? { ...cached.result } : undefined
   item.responseModel = cached.responseModel
   item.reason = cached.reason
   item.error = cached.error
@@ -1118,6 +1128,8 @@ const selectHistoryResult = (item: PelicanAccountState, index: number) => {
   const entry = getCachedPelicanHistory(item.account.id)[index]
   if (!entry || item.status === 'running') return
   applyCachedResult(item, entry)
+  historyPreview.value = entry
+  showHistoryPanel.value = true
 }
 
 const formatTestedAt = (testedAt: number) => new Date(testedAt).toLocaleString()
@@ -1233,7 +1245,7 @@ const manualMarkItem = async (item: PelicanAccountState, markAsDowngraded: boole
       item.result = { ...item.result, downgraded: markAsDowngraded }
     }
     if (item.testedAt) {
-      setCachedPelicanResult({ ...toCachedResult(item), prompt: customPrompt.value.trim() })
+      setCachedPelicanResult(toCachedResult(item))
     }
   } catch (error) {
     console.error('Failed to manually set pelican downgrade state:', error)
@@ -1359,7 +1371,8 @@ const handleClose = () => {
 
 async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal) {
   const testModel = selectedModel.value.trim() || DEFAULT_PELICAN_MODEL
-  let testPrompt = customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
+  const testPrompt = customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
+  item.prompt = testPrompt
   item.status = 'running'
   item.streamingContent = ''
   item.error = undefined
