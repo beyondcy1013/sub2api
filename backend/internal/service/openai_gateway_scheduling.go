@@ -454,7 +454,7 @@ func (s *RateLimitService) GetOpenAIQuotaRateLimitStatus(ctx context.Context, ac
 		Threshold:   decision.threshold,
 		Utilization: decision.utilization,
 	}
-	if resetAt, ok := resolveOpenAIQuotaResetAt(account.Extra, decision.window, time.Now()); ok {
+	if resetAt, ok := openAICodexWindowResetAt(account.Extra, decision.window); ok {
 		status.ResetAt = &resetAt
 	}
 	return status
