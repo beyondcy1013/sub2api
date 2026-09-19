@@ -651,6 +651,24 @@
               >
                 {{ t('admin.accounts.pelicanAction') }}
               </button>
+              <button
+                v-if="row.platform === 'openai' && row.type === 'oauth' && !row.parent_account_id"
+                data-test="account-state-protection-action"
+                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border px-2 text-xs font-medium leading-none"
+                :class="row.extra?.state_protection_enabled
+                  ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20'
+                  : 'border-gray-200 text-gray-700 hover:bg-gray-100 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700'"
+                :title="row.extra?.state_protection_enabled ? t('admin.accounts.stateProtection.disable') : t('admin.accounts.stateProtection.enable')"
+                :aria-label="row.extra?.state_protection_enabled ? t('admin.accounts.stateProtection.disable') : t('admin.accounts.stateProtection.enable')"
+                :disabled="stateProtectionBusy === row.id"
+                @click="handleToggleStateProtection(row)"
+              >
+                {{ stateProtectionBusy === row.id
+                  ? t('admin.accounts.stateProtection.saving')
+                  : row.extra?.state_protection_enabled
+                    ? t('admin.accounts.stateProtection.disable')
+                    : t('admin.accounts.stateProtection.enable') }}
+              </button>
               <template v-if="deleted">
                 <button
                   data-test="account-restore-deleted-action"
@@ -728,7 +746,7 @@
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @pin="handlePin" @unpin="handleUnpin" @stats="handleViewStats" @schedule="handleSchedule" @pelican-test="handleSinglePelicanTest" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @pin="handlePin" @unpin="handleUnpin" @stats="handleViewStats" @schedule="handleSchedule" @pelican-test="handleSinglePelicanTest" @toggle-state-protection="handleToggleStateProtection" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="handleAccountsCreated" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
@@ -994,6 +1012,7 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
+const stateProtectionBusy = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number,left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
@@ -1476,6 +1495,18 @@ const {
   }
 })
 
+// OAuth-authorized accounts (oauth / setup-token) always render above API-key style
+// accounts (apikey / upstream / bedrock / service_account); the outermost partition
+// outranks pins and the temporary newly-created ordering, while each group keeps
+// the existing pinned / recent / server-side ordering internally.
+const isOAuthStyleAccount = (account: Pick<AccountListItem, 'type'>): boolean =>
+  account.type === 'oauth' || account.type === 'setup-token'
+
+const withOAuthStyleAccountsFirst = <T extends Pick<AccountListItem, 'type'>>(rows: T[]): T[] => [
+  ...rows.filter(row => isOAuthStyleAccount(row)),
+  ...rows.filter(row => !isOAuthStyleAccount(row))
+]
+
 const sortedAccounts = computed(() => {
   const currentSort = usageWindowSort.value
   const baseRows = !currentSort
@@ -1499,7 +1530,7 @@ const sortedAccounts = computed(() => {
   const unpinnedRows = baseRows.filter(account => !account.extra?.pinned)
   const orderedRows = [...pinnedRows, ...unpinnedRows]
 
-  if (recentlyCreatedAccounts.value.length === 0) return orderedRows
+  if (recentlyCreatedAccounts.value.length === 0) return withOAuthStyleAccountsFirst(orderedRows)
 
   const recentlyCreatedIds = new Set(recentlyCreatedAccounts.value.map(account => account.id))
   const mergedRows = [
@@ -1507,10 +1538,10 @@ const sortedAccounts = computed(() => {
     ...orderedRows.filter(account => !recentlyCreatedIds.has(account.id))
   ]
   // Keep persistent pins ahead of the temporary newly-created ordering too.
-  return [
+  return withOAuthStyleAccountsFirst([
     ...mergedRows.filter(account => Boolean(account.extra?.pinned)),
     ...mergedRows.filter(account => !account.extra?.pinned)
-  ].slice(0, pagination.page_size)
+  ]).slice(0, pagination.page_size)
 })
 
 const {
@@ -3178,6 +3209,46 @@ const handleSinglePelicanTest = async (a: AccountListItem | Account) => {
   if (!account) return
   pelicanTestAccounts.value = [account]
   showPelicanModal.value = true
+}
+
+const handleToggleStateProtection = async (input: AccountListItem | Account) => {
+  const current = accounts.value.find(item => item.id === input.id)
+  if (!current) return
+  const enabled = !current.extra?.state_protection_enabled
+  stateProtectionBusy.value = current.id
+  try {
+    const plugins = await adminAPI.plugins.list()
+    const plugin = plugins.find(item => item.state === 'enabled' && item.bindings.some(binding => binding.enabled && binding.capability === 'openai.oauth.protection_transport.v1'))
+    if (!plugin) {
+      appStore.showError(t('admin.accounts.stateProtection.pluginUnavailable'))
+      return
+    }
+    const config = await adminAPI.plugins.getConfig(plugin.id)
+    const ids = Array.isArray(config.accounts)
+      ? config.accounts.filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0)
+      : []
+    const set = new Set(ids)
+    if (enabled) set.add(current.id)
+    else set.delete(current.id)
+    const nextAccounts = Array.from(set).sort((left, right) => left - right)
+    await adminAPI.plugins.saveConfig(plugin.id, {
+      proxy_url: config.proxy_url,
+      harvest_proxy_api: config.harvest_proxy_api ?? '',
+      accounts: nextAccounts,
+      suspended: Array.isArray(config.suspended) ? config.suspended : []
+    })
+    patchAccountInList({
+      ...current,
+      extra: { ...(current.extra || {}), state_protection_enabled: enabled }
+    })
+    appStore.showSuccess(t(enabled ? 'admin.accounts.stateProtection.enabled' : 'admin.accounts.stateProtection.disabled'))
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    console.error('Failed to toggle state protection:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.stateProtection.failed')))
+  } finally {
+    stateProtectionBusy.value = null
+  }
 }
 const handleBulkPelicanTest = async () => {
   const selected = accounts.value.filter(a => selIds.value.includes(a.id))

@@ -1776,6 +1776,15 @@ export default {
       pelicanRawReplyTab: 'Raw Reply',
       pelicanSourceTab: 'HTML Source',
       pelicanNoHtml: 'No valid HTML/SVG animation generated',
+      stateProtection: {
+        enable: 'STATE protection',
+        disable: 'Disable STATE protection',
+        saving: 'Saving...',
+        enabled: 'Added to STATE protection',
+        disabled: 'Removed from STATE protection',
+        failed: 'Failed to update STATE protection',
+        pluginUnavailable: 'STATE protection plugin is not enabled'
+      },
       pelicanAction: 'Pelican Test',
       pelicanBatchTitle: 'Batch Pelican Downgrade Test',
       pelicanBatchDesc: 'Test multiple accounts concurrently for silent upstream downgrade and compare animation results side by side.',

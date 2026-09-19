@@ -1223,6 +1223,7 @@ export interface Account {
     auto_reset_credit_5h_threshold?: number
     auto_reset_credit_7d_threshold?: number
     pelican_downgraded?: boolean
+    state_protection_enabled?: boolean
     pinned?: boolean
     codex_auto_reset_credit_state?: {
       status?: 'checking' | 'available' | 'resetting' | 'success' | 'no_credit' | 'failed'

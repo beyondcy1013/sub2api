@@ -1840,6 +1840,15 @@ export default {
       pelicanRawReplyTab: '原始回复',
       pelicanSourceTab: 'HTML 源码',
       pelicanNoHtml: '未生成可预览 HTML/SVG 动画',
+      stateProtection: {
+        enable: 'STATE 保护',
+        disable: '取消 STATE 保护',
+        saving: '保存中...',
+        enabled: '已加入 STATE 保护',
+        disabled: '已取消 STATE 保护',
+        failed: 'STATE 保护更新失败',
+        pluginUnavailable: 'STATE 保护插件未启用'
+      },
       pelicanAction: '鹈鹕测智',
       pelicanBatchTitle: '批量鹈鹕测智',
       pelicanBatchDesc: '同题并发测试各账号，判定是否被模型上游静默降智，并排比对生成的动画效果。',
