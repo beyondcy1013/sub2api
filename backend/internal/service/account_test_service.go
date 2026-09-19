@@ -406,7 +406,13 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
-	modelID = accountTestModelID(account, modelID)
+	// Pelican compares the same explicitly selected model across accounts;
+	// account whitelist/mapping fallback must not silently substitute a
+	// different model. Only apply the model-mapping default here for other
+	// test modes.
+	if normalizeAccountTestMode(mode) != AccountTestModePelican {
+		modelID = accountTestModelID(account, modelID)
+	}
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
