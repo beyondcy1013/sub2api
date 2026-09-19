@@ -3205,6 +3205,79 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
+// filterAccountTestPickerModels enforces the account model whitelist on a
+// test-picker catalog: keep only entries the account can actually serve
+// (IsModelSupported semantics) and append concrete mapping aliases missing
+// from the catalog, so 测试连接 never offers models outside the configured
+// 模型白名单. Passthrough accounts and mapping-derived lists pass through
+// unchanged by construction.
+func filterAccountTestPickerModels[T any](account *service.Account, models []T, idOf func(T) string, build func(string) T) []T {
+	if len(models) == 0 {
+		return models
+	}
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, idOf(model))
+	}
+	allowed := service.AccountTestPickerModelIDs(account, ids)
+	byID := make(map[string]T, len(models))
+	for _, model := range models {
+		id := idOf(model)
+		if _, exists := byID[id]; !exists {
+			byID[id] = model
+		}
+	}
+	filtered := make([]T, 0, len(allowed))
+	for _, id := range allowed {
+		if model, exists := byID[id]; exists {
+			filtered = append(filtered, model)
+		} else {
+			filtered = append(filtered, build(id))
+		}
+	}
+	return filtered
+}
+
+func openaiPickerModelID(model openai.Model) string {
+	return model.ID
+}
+
+func buildOpenAIPickerModel(id string) openai.Model {
+	return openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id}
+}
+
+func geminiPickerModelID(model geminicli.Model) string {
+	return model.ID
+}
+
+func buildGeminiPickerModel(id string) geminicli.Model {
+	return geminicli.Model{ID: id, Type: "model", DisplayName: id, CreatedAt: ""}
+}
+
+func antigravityPickerModelID(model antigravity.ClaudeModel) string {
+	return model.ID
+}
+
+func buildAntigravityPickerModel(id string) antigravity.ClaudeModel {
+	return antigravity.ClaudeModel{ID: id, Type: "model", DisplayName: id}
+}
+
+func xaiPickerModelID(model xai.Model) string {
+	return model.ID
+}
+
+func buildXAIPickerModel(id string) xai.Model {
+	return xai.Model{ID: id, Object: "model", OwnedBy: "xai", DisplayName: id}
+}
+
+func claudePickerModelID(model claude.Model) string {
+	return model.ID
+}
+
+func buildClaudePickerModel(id string) claude.Model {
+	return claude.Model{ID: id, Type: "model", DisplayName: id, CreatedAt: ""}
+}
+
 // GetAvailableModels handles getting available models for an account
 // GET /api/v1/admin/accounts/:id/models
 func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
@@ -3226,7 +3299,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// retain the legacy local catalog below so the test dialog remains usable.
 		if h.accountTestService != nil {
 			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, models)
+				response.Success(c, filterAccountTestPickerModels(account, models, openaiPickerModelID, buildOpenAIPickerModel))
 				return
 			}
 		}
@@ -3273,17 +3346,17 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// channel cannot serve.
 		if account.IsOAuth() {
 			if account.IsGeminiGoogleOne() {
-				response.Success(c, geminicli.GoogleOneModels)
+				response.Success(c, filterAccountTestPickerModels(account, geminicli.GoogleOneModels, geminiPickerModelID, buildGeminiPickerModel))
 				return
 			}
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, filterAccountTestPickerModels(account, geminicli.DefaultModels, geminiPickerModelID, buildGeminiPickerModel))
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
+			response.Success(c, filterAccountTestPickerModels(account, geminicli.DefaultModels, geminiPickerModelID, buildGeminiPickerModel))
 			return
 		}
 
@@ -3313,7 +3386,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	// Handle Antigravity accounts: return Claude + Gemini models
 	if account.Platform == service.PlatformAntigravity {
 		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
+		response.Success(c, filterAccountTestPickerModels(account, antigravity.DefaultModels(), antigravityPickerModelID, buildAntigravityPickerModel))
 		return
 	}
 
@@ -3329,7 +3402,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			hasExplicitMapping = len(rawMapping) > 0
 		}
 		if !hasExplicitMapping {
-			response.Success(c, defaultModels)
+			response.Success(c, filterAccountTestPickerModels(account, defaultModels, xaiPickerModelID, buildXAIPickerModel))
 			return
 		}
 
@@ -3370,7 +3443,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
+		response.Success(c, filterAccountTestPickerModels(account, claude.DefaultModels, claudePickerModelID, buildClaudePickerModel))
 		return
 	}
 
@@ -3378,7 +3451,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models
-		response.Success(c, claude.DefaultModels)
+		response.Success(c, filterAccountTestPickerModels(account, claude.DefaultModels, claudePickerModelID, buildClaudePickerModel))
 		return
 	}
 

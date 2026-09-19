@@ -93,7 +93,9 @@ func TestFetchOpenAIAccountModelsOAuthLabelsLocalImageModelsLikeUpstream(t *test
 	for _, model := range models {
 		byID[model.ID] = model.DisplayName
 	}
-	require.Equal(t, "GPT-5.6 Sol", byID["gpt-5.6-sol"], "upstream slug must not be the only label source")
+	// 配置了模型白名单后，测试选择器只允许白名单内的模型：上游目录里的
+	// gpt-5.6-sol 必须被过滤，白名单里的图片模型保留并使用本地命名规则。
+	require.NotContains(t, byID, "gpt-5.6-sol", "upstream catalog entries outside the whitelist must be filtered")
 	require.Equal(t, "GPT Image 2.5 Flare", byID["gpt-image-2.5-flare"], "locally added models use the same naming rule")
 }
 
@@ -110,4 +112,63 @@ func TestFetchOpenAIAccountModelsOAuthRespectsImageAllowlist(t *testing.T) {
 	}
 	require.Contains(t, ids, "gpt-image-2.5-flare")
 	require.NotContains(t, ids, "gpt-image-2.5-sunburst")
+	require.NotContains(t, ids, "gpt-6-astra", "whitelisted accounts must not expose non-whitelisted upstream models")
+}
+
+func TestFetchOpenAIAccountModelsFiltersCatalogByWhitelist(t *testing.T) {
+	newCodexModelsOAuthCacheServer(t, `{"models":[
+		{"slug":"gpt-5.6-sol"},
+		{"slug":"gpt-6-astra"},
+		{"slug":"new-oauth-model"}
+	]}`)
+	svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
+	account := newCodexModelsTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{
+		"gpt-5.6-sol": "gpt-5.6-sol",
+		"my-alias":    "gpt-6-astra",
+	}
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Len(t, models, 2, "picker keeps only whitelist hits plus missing whitelist aliases")
+	require.Equal(t, "gpt-5.6-sol", models[0].ID, "catalog hit keeps its upstream entry and order")
+	require.Equal(t, "GPT-5.6 Sol", models[0].DisplayName)
+	require.Equal(t, "my-alias", models[1].ID, "alias missing from the catalog is appended")
+	require.Equal(t, "my-alias", models[1].DisplayName)
+}
+
+func TestAccountTestPickerModelIDsWhitelistRules(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.6-sol": "gpt-5.6-sol",
+				"zz-alias":     "gpt-6-astra",
+				"gpt-*":        "gpt-5.5",
+			},
+		},
+	}
+	got := AccountTestPickerModelIDs(account, []string{"gpt-5.5", "gpt-6-astra", "gpt-5.6-sol", "deepseek-v4", "gpt-5.6-sol"})
+	require.Equal(t, []string{"gpt-5.5", "gpt-6-astra", "gpt-5.6-sol", "zz-alias"}, got,
+		"wildcard hits stay, unmapped catalog entries drop, concrete aliases append sorted, duplicates collapse")
+}
+
+func TestAccountTestPickerModelIDsPassthroughKeepsCatalog(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+		},
+		Extra: map[string]any{"openai_passthrough": true},
+	}
+	require.Equal(t, []string{"a", "b"}, AccountTestPickerModelIDs(account, []string{"a", "b"}))
+}
+
+func TestAccountTestPickerModelIDsEmptyMappingKeepsServableCatalog(t *testing.T) {
+	account := newCodexModelsTestAccount()
+	got := AccountTestPickerModelIDs(account, []string{"gpt-5.6-sol", "deepseek-v4", "glm-5.3"})
+	require.Equal(t, []string{"gpt-5.6-sol"}, got,
+		"without a whitelist the catalog is kept, but models routing would never serve still drop")
+	require.Nil(t, AccountTestPickerModelIDs(nil, nil))
 }

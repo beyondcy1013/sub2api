@@ -330,6 +330,115 @@ func TestAccountHandlerGetAvailableModels_GeminiGoogleOneUsesConservativeCatalog
 	require.NotContains(t, ids, "gemini-2.5-flash-image")
 }
 
+func TestAccountHandlerGetAvailableModels_AntigravityKeepsDefaultsWithoutMapping(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       50,
+			Name:     "antigravity-no-mapping",
+			Platform: service.PlatformAntigravity,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/50/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "claude-opus-4-6")
+	require.Contains(t, ids, "gemini-2.5-flash")
+}
+
+func TestAccountHandlerGetAvailableModels_AntigravityRespectsModelWhitelist(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       51,
+			Name:     "antigravity-whitelisted",
+			Platform: service.PlatformAntigravity,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"claude-opus-4-6": "claude-opus-4-6",
+					"ag-custom-alias": "gemini-3-flash",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/51/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+	}
+	// 白名单 + 服务端强制的 antigravity gemini 直通模型（与路由 IsModelSupported
+	// 一致）之外，其余默认模型不得出现在测试选择器里。
+	require.Contains(t, ids, "claude-opus-4-6")
+	require.Contains(t, ids, "ag-custom-alias")
+	require.Contains(t, ids, "gemini-3-flash", "server-forced antigravity passthroughs stay servable")
+	require.NotContains(t, ids, "claude-sonnet-4-5")
+	require.NotContains(t, ids, "gemini-2.5-flash")
+}
+
+func TestAccountHandlerGetAvailableModels_ClaudeOAuthRespectsModelWhitelist(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       52,
+			Name:     "claude-oauth-whitelisted",
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"claude-sonnet-4-5-20250929": "claude-sonnet-4-5-20250929",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/52/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 1)
+	require.Equal(t, "claude-sonnet-4-5-20250929", resp.Data[0].ID)
+}
+
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

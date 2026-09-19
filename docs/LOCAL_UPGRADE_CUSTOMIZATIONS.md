@@ -140,6 +140,16 @@ node --test android/tests/client-contract.test.mjs
 
 Both profiles must preserve all of the following:
 
+- The account 测试连接 model picker (`GET /api/v1/admin/accounts/:id/models`)
+  only offers models the account can actually serve. `service
+  .AccountTestPickerModelIDs` filters every picker catalog (OpenAI upstream
+  discovery, Gemini/Google One curated lists, Antigravity defaults, Grok/Claude
+  defaults) through the account model whitelist semantics of
+  `IsModelSupported`, and appends concrete whitelist aliases missing from the
+  catalog. Server-forced Antigravity gemini passthroughs stay servable;
+  OpenAI passthrough accounts and accounts without a whitelist keep the
+  catalog minus models routing would never serve. 测试连接不得出现模型白名单
+  之外的模型。
 - Pelican batch tests and single-account retries use the current model dropdown
   selection. Pelican requests bypass account `model_mapping` (including wildcard
   aliases), so all accounts are compared against the same selected model.

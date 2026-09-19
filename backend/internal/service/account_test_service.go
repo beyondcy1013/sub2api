@@ -287,13 +287,31 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 				seen[model.ID] = true
 			}
 		}
-		for model := range account.GetModelMapping() {
-			if IsGPTImageGenerationModel(model) && !strings.Contains(model, "*") && !seen[model] {
-				payload.Data = append(payload.Data, openai.Model{ID: model, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(model)})
-			}
+	}
+	// The picker may only offer models the account actually serves: filter the
+	// upstream catalog through the account's model whitelist/mapping and append
+	// concrete whitelist entries the catalog does not list, so 测试连接 never
+	// shows models outside the configured 白名单.
+	ids := make([]string, 0, len(payload.Data))
+	for _, model := range payload.Data {
+		ids = append(ids, model.ID)
+	}
+	allowed := AccountTestPickerModelIDs(account, ids)
+	byID := make(map[string]openai.Model, len(payload.Data))
+	for _, model := range payload.Data {
+		if _, exists := byID[model.ID]; !exists {
+			byID[model.ID] = model
 		}
 	}
-	return payload.Data, nil
+	filtered := make([]openai.Model, 0, len(allowed))
+	for _, id := range allowed {
+		if model, exists := byID[id]; exists {
+			filtered = append(filtered, model)
+		} else {
+			filtered = append(filtered, openai.Model{ID: id, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(id)})
+		}
+	}
+	return filtered, nil
 }
 
 // NewAccountTestService creates a new AccountTestService
