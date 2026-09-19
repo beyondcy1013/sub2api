@@ -5056,7 +5056,7 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
 watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
-    if (newMode === 'whitelist') {
+    if (newMode === 'whitelist' && !isOpenAIModelRestrictionDisabled.value) {
       allowedModels.value = [...getModelsByPlatform(form.platform)]
     }
   }

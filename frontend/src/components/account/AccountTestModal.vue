@@ -294,6 +294,16 @@ const openAITestModeOptions = computed(() => [
 ])
 const previewImageUrl = ref('')
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+const preferredOpenAITestModel = 'gpt-5.6-sol'
+const getMappedTestModelID = (account: Account | null): string => {
+  const mapping = account?.credentials?.model_mapping
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return ''
+  const mappedModels = Object.values(mapping)
+    .filter((model): model is string => typeof model === 'string')
+    .map(model => model.trim())
+    .filter(Boolean)
+  return mappedModels.length === 1 ? mappedModels[0] : ''
+}
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
@@ -346,6 +356,7 @@ const loadAvailableModels = async () => {
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
+  availableModels.value = [] // Prevent stale options from another account during reload
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
@@ -356,9 +367,20 @@ const loadAvailableModels = async () => {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
       } else {
-        // Try to select Sonnet as default, otherwise use first model
-        const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
-        selectedModelId.value = sonnetModel?.id || availableModels.value[0].id
+        if (props.account.platform === 'openai') {
+          // Explicit one-to-one upstream mappings are the configured contract; test
+          // the mapped model directly so probe traffic cannot use the source alias.
+          const mappedModelID = getMappedTestModelID(props.account)
+          const preferredModel = availableModels.value.find((m) => (
+            m.id === mappedModelID ||
+            (!mappedModelID && m.id === preferredOpenAITestModel)
+          ))
+          selectedModelId.value = preferredModel?.id || availableModels.value[0].id
+        } else {
+          // Try to select Sonnet as default, otherwise use first model
+          const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))
+          selectedModelId.value = sonnetModel?.id || availableModels.value[0].id
+        }
       }
     }
   } catch (error) {

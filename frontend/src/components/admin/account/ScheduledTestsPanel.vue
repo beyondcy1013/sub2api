@@ -12,11 +12,20 @@
           {{ t('admin.scheduledTests.title') }}
         </p>
         <button
+          v-if="!isGlobalMode"
           @click="showAddForm = !showAddForm"
           class="btn btn-primary flex items-center gap-1.5 text-sm"
         >
           <Icon name="plus" size="sm" :stroke-width="2" />
           {{ t('admin.scheduledTests.addPlan') }}
+        </button>
+        <button
+          v-else
+          @click="showAddForm = !showAddForm"
+          class="btn btn-primary flex items-center gap-1.5 text-sm"
+        >
+          <Icon name="plus" size="sm" :stroke-width="2" />
+          {{ t('admin.scheduledTests.batchPlan') }}
         </button>
       </div>
 
@@ -29,6 +38,51 @@
           {{ t('admin.scheduledTests.addPlan') }}
         </div>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div v-if="isGlobalMode" class="sm:col-span-2">
+            <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                {{ t('admin.scheduledTests.selectAccounts') }} ({{ selectedAccountIds.size }})
+              </label>
+              <div class="flex items-center gap-2">
+                <Select
+                  v-model="selectedGroupId"
+                  :options="groupOptions"
+                  :placeholder="t('admin.scheduledTests.allGroups')"
+                  class="w-40"
+                  clearable
+                />
+                <button type="button" class="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400" @click="selectVisibleAccounts">
+                  {{ t('admin.scheduledTests.selectAllVisible') }}
+                </button>
+                <button type="button" class="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400" @click="clearAccountSelection">
+                  {{ t('admin.scheduledTests.clearSelection') }}
+                </button>
+              </div>
+            </div>
+            <Input
+              v-model="accountSearch"
+              type="search"
+              :placeholder="t('admin.scheduledTests.searchAccounts')"
+              class="mb-2"
+            />
+            <div class="grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto rounded-lg border border-gray-200 p-2 sm:grid-cols-2 md:grid-cols-3 dark:border-dark-600">
+              <label
+                v-for="account in filteredCandidateAccounts"
+                :key="account.id"
+                class="flex min-w-0 cursor-pointer items-center gap-2 rounded p-1 text-xs hover:bg-gray-50 dark:hover:bg-dark-700/60"
+                :title="account.name"
+              >
+                <input
+                  type="checkbox"
+                  :checked="selectedAccountIds.has(account.id)"
+                  class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                  @change="toggleAccountSelection(account.id)"
+                />
+                <span class="truncate font-medium text-gray-800 dark:text-gray-200">{{ account.name }}</span>
+                <span class="shrink-0 text-[10px] uppercase text-gray-400">{{ account.type }}</span>
+              </label>
+            </div>
+          </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
               {{ t('admin.scheduledTests.model') }}
@@ -129,7 +183,7 @@
           </button>
           <button
             @click="handleCreate"
-            :disabled="!newPlan.model_id || !newPlan.cron_expression || creating"
+            :disabled="createDisabled"
             class="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Icon v-if="creating" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
@@ -171,7 +225,11 @@
               <!-- Model -->
               <div class="min-w-0">
                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {{ plan.model_id }}
+                  <span v-if="plan.account_name" class="mr-2">{{ plan.account_name }}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ plan.model_id }}</span>
+                </div>
+                <div v-if="isGlobalMode && plan.account_platform" class="mt-0.5 text-xs text-gray-400">
+                  {{ plan.account_platform }}
                 </div>
                 <div class="mt-0.5 font-mono text-xs text-gray-500 dark:text-gray-400">
                   {{ plan.cron_expression }}
@@ -487,7 +545,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { computed, ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -500,7 +558,7 @@ import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime } from '@/utils/format'
-import type { ScheduledTestPlan, ScheduledTestResult } from '@/types'
+import type { Account, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -510,6 +568,8 @@ const props = defineProps<{
   accountId: number | null
   modelOptions: SelectOption[]
 }>()
+
+const isGlobalMode = computed(() => props.accountId === null)
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -546,6 +606,33 @@ const newPlan = reactive({
   auto_recover_schedulable: false
 })
 
+const candidateAccounts = ref<Account[]>([])
+const accountsLoading = ref(false)
+const accountsLoaded = ref(false)
+const accountSearch = ref('')
+const selectedGroupId = ref<number | null>(null)
+const selectedAccountIds = ref(new Set<number>())
+const groups = ref<import('@/types').AdminGroup[]>([])
+const groupOptions = computed(() => [
+  ...groups.value.map(group => ({ label: group.name, value: group.id }))
+])
+const filteredCandidateAccounts = computed(() => {
+  const query = accountSearch.value.trim().toLowerCase()
+  return candidateAccounts.value.filter(account => {
+    if (selectedGroupId.value !== null && !(account.group_ids || []).includes(selectedGroupId.value)) {
+      return false
+    }
+    if (!query) return true
+    return account.name.toLowerCase().includes(query) || account.type.toLowerCase().includes(query)
+  })
+})
+const createDisabled = computed(() => {
+  if (!newPlan.cron_expression || creating.value) return true
+  return isGlobalMode.value
+    ? selectedAccountIds.value.size === 0
+    : !newPlan.model_id
+})
+
 const resetNewPlan = () => {
   newPlan.model_id = ''
   newPlan.cron_expression = '*/30 * * * *'
@@ -559,24 +646,33 @@ const resetNewPlan = () => {
 watch(
   () => props.show,
   async (visible) => {
-    if (visible && props.accountId) {
-      await loadPlans()
-    } else {
+    if (!visible) {
       plans.value = []
       results.value = []
       expandedPlanId.value = null
       expandedResultIds.clear()
       showAddForm.value = false
       showDeleteConfirm.value = false
+      accountSearch.value = ''
+      selectedGroupId.value = null
+      selectedAccountIds.value = new Set()
+      return
+    }
+    if (visible && isGlobalMode.value) {
+      await loadPlans()
+      await loadGlobalFormData()
+    } else if (visible && props.accountId) {
+      await loadPlans()
     }
   }
 )
 
 const loadPlans = async () => {
-  if (!props.accountId) return
   loading.value = true
   try {
-    plans.value = await adminAPI.scheduledTests.listByAccount(props.accountId)
+    plans.value = isGlobalMode.value
+      ? await adminAPI.scheduledTests.listAll()
+      : await adminAPI.scheduledTests.listByAccount(props.accountId!)
   } catch (error: any) {
     appStore.showError(error?.message || 'Failed to load plans')
   } finally {
@@ -584,23 +680,81 @@ const loadPlans = async () => {
   }
 }
 
+const loadGlobalFormData = async () => {
+  if (accountsLoaded.value) return
+  accountsLoading.value = true
+  try {
+    const [accountPage, groupList] = await Promise.all([
+      adminAPI.accounts.list(1, 1000, { lite: '1' }),
+      adminAPI.groups.getAll()
+    ])
+    candidateAccounts.value = accountPage.items
+    groups.value = groupList
+    accountsLoaded.value = true
+  } catch (error: any) {
+    appStore.showError(error?.message || 'Failed to load accounts')
+  } finally {
+    accountsLoading.value = false
+  }
+}
+
+const toggleAccountSelection = (accountID: number) => {
+  if (selectedAccountIds.value.has(accountID)) {
+    selectedAccountIds.value.delete(accountID)
+  } else {
+    selectedAccountIds.value.add(accountID)
+  }
+  selectedAccountIds.value = new Set(selectedAccountIds.value)
+}
+
+const selectVisibleAccounts = () => {
+  for (const account of filteredCandidateAccounts.value) {
+    selectedAccountIds.value.add(account.id)
+  }
+  selectedAccountIds.value = new Set(selectedAccountIds.value)
+}
+
+const clearAccountSelection = () => {
+  selectedAccountIds.value = new Set()
+}
+
 const handleCreate = async () => {
-  if (!props.accountId || !newPlan.model_id || !newPlan.cron_expression) return
+  if (!newPlan.cron_expression || creating.value) return
+  if (isGlobalMode.value && selectedAccountIds.value.size === 0) return
+  if (!isGlobalMode.value && (!props.accountId || !newPlan.model_id)) return
   creating.value = true
   try {
     const maxResults = Number(newPlan.max_results) || 100
-    await adminAPI.scheduledTests.create({
-      account_id: props.accountId,
-      model_id: newPlan.model_id,
-      cron_expression: newPlan.cron_expression,
-      enabled: newPlan.enabled,
-      max_results: maxResults,
-      auto_recover: newPlan.auto_recover,
-      auto_recover_schedulable: newPlan.auto_recover_schedulable
-    })
-    appStore.showSuccess(t('admin.scheduledTests.createSuccess'))
+  if (isGlobalMode.value) {
+      const result = await adminAPI.scheduledTests.batchCreate({
+        account_ids: Array.from(selectedAccountIds.value),
+        model_id: newPlan.model_id,
+        cron_expression: newPlan.cron_expression,
+        enabled: newPlan.enabled,
+        max_results: maxResults,
+        auto_recover: newPlan.auto_recover,
+        auto_recover_schedulable: newPlan.auto_recover_schedulable
+      })
+      if (result.failed > 0) {
+        appStore.showError(t('admin.scheduledTests.batchPartial', { created: result.created, failed: result.failed }))
+      } else {
+        appStore.showSuccess(t('admin.scheduledTests.batchSuccess', { count: result.created }))
+      }
+    } else {
+      await adminAPI.scheduledTests.create({
+        account_id: props.accountId!,
+        model_id: newPlan.model_id,
+        cron_expression: newPlan.cron_expression,
+        enabled: newPlan.enabled,
+        max_results: maxResults,
+        auto_recover: newPlan.auto_recover,
+        auto_recover_schedulable: newPlan.auto_recover_schedulable
+      })
+      appStore.showSuccess(t('admin.scheduledTests.createSuccess'))
+    }
     showAddForm.value = false
     resetNewPlan()
+    selectedAccountIds.value = new Set()
     await loadPlans()
   } catch (error: any) {
     appStore.showError(error?.message || 'Failed to create plan')

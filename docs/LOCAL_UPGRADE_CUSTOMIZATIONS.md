@@ -111,6 +111,25 @@ later column to move through the viewport during horizontal swipes; desktop keep
 the fixed selection/action/name columns. This override is intentionally scoped to
 the native client; ordinary mobile browsers continue to use the shared card layout.
 
+As of 2026-09-17, the native client's account-management toolbar compresses the
+rows above the table to give the dense table more vertical space:
+
+- the `循环测试` liveness runtime summary block (`AccountSchedulingRuntimeSummary`)
+  is kept mounted but visually hidden; when a scheduled liveness run finishes, the
+  result is reported through a success/error Toast instead of occupying a fixed
+  toolbar row. The desktop inline summary block is unchanged;
+- the bulk selection/quick-action bar (`AccountBulkActionsBar`) renders in `bare`
+  mode inside the account action toolbar row (via the `#afterCreate` slot) instead
+  of its own padded box above the table. Desktop keeps the full-width bar inside
+  the table card.
+
+Also as of 2026-09-17, the native Android client pins only the 36px selection
+column during horizontal scrolling (`accountStickyLeftColumnKeys = ['select']`);
+the operation, name, and later columns scroll into view while swiping. The
+previous code pinned selection + actions + name (a 468px sticky region wider
+than the phone viewport), which made swiping appear to do nothing. Desktop
+keeps the selection/action/name sticky columns unchanged.
+
 Regression verification:
 
 ```bash

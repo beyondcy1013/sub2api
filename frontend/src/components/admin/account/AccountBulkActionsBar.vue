@@ -1,5 +1,8 @@
 <template>
-  <div class="mb-4 flex flex-col lg:flex-row lg:flex-wrap lg:items-center lg:justify-between gap-3 rounded-lg bg-primary-50 p-3 dark:bg-primary-900/20">
+  <div
+    class="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/20"
+    :class="bare ? 'flex min-w-0 flex-wrap items-center gap-2' : 'mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between'"
+  >
     <div class="hidden lg:flex flex-wrap items-center gap-2">
       <span v-if="allResultsSelected" class="text-sm font-medium text-primary-900 dark:text-primary-100">
         {{ t('admin.accounts.bulkActions.selectedAll', { count: selectedIds.length }) }}
@@ -124,7 +127,7 @@
       </button>
     </div>
 
-    <div class="flex items-center justify-between gap-2 lg:hidden">
+    <div :class="bare ? 'flex min-w-0 flex-1 items-center justify-between gap-2 lg:hidden' : 'flex items-center justify-between gap-2 lg:hidden'">
       <div class="flex min-w-0 flex-wrap items-center gap-2">
         <span
           class="truncate text-sm font-medium text-primary-900 dark:text-primary-100"
@@ -313,6 +316,8 @@ const props = withDefaults(defineProps<{
   searchQuery?: string
   proxies?: ProxyConfig[]
   groups?: AdminGroup[]
+  /** Render as a borderless inline control that can share the toolbar row (Android). */
+  bare?: boolean
 }>(), {
   totalResults: 0,
   selectingAll: false,
@@ -325,7 +330,8 @@ const props = withDefaults(defineProps<{
   permanentDeleting: false,
   searchQuery: '',
   proxies: () => [],
-  groups: () => []
+  groups: () => [],
+  bare: false
 })
 const emit = defineEmits<{
   delete: []

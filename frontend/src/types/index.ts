@@ -2505,6 +2505,8 @@ export interface ScheduledTestPlan {
   next_run_at: string | null
   created_at: string
   updated_at: string
+  account_name?: string
+  account_platform?: string
 }
 
 export interface ScheduledTestResult {
@@ -2536,6 +2538,22 @@ export interface UpdateScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
   auto_recover_schedulable?: boolean
+}
+
+export interface BatchScheduledTestPlanRequest {
+  account_ids: number[]
+  model_id: string
+  cron_expression: string
+  enabled?: boolean
+  max_results?: number
+  auto_recover?: boolean
+  auto_recover_schedulable?: boolean
+}
+
+export interface BatchScheduledTestPlanResponse {
+  created: number
+  failed: number
+  errors?: string[]
 }
 
 // Payment types

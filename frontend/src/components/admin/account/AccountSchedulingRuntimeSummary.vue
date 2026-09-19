@@ -56,11 +56,17 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Icon from '@/components/icons/Icon.vue'
-import type { SchedulingLivenessRuntimeStatus } from '@/api/admin/superPriority'
+import type { SchedulingLivenessRunStatus, SchedulingLivenessRuntimeStatus } from '@/api/admin/superPriority'
 import { getSchedulingRuntimeCountdown } from '@/utils/schedulingRuntimeCountdown'
+
+export interface SchedulingRuntimeCompletionPayload {
+  message: string
+  isError: boolean
+}
 
 const emit = defineEmits<{
   (event: 'upstream-billing-completed'): void
+  (event: 'liveness-run-completed', payload: SchedulingRuntimeCompletionPayload): void
 }>()
 const { t, locale } = useI18n()
 const runtime = ref<SchedulingLivenessRuntimeStatus | null>(null)
@@ -74,6 +80,8 @@ let requestInFlight = false
 let mounted = false
 let upstreamRuntimeInitialized = false
 let upstreamLastFinishedAt: string | undefined
+let livenessRuntimeInitialized = false
+let livenessLastFinishedAt: string | undefined
 
 const busy = computed(() => loading.value || runtime.value?.running === true)
 
@@ -110,17 +118,7 @@ const runtimeProgressPercent = computed(() => {
   return runtimeCountdown.value?.progressPercent ?? null
 })
 
-const latestResultText = computed(() => {
-  if (loading.value) {
-    return t('admin.accounts.schedulingRules.runtimeNoResult')
-  }
-  if (unavailable.value && !runtime.value) {
-    return t('admin.accounts.schedulingRules.runtimeUnavailable')
-  }
-  const lastRun = runtime.value?.last_run
-  if (!lastRun) {
-    return t('admin.accounts.schedulingRules.runtimeNoResult')
-  }
+const buildLivenessResultText = (lastRun: SchedulingLivenessRunStatus): string => {
   if (lastRun.error) {
     return t('admin.accounts.schedulingRules.runtimeLastError', { error: lastRun.error })
   }
@@ -138,6 +136,20 @@ const latestResultText = computed(() => {
     failed: lastRun.result.failed,
     skipped: lastRun.result.skipped ?? 0
   })
+}
+
+const latestResultText = computed(() => {
+  if (loading.value) {
+    return t('admin.accounts.schedulingRules.runtimeNoResult')
+  }
+  if (unavailable.value && !runtime.value) {
+    return t('admin.accounts.schedulingRules.runtimeUnavailable')
+  }
+  const lastRun = runtime.value?.last_run
+  if (!lastRun) {
+    return t('admin.accounts.schedulingRules.runtimeNoResult')
+  }
+  return buildLivenessResultText(lastRun)
 })
 
 const toneClass = computed(() => {
@@ -167,6 +179,16 @@ const refresh = async () => {
     if (!mounted) return
     runtime.value = schedulingRuntime?.liveness ?? settings.liveness_runtime ?? null
     checkInterval.value = settings.check_interval
+    const livenessRun = runtime.value?.last_run
+    const livenessFinishedAt = livenessRun?.finished_at
+    if (livenessRuntimeInitialized && livenessRun && livenessFinishedAt && livenessFinishedAt !== livenessLastFinishedAt) {
+      emit('liveness-run-completed', {
+        message: buildLivenessResultText(livenessRun),
+        isError: Boolean(livenessRun.error)
+      })
+    }
+    livenessLastFinishedAt = livenessFinishedAt
+    livenessRuntimeInitialized = true
     if (schedulingRuntime) {
       const lastRun = schedulingRuntime.upstream_billing.last_run
       const finishedAt = lastRun?.finished_at

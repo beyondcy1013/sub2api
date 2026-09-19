@@ -162,6 +162,65 @@ describe('AccountSchedulingRuntimeSummary', () => {
     wrapper.unmount()
   })
 
+  it('emits liveness-run-completed only when a new liveness run finishes', async () => {
+    getSuperPriority
+      .mockResolvedValueOnce({
+        check_interval: '@every 1m',
+        liveness_runtime: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T11:59:00Z',
+            finished_at: '2026-07-27T11:59:05Z',
+            result: { checked: 3, succeeded: 3, failed: 0, skipped: 0 }
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        check_interval: '@every 1m',
+        liveness_runtime: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T12:00:00Z',
+            finished_at: '2026-07-27T12:00:05Z',
+            result: { checked: 2, succeeded: 1, failed: 1, skipped: 0 }
+          }
+        }
+      })
+      .mockResolvedValueOnce({
+        check_interval: '@every 1m',
+        liveness_runtime: {
+          enabled: true,
+          running: false,
+          last_run: {
+            trigger: 'scheduled',
+            started_at: '2026-07-27T12:00:00Z',
+            finished_at: '2026-07-27T12:00:05Z',
+            result: { checked: 2, succeeded: 1, failed: 1, skipped: 0 }
+          }
+        }
+      })
+
+    const wrapper = mount(AccountSchedulingRuntimeSummary)
+    await flushPromises()
+    // 首次加载只用于初始化基线，不应触发通知。
+    expect(wrapper.emitted('liveness-run-completed')).toBeUndefined()
+
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(wrapper.emitted('liveness-run-completed')).toHaveLength(1)
+    expect(wrapper.emitted('liveness-run-completed')?.[0][0]).toMatchObject({ isError: false })
+
+    // finished_at 未变化时不能重复通知。
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(wrapper.emitted('liveness-run-completed')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('does not emit for an empty upstream billing cycle', async () => {
     getSuperPriority.mockResolvedValue({
       check_interval: '@every 1m',

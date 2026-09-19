@@ -29,6 +29,16 @@ type createScheduledTestPlanRequest struct {
 	AutoRecoverSchedulable *bool  `json:"auto_recover_schedulable"`
 }
 
+type batchScheduledTestPlanRequest struct {
+	AccountIDs             []int64 `json:"account_ids" binding:"required,min=1,max=200"`
+	ModelID                string  `json:"model_id"`
+	CronExpression         string  `json:"cron_expression" binding:"required"`
+	Enabled                *bool   `json:"enabled"`
+	MaxResults             int     `json:"max_results"`
+	AutoRecover            *bool   `json:"auto_recover"`
+	AutoRecoverSchedulable *bool   `json:"auto_recover_schedulable"`
+}
+
 type updateScheduledTestPlanRequest struct {
 	ModelID                string `json:"model_id"`
 	CronExpression         string `json:"cron_expression"`
@@ -50,6 +60,19 @@ func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
+	}
+	c.JSON(http.StatusOK, plans)
+}
+
+// ListAll GET /admin/scheduled-test-plans
+func (h *ScheduledTestHandler) ListAll(c *gin.Context) {
+	plans, err := h.scheduledTestSvc.ListAllPlans(c.Request.Context())
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+	if plans == nil {
+		plans = make([]*service.ScheduledTestPlan, 0)
 	}
 	c.JSON(http.StatusOK, plans)
 }
@@ -85,6 +108,38 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, created)
+}
+
+// BatchCreate POST /admin/scheduled-test-plans/batch
+func (h *ScheduledTestHandler) BatchCreate(c *gin.Context) {
+	var req batchScheduledTestPlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	template := &service.ScheduledTestPlan{
+		ModelID:        req.ModelID,
+		CronExpression: req.CronExpression,
+		Enabled:        true,
+		MaxResults:     req.MaxResults,
+	}
+	if req.Enabled != nil {
+		template.Enabled = *req.Enabled
+	}
+	if req.AutoRecover != nil {
+		template.AutoRecover = *req.AutoRecover
+	}
+	if req.AutoRecoverSchedulable != nil {
+		template.AutoRecoverSchedulable = *req.AutoRecoverSchedulable
+	}
+
+	created, failed, errs := h.scheduledTestSvc.BatchUpsertPlans(c.Request.Context(), req.AccountIDs, template)
+	c.JSON(http.StatusOK, gin.H{
+		"created": created,
+		"failed":  failed,
+		"errors":  errs,
+	})
 }
 
 // Update PUT /admin/scheduled-test-plans/:id

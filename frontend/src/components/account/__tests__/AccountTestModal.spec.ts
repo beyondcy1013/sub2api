@@ -118,6 +118,44 @@ describe('AccountTestModal', () => {
     localStorage.clear()
   })
 
+  it('prefers the sole configured OpenAI upstream mapping for direct tests', async () => {
+    getAvailableModelsMock.mockResolvedValue([
+      { id: 'gpt-5.2', display_name: 'GPT-5.2' },
+      { id: 'sensenova-6.8-flash-lite', display_name: 'SenseNova 6.8 Flash Lite' }
+    ])
+    const wrapper = mount(AccountTestModal, {
+      props: {
+        show: false,
+        account: {
+          ...buildAccount(),
+          name: 'SenseNova',
+          credentials: {
+            model_mapping: { 'gpt-5.2': 'sensenova-6.8-flash-lite' }
+          }
+        }
+      },
+      global: {
+        stubs: {
+          BaseDialog: BaseDialogStub,
+          Select: SelectStub,
+          TextArea: TextAreaStub,
+          Icon: true
+        }
+      }
+    })
+
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(wrapper.find('select').element.value).toBe('sensenova-6.8-flash-lite')
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toMatchObject({
+      model_id: 'sensenova-6.8-flash-lite'
+    })
+  })
+
   it('posts compact mode for OpenAI compact probe', async () => {
     const wrapper = mount(AccountTestModal, {
       props: {

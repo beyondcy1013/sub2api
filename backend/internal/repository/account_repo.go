@@ -1062,12 +1062,18 @@ func (r *accountRepository) RestoreAccount(ctx context.Context, id int64) error 
 
 // PinAccount marks an account as pinned to top by setting extra.pinned=true.
 func (r *accountRepository) PinAccount(ctx context.Context, id int64) error {
-	return r.UpdateExtra(ctx, id, map[string]any{service.AccountPinnedExtraKey: true})
+	return r.UpdateExtra(ctx, id, map[string]any{
+		service.AccountPinnedExtraKey: true,
+		"account_order_pinned_at":     time.Now().UnixNano(),
+	})
 }
 
 // UnpinAccount removes the pinned mark by setting extra.pinned=false.
 func (r *accountRepository) UnpinAccount(ctx context.Context, id int64) error {
-	return r.UpdateExtra(ctx, id, map[string]any{service.AccountPinnedExtraKey: false})
+	return r.UpdateExtra(ctx, id, map[string]any{
+		service.AccountPinnedExtraKey: false,
+		"account_order_pinned_at":     nil,
+	})
 }
 
 func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
@@ -1316,6 +1322,14 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 }
 
 func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selector) {
+	// Pinning is a persistent account-list preference. Keep pinned rows ahead of
+	// every user-selected sort so pagination and auto-refresh cannot move them
+	// back into the regular list.
+	pinnedFirst := func(s *entsql.Selector) {
+		extra := s.C(dbaccount.FieldExtra)
+		s.OrderExpr(entsql.Expr("CASE WHEN COALESCE(" + extra + " ->> '" + service.AccountPinnedExtraKey + "', 'false') = 'true' THEN 0 ELSE 1 END ASC"))
+		s.OrderExpr(entsql.Expr("NULLIF(" + extra + " ->> 'account_order_pinned_at', '')::numeric DESC NULLS LAST"))
+	}
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)
 	if sortBy == "upstream_billing_rate" {
@@ -1325,7 +1339,7 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 			direction = "DESC"
 			tieOrder = entsql.Desc
 		}
-		return []func(*entsql.Selector){func(s *entsql.Selector) {
+		return []func(*entsql.Selector){pinnedFirst, func(s *entsql.Selector) {
 			extra := s.C(dbaccount.FieldExtra)
 			expression := upstreamBillingRateSortExpression(extra)
 			s.OrderExpr(entsql.Expr(expression + " " + direction + " NULLS LAST"))
@@ -1365,12 +1379,12 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 	}
 
 	if sortOrder == pagination.SortOrderDesc {
-		return []func(*entsql.Selector){dbent.Desc(field), dbent.Desc(dbaccount.FieldID)}
+		return []func(*entsql.Selector){pinnedFirst, dbent.Desc(field), dbent.Desc(dbaccount.FieldID)}
 	}
 	if defaultOrder {
-		return []func(*entsql.Selector){dbent.Asc(dbaccount.FieldName), dbent.Asc(dbaccount.FieldID)}
+		return []func(*entsql.Selector){pinnedFirst, dbent.Asc(dbaccount.FieldName), dbent.Asc(dbaccount.FieldID)}
 	}
-	return []func(*entsql.Selector){dbent.Asc(field), dbent.Asc(dbaccount.FieldID)}
+	return []func(*entsql.Selector){pinnedFirst, dbent.Asc(field), dbent.Asc(dbaccount.FieldID)}
 }
 
 func upstreamBillingRateSortExpression(extra string) string {

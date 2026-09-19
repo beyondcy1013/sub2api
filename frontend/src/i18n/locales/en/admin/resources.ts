@@ -1,6 +1,16 @@
 export default {
     scheduledTests: {
       title: 'Scheduled Tests',
+      manageAll: 'Scheduled Tests',
+      batchPlan: 'Batch Activation',
+      selectAccounts: 'Select accounts',
+      allGroups: 'All groups',
+      selectAllVisible: 'Select visible',
+      clearSelection: 'Clear',
+      searchAccounts: 'Search account name or type',
+      dailyActivationHint: 'Run automatically at 04:00 daily to open a fresh 5-hour window for working hours. Saving replaces existing plans for selected accounts with the same cron schedule.',
+      batchSuccess: 'Created {count} scheduled test plans',
+      batchPartial: 'Created {created} plans; {failed} failed',
       addPlan: 'Add Plan',
       editPlan: 'Edit Plan',
       deletePlan: 'Delete Plan',

@@ -67,6 +67,42 @@ func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time
 	return scanPlans(rows)
 }
 
+func (r *scheduledTestPlanRepository) ListAll(ctx context.Context) ([]*service.ScheduledTestPlan, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT plan.id, plan.account_id, plan.model_id, plan.cron_expression, plan.enabled,
+			plan.max_results, plan.auto_recover, plan.auto_recover_schedulable,
+			plan.last_run_at, plan.next_run_at, plan.created_at, plan.updated_at,
+			account.name, account.platform
+		FROM scheduled_test_plans AS plan
+		JOIN accounts AS account ON account.id = plan.account_id
+		WHERE account.deleted_at IS NULL
+		  AND COALESCE(account.extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
+		ORDER BY plan.next_run_at ASC NULLS LAST, account.name ASC, plan.id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var plans []*service.ScheduledTestPlan
+	for rows.Next() {
+		plan, err := scanPlanWithAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, rows.Err()
+}
+
+func (r *scheduledTestPlanRepository) DeleteByAccountAndCron(ctx context.Context, accountID int64, cronExpression string) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM scheduled_test_plans
+		WHERE account_id = $1 AND cron_expression = $2
+	`, accountID, cronExpression)
+	return err
+}
+
 func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE scheduled_test_plans
@@ -185,4 +221,16 @@ func scanPlans(rows *sql.Rows) ([]*service.ScheduledTestPlan, error) {
 		plans = append(plans, p)
 	}
 	return plans, rows.Err()
+}
+
+func scanPlanWithAccount(row scannable) (*service.ScheduledTestPlan, error) {
+	plan := &service.ScheduledTestPlan{}
+	if err := row.Scan(
+		&plan.ID, &plan.AccountID, &plan.ModelID, &plan.CronExpression, &plan.Enabled, &plan.MaxResults,
+		&plan.AutoRecover, &plan.AutoRecoverSchedulable, &plan.LastRunAt, &plan.NextRunAt,
+		&plan.CreatedAt, &plan.UpdatedAt, &plan.AccountName, &plan.AccountPlatform,
+	); err != nil {
+		return nil, err
+	}
+	return plan, nil
 }

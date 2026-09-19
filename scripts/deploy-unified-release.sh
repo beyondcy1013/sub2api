@@ -10,6 +10,9 @@ MAIN_BINARY="/home/codes/third_party/bin/sub2api/sub2api"
 FREE_SERVICE="sub2freeApi.service"
 FREE_BINARY="/home/codes/third_party/bin/sub2freeApi/sub2freeApi"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+# Both services install the same unified artifact bytes, so retain one shared
+# rollback copy to honor the repository-wide one-backup policy.
+MAIN_BACKUP="${MAIN_BINARY}.bak.${TIMESTAMP}"
 
 report_error() {
   local status="$?"
@@ -167,7 +170,12 @@ deploy_service() {
   local data_dir="$7"
   local scheduler_prefix="${8:-}"
   local expected_pid="$9"
-  local backup="${binary}.bak.${TIMESTAMP}"
+  local backup
+  if [ "$binary" = "$FREE_BINARY" ] && [ -s "$MAIN_BACKUP" ]; then
+    backup="$MAIN_BACKUP"
+  else
+    backup="${binary}.bak.${TIMESTAMP}"
+  fi
   local current_pid
 
   current_pid="$(systemctl show -p MainPID --value "$service")"
@@ -217,3 +225,32 @@ deploy_service \
   /home/codes/third_party/sub2freeApi/deploy/data sub2freeApi "$EXPECTED_FREE_PID"
 
 verify_final_sha_matrix
+
+# Remove every stale rollback and keep exactly one newest backup in each bin directory.
+converge_backups() {
+  local bin_dir backup_count removed_count backup_file
+  for bin_dir in "$(dirname "$MAIN_BINARY")" "$(dirname "$FREE_BINARY")"; do
+    backup_count=0
+    removed_count=0
+    while IFS= read -r backup_file; do
+      backup_count=$((backup_count + 1))
+      if [ "$backup_count" -gt 1 ]; then
+        rm -f -- "$backup_file"
+        removed_count=$((removed_count + 1))
+      fi
+    done < <(find "$bin_dir" -maxdepth 1 -type f \( \
+      -name "$(basename "$MAIN_BINARY").bak.*" -o \
+      -name "$(basename "$MAIN_BINARY").backup*" -o \
+      -name "$(basename "$MAIN_BINARY").bak-*" -o \
+      -name "$(basename "$FREE_BINARY").bak.*" -o \
+      -name "$(basename "$FREE_BINARY").backup*" -o \
+      -name "$(basename "$FREE_BINARY").bak-*" \
+    \) -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+    printf 'OK backup_dir=%s retained=%d removed=%d\n' \
+      "$bin_dir" "$backup_count" "$removed_count"
+  done
+}
+
+converge_backups
+
+echo "Deployment completed"

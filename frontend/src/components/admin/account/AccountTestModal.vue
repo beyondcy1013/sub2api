@@ -504,6 +504,15 @@ function displayConfiguredUpstreamURL(account: Account): string {
 
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
 const preferredOpenAITestModel = 'gpt-5.6-sol'
+const getMappedTestModelID = (account: Account | null): string => {
+  const mapping = account?.credentials?.model_mapping
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return ''
+  const mappedModels = Object.values(mapping)
+    .filter((model): model is string => typeof model === 'string')
+    .map(model => model.trim())
+    .filter(Boolean)
+  return mappedModels.length === 1 ? mappedModels[0] : ''
+}
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
@@ -574,6 +583,7 @@ const loadAvailableModels = async () => {
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
+  availableModels.value = [] // Prevent stale options from another account during reload
   try {
     // axios unwraps the standard {code,data} envelope in the response
     // interceptor, so the API helper already returns the model array here.
@@ -588,7 +598,13 @@ const loadAvailableModels = async () => {
         selectedModelId.value = availableModels.value[0].id
       } else if (props.account.platform === 'openai') {
         // Account mappings are JSON objects, so their API response order is not stable.
-        const preferredModel = availableModels.value.find((m) => m.id === preferredOpenAITestModel)
+        // Explicit one-to-one upstream mappings are the configured contract; test
+        // the mapped model directly so probe traffic cannot use the source alias.
+        const mappedModelID = getMappedTestModelID(props.account)
+        const preferredModel = availableModels.value.find((m) => (
+          m.id === mappedModelID ||
+          (!mappedModelID && m.id === preferredOpenAITestModel)
+        ))
         selectedModelId.value = preferredModel?.id || availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model

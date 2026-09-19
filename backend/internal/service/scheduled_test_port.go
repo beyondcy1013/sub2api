@@ -19,6 +19,8 @@ type ScheduledTestPlan struct {
 	NextRunAt              *time.Time `json:"next_run_at"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+	AccountName            string     `json:"account_name,omitempty"`
+	AccountPlatform        string     `json:"account_platform,omitempty"`
 }
 
 // ScheduledTestResult represents a single test execution result.
@@ -39,6 +41,8 @@ type ScheduledTestPlanRepository interface {
 	Create(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error)
 	GetByID(ctx context.Context, id int64) (*ScheduledTestPlan, error)
 	ListByAccountID(ctx context.Context, accountID int64) ([]*ScheduledTestPlan, error)
+	ListAll(ctx context.Context) ([]*ScheduledTestPlan, error)
+	DeleteByAccountAndCron(ctx context.Context, accountID int64, cronExpression string) error
 	ListDue(ctx context.Context, now time.Time) ([]*ScheduledTestPlan, error)
 	Update(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error)
 	Delete(ctx context.Context, id int64) error

@@ -28,10 +28,57 @@
             <template #before>
               <AccountSchedulingRuntimeSummary
                 ref="schedulingRuntimeSummaryRef"
+                :class="{ hidden: useAndroidTableLayout }"
                 @upstream-billing-completed="handleUpstreamBillingRuntimeCompleted"
+                @liveness-run-completed="handleLivenessRuntimeCompleted"
+              />
+            </template>
+            <template #afterCreate>
+              <AccountBulkActionsBar
+                v-if="useAndroidTableLayout"
+                bare
+                :selected-ids="selIds"
+                :quick-updating="quickBulkUpdating"
+                :refreshing-usage="refreshingUsage"
+                :testing-selected="testingSelected"
+                :show-delete="!deleted"
+                :show-permanent-delete="deleted"
+                :permanent-deleting="permanentDeleting"
+                :search-query="params.search"
+                :proxies="proxies"
+                :groups="groups"
+                :total-results="pagination.total"
+                :selecting-all="selectingAllResults"
+                :all-results-selected="allResultsSelected"
+                @delete="handleBulkDelete"
+                @permanent-delete="handleBulkPermanentDelete"
+                @update:search-query="handleBulkSearchQueryUpdate"
+                @reset-status="handleBulkResetStatus"
+                @refresh-token="handleBulkRefreshToken"
+                @probe-upstream-billing="handleBulkProbeUpstreamBilling"
+                @refresh-usage="handleBulkRefreshUsage"
+                @test-and-mark="handleBatchTestAndMark"
+                @pelican-test="handleBulkPelicanTest"
+                @edit-selected="openBulkEditSelected"
+                @edit-filtered="openBulkEditFiltered"
+                @clear="clearSelection"
+                @select-page="selectPage"
+                @quick-set-proxy="handleQuickSetProxy"
+                @quick-set-group="handleQuickSetGroup"
+                @select-all-results="handleSelectAllResults"
+                @toggle-schedulable="handleBulkToggleSchedulable"
               />
             </template>
             <template #after>
+              <button
+                class="btn btn-secondary px-2 md:px-3"
+                :title="t('admin.scheduledTests.manageAll')"
+                @click="openGlobalSchedulePanel"
+              >
+                <Icon name="calendar" size="sm" />
+                <span class="hidden md:inline">{{ t('admin.scheduledTests.manageAll') }}</span>
+              </button>
+
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -210,6 +257,7 @@
       </template>
       <template #table>
         <AccountBulkActionsBar
+          v-if="!useAndroidTableLayout"
           :selected-ids="selIds"
           :quick-updating="quickBulkUpdating"
           :refreshing-usage="refreshingUsage"
@@ -1454,9 +1502,14 @@ const sortedAccounts = computed(() => {
   if (recentlyCreatedAccounts.value.length === 0) return orderedRows
 
   const recentlyCreatedIds = new Set(recentlyCreatedAccounts.value.map(account => account.id))
-  return [
+  const mergedRows = [
     ...recentlyCreatedAccounts.value,
     ...orderedRows.filter(account => !recentlyCreatedIds.has(account.id))
+  ]
+  // Keep persistent pins ahead of the temporary newly-created ordering too.
+  return [
+    ...mergedRows.filter(account => Boolean(account.extra?.pinned)),
+    ...mergedRows.filter(account => !account.extra?.pinned)
   ].slice(0, pagination.page_size)
 })
 
@@ -2150,8 +2203,10 @@ function getAntigravityTierClass(row: any): string {
 }
 
 const ACCOUNT_STICKY_LEFT_COLUMN_KEYS = ['select', 'actions', 'name']
+// Android 原生客户端仅固定 36px 勾选列；操作、名称及后续列随横向滚动进入视口，
+// 避免固定区域(468px)宽于手机视口导致滑动无法显示其余列。
 const accountStickyLeftColumnKeys = useAndroidTableLayout
-  ? ACCOUNT_STICKY_LEFT_COLUMN_KEYS
+  ? ['select']
   : ACCOUNT_STICKY_LEFT_COLUMN_KEYS
 
 // All available columns
@@ -3072,6 +3127,15 @@ const handleUpstreamBillingRuntimeCompleted = () => {
   enterAutoRefreshSilentWindow()
   void reload()
 }
+const handleLivenessRuntimeCompleted = (payload: { message: string; isError: boolean }) => {
+  // Android 客户端没有固定高度的循环测试状态块，改为 Toast 通知检测结果。
+  if (!useAndroidTableLayout) return
+  if (payload.isError) {
+    appStore.showError(payload.message)
+  } else {
+    appStore.showSuccess(payload.message)
+  }
+}
 const handleSchedulingRulesRefreshError = (error: unknown) => {
   appStore.showError(extractApiErrorMessage(error, t('admin.accounts.schedulingRules.refreshFailed')))
 }
@@ -3261,6 +3325,11 @@ const handleSchedule = async (a: Account) => {
   }
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
+const openGlobalSchedulePanel = () => {
+  scheduleAcc.value = null
+  scheduleModelOptions.value = []
+  showSchedulePanel.value = true
+}
 const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
 const duplicatingAccountIDs = new Set<number>()
 const handleDuplicateAccount = async (a: Account) => {

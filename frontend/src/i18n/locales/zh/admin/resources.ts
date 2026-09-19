@@ -1,6 +1,16 @@
 export default {
     scheduledTests: {
       title: '定时测试',
+      manageAll: '定时测试管理',
+      batchPlan: '批量定时激活',
+      selectAccounts: '选择账号',
+      allGroups: '全部分组',
+      selectAllVisible: '全选当前',
+      clearSelection: '清除',
+      searchAccounts: '搜索账号名称或类型',
+      dailyActivationHint: '每天 04:00 自动测试，可在上午工作时间获得新的 5 小时窗口；保存会替换所选账号在同一 Cron 下的旧计划。',
+      batchSuccess: '已创建 {count} 个定时测试计划',
+      batchPartial: '已创建 {created} 个计划，失败 {failed} 个',
       addPlan: '添加计划',
       editPlan: '编辑计划',
       deletePlan: '删除计划',

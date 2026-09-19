@@ -52,6 +52,41 @@ func (s *ScheduledTestService) ListPlansByAccount(ctx context.Context, accountID
 	return s.planRepo.ListByAccountID(ctx, accountID)
 }
 
+// ListAllPlans returns every plan that still belongs to a non-deleted account.
+func (s *ScheduledTestService) ListAllPlans(ctx context.Context) ([]*ScheduledTestPlan, error) {
+	return s.planRepo.ListAll(ctx)
+}
+
+// BatchUpsertPlans replaces the matching plan for every selected account and
+// creates a new plan using the supplied template. A plan is matched by both
+// account ID and cron expression, so other schedules remain untouched.
+func (s *ScheduledTestService) BatchUpsertPlans(ctx context.Context, accountIDs []int64, template *ScheduledTestPlan) (created int, failed int, errors []string) {
+	for _, accountID := range accountIDs {
+		if err := s.planRepo.DeleteByAccountAndCron(ctx, accountID, template.CronExpression); err != nil {
+			failed++
+			errors = append(errors, fmt.Sprintf("account %d: %v", accountID, err))
+			continue
+		}
+
+		plan := *template
+		plan.ID = 0
+		plan.AccountID = accountID
+		plan.NextRunAt = nil
+		plan.LastRunAt = nil
+		plan.CreatedAt = time.Time{}
+		plan.UpdatedAt = time.Time{}
+		plan.AccountName = ""
+		plan.AccountPlatform = ""
+		if _, err := s.CreatePlan(ctx, &plan); err != nil {
+			failed++
+			errors = append(errors, fmt.Sprintf("account %d: %v", accountID, err))
+			continue
+		}
+		created++
+	}
+	return created, failed, errors
+}
+
 // UpdatePlan validates cron and updates the plan.
 func (s *ScheduledTestService) UpdatePlan(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error) {
 	nextRun, err := computeNextRun(plan.CronExpression, time.Now())
