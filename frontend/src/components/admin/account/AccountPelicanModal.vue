@@ -92,20 +92,37 @@
 
         <!-- Controls: Model Selection, Prompt Scenario & Reasoning Effort -->
         <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-12 items-end">
-          <!-- Big Model Selector (single dropdown) -->
+          <!-- Model preset plus free-form model id input. -->
           <div class="sm:col-span-2 md:col-span-6 space-y-1">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.pelicanModel') }}
             </label>
-            <select
-              v-model="selectedModel"
-              :disabled="isRunning"
-              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-            >
-              <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
-                {{ m.label }}
-              </option>
-            </select>
+            <div class="flex gap-2">
+              <select
+                v-model="selectedModel"
+                :disabled="isRunning"
+                :aria-label="t('admin.accounts.pelicanModel')"
+                class="w-40 shrink-0 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+              >
+                <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
+                  {{ m.label }}
+                </option>
+              </select>
+              <input
+                v-model="selectedModel"
+                data-test="pelican-model-input"
+                type="text"
+                list="pelican-model-presets"
+                :disabled="isRunning"
+                :placeholder="t('admin.accounts.pelicanModelPlaceholder')"
+                :aria-label="t('admin.accounts.pelicanModelPlaceholder')"
+                autocomplete="off"
+                class="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+              />
+              <datalist id="pelican-model-presets">
+                <option v-for="m in MODEL_PRESETS" :key="`input-${m.value}`" :value="m.value">{{ m.label }}</option>
+              </datalist>
+            </div>
           </div>
 
           <!-- Prompt Scenario Dropdown -->

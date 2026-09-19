@@ -378,8 +378,8 @@ describe('AccountPelicanModal', () => {
     ])
     await flushPromises()
 
-    // 设置大模型与思考程度
-    ;(wrapper.vm as any).selectedModel = 'gpt-5.4'
+    // 通过界面输入未预置的大模型 ID 与思考程度。
+    await wrapper.get('[data-test="pelican-model-input"]').setValue('gpt-5.6-luna-custom')
     ;(wrapper.vm as any).reasoningEffort = 'high'
     await flushPromises()
 
@@ -389,7 +389,7 @@ describe('AccountPelicanModal', () => {
     expect(global.fetch).toHaveBeenCalled()
     const [, req] = (global.fetch as any).mock.calls[(global.fetch as any).mock.calls.length - 1]
     const body = JSON.parse(req.body)
-    expect(body.model_id).toBe('gpt-5.4')
+    expect(body.model_id).toBe('gpt-5.6-luna-custom')
     expect(body.reasoning_effort).toBe('high')
   })
 
