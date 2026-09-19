@@ -3250,6 +3250,31 @@ const handleToggleStateProtection = async (input: AccountListItem | Account) => 
     stateProtectionBusy.value = null
   }
 }
+
+const syncStateProtectionFlags = async () => {
+  try {
+    const plugins = await adminAPI.plugins.list()
+    const plugin = plugins.find(item => item.state === 'enabled' && item.bindings.some(binding => binding.enabled && binding.capability === 'openai.oauth.protection_transport.v1'))
+    let protectedIds = new Set<number>()
+    if (plugin) {
+      const config = await adminAPI.plugins.getConfig(plugin.id)
+      protectedIds = new Set(Array.isArray(config.accounts)
+        ? config.accounts.filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0)
+        : [])
+    }
+    for (const account of accounts.value) {
+      if (account.platform !== 'openai' || account.type !== 'oauth') continue
+      const enabled = protectedIds.has(account.id)
+      if (Boolean(account.extra?.state_protection_enabled) === enabled) continue
+      patchAccountInList({
+        ...account,
+        extra: { ...(account.extra || {}), state_protection_enabled: enabled }
+      })
+    }
+  } catch (error) {
+    console.debug('Skipped state protection flag sync:', error)
+  }
+}
 const handleBulkPelicanTest = async () => {
   const selected = accounts.value.filter(a => selIds.value.includes(a.id))
   if (selected.length === 0) return
@@ -3674,6 +3699,7 @@ const handleClickOutside = (event: MouseEvent) => {
 
 onMounted(async () => {
   load()
+  void syncStateProtectionFlags()
   loadUpstreamBillingProbeGlobalState()
   const [proxiesResult, groupsResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
