@@ -25,15 +25,16 @@ import (
 )
 
 type pluginRuntime struct {
-	installation *PluginInstallation
-	client       *hcplugin.Client
-	api          pluginv1.TransportPluginClient
-	apiV2        pluginv2.ExtensionHandler
-	transportV2  pluginv2.TransportClient
-	inFlight     atomic.Int64
-	draining     atomic.Bool
-	done         chan struct{}
-	doneOnce     sync.Once
+	installation         *PluginInstallation
+	client               *hcplugin.Client
+	api                  pluginv1.TransportPluginClient
+	apiV2                pluginv2.ExtensionHandler
+	transportV2          pluginv2.TransportClient
+	protectionAccountIDs map[int64]struct{}
+	inFlight             atomic.Int64
+	draining             atomic.Bool
+	done                 chan struct{}
+	doneOnce             sync.Once
 }
 
 func startPluginRuntime(ctx context.Context, installation *PluginInstallation, startTimeout time.Duration, socketDir string) (*pluginRuntime, error) {
@@ -179,6 +180,11 @@ func (r *pluginRuntime) validateAndApplyNormalizedConfig(ctx context.Context, co
 		if err != nil {
 			return nil, fmt.Errorf("序列化插件规范化配置: %w", err)
 		}
+		accounts, err := protectionAccountSet(normalized)
+		if err != nil {
+			return nil, fmt.Errorf("解析保护账号范围: %w", err)
+		}
+		r.protectionAccountIDs = accounts
 		if err := r.apiV2.ApplyConfig(ctx, normalized); err != nil {
 			return nil, fmt.Errorf("应用插件配置失败: %w", err)
 		}
@@ -396,6 +402,22 @@ type PluginTransportError struct {
 
 type pluginV2ForwardStream struct {
 	stream grpc.BidiStreamingClient[pluginv1.ForwardRequest, pluginv1.ForwardResponse]
+}
+
+func protectionAccountSet(configJSON []byte) (map[int64]struct{}, error) {
+	var config struct {
+		Accounts []int64 `json:"accounts"`
+	}
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		return nil, err
+	}
+	accounts := make(map[int64]struct{}, len(config.Accounts))
+	for _, id := range config.Accounts {
+		if id > 0 {
+			accounts[id] = struct{}{}
+		}
+	}
+	return accounts, nil
 }
 
 func (s *pluginV2ForwardStream) Header() (metadata.MD, error) {

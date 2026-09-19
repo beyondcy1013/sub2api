@@ -978,6 +978,11 @@ func (m *PluginManager) RoundTripOpenAIProtection(ctx context.Context, request *
 			stablePluginBucket(account.ID) >= uint64(bindingRollout(runtime.installation.Bindings)) {
 			continue
 		}
+		if len(runtime.protectionAccountIDs) > 0 {
+			if _, allowed := runtime.protectionAccountIDs[account.ID]; !allowed {
+				continue
+			}
+		}
 		if runtime.client.Exited() {
 			return nil, true, fmt.Errorf("OpenAI OAuth 保护传输插件进程已退出")
 		}
