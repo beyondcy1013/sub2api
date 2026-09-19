@@ -271,7 +271,7 @@ func (m *PluginManager) reconcileOnce(ctx context.Context) error {
 	m.cleanupStaleLocalInstallations(installations)
 	var enabled *PluginInstallation
 	for _, installation := range installations {
-		if !hasEnabledOpenAIBinding(installation.Bindings) {
+		if !hasEnabledTransportBinding(installation.Bindings) {
 			continue
 		}
 		if enabled != nil {
@@ -344,7 +344,7 @@ func (m *PluginManager) reconcileOnce(ctx context.Context) error {
 		runtime.kill()
 		return err
 	}
-	if !hasEnabledOpenAIBinding(latest.Bindings) || latest.BinarySHA256 != enabled.BinarySHA256 ||
+	if !hasEnabledTransportBinding(latest.Bindings) || latest.BinarySHA256 != enabled.BinarySHA256 ||
 		latest.ConfigEncrypted != enabled.ConfigEncrypted || bindingRollout(latest.Bindings) != rollout {
 		runtime.kill()
 		return nil
@@ -561,7 +561,7 @@ func (m *PluginManager) Enable(ctx context.Context, id int64, acceptUntested boo
 	if active := m.route.Load(); active != nil && active.pluginID != id {
 		return nil, errors.New("OpenAI OAuth 出站能力已有启用插件，请先停用当前插件")
 	}
-	if installation.State == PluginStateEnabled && hasEnabledOpenAIBinding(installation.Bindings) {
+	if installation.State == PluginStateEnabled && hasEnabledTransportBinding(installation.Bindings) {
 		installation.Compatibility = EvaluatePluginCompatibility(installation.Manifest, m.hostInfo)
 		m.mu.Lock()
 		runtime := m.runtimes[id]
@@ -809,6 +809,13 @@ func (m *PluginManager) Test(ctx context.Context, id int64) (*pluginv1.TestConfi
 	defer cancel()
 	if err := runtime.validateAndApplyConfig(testCtx, configJSON); err != nil {
 		return nil, err
+	}
+	if runtime.apiV2 != nil {
+		began := time.Now()
+		if _, err := runtime.apiV2.TestConfig(testCtx, configJSON); err != nil {
+			return nil, err
+		}
+		return &pluginv1.TestConfigResponse{Success: true, LatencyMs: time.Since(began).Milliseconds()}, nil
 	}
 	return runtime.api.TestConfig(testCtx, &pluginv1.TestConfigRequest{ConfigJson: configJSON})
 }
@@ -1118,6 +1125,20 @@ func (m *PluginManager) removeManagedPath(target string) error {
 func hasEnabledOpenAIBinding(bindings []PluginBinding) bool {
 	for _, binding := range bindings {
 		if binding.Enabled && binding.Capability == PluginCapabilityOpenAIOAuthOutbound &&
+			binding.Platform == PlatformOpenAI && binding.AccountType == AccountTypeOAuth {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnabledTransportBinding(bindings []PluginBinding) bool {
+	return hasEnabledOpenAIBinding(bindings) || runtimeHasProtectionBinding(bindings)
+}
+
+func runtimeHasProtectionBinding(bindings []PluginBinding) bool {
+	for _, binding := range bindings {
+		if binding.Enabled && binding.Capability == PluginCapabilityOpenAIProtectionTransport &&
 			binding.Platform == PlatformOpenAI && binding.AccountType == AccountTypeOAuth {
 			return true
 		}
