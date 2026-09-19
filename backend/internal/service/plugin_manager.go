@@ -962,6 +962,53 @@ func (m *PluginManager) ShouldRouteOpenAIOAuth(account *Account) bool {
 	return route != nil && route.rolloutPercent > 0 && int(stablePluginBucket(account.ID)) < route.rolloutPercent
 }
 
+// RoundTripOpenAIProtection routes one OpenAI OAuth attempt through a v2
+// protection transport plugin. This deliberately bypasses the legacy single
+// v1 route so the two protocol generations can be installed independently.
+func (m *PluginManager) RoundTripOpenAIProtection(ctx context.Context, request *http.Request, proxyURL string, account *Account) (*http.Response, bool, error) {
+	if m == nil || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+		return nil, false, nil
+	}
+	for _, runtime := range m.runtimes {
+		if runtime == nil || runtime.installation == nil || runtime.installation.Manifest.SchemaVersion != 2 ||
+			runtime.installation.State != PluginStateEnabled || runtime.transportV2 == nil {
+			continue
+		}
+		if !runtimeHasProtectionCapability(runtime.installation) ||
+			stablePluginBucket(account.ID) >= uint64(bindingRollout(runtime.installation.Bindings)) {
+			continue
+		}
+		if runtime.client.Exited() {
+			return nil, true, fmt.Errorf("OpenAI OAuth 保护传输插件进程已退出")
+		}
+		if !runtime.beginRequest() {
+			return nil, true, errors.New("OpenAI OAuth 保护传输插件正在停止")
+		}
+		response, err := runtime.roundTrip(ctx, request, proxyURL, account)
+		if err != nil {
+			runtime.finishRequest()
+			if runtime.client.Exited() {
+				m.mu.Lock()
+				delete(m.runtimes, runtime.installation.ID)
+				m.mu.Unlock()
+			}
+			return nil, true, err
+		}
+		return response, true, nil
+	}
+	return nil, false, nil
+}
+
+func runtimeHasProtectionCapability(installation *PluginInstallation) bool {
+	for _, capability := range installation.Manifest.Capabilities {
+		if capability.ID == PluginCapabilityOpenAIProtectionTransport &&
+			capability.Platform == PlatformOpenAI && capability.AccountType == AccountTypeOAuth {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *PluginManager) markRuntimeUnavailable(failedRoute *pluginRoute, message string) error {
 	m.mu.Lock()
 	current := m.route.Load()

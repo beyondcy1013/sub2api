@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv2 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v2"
 	"golang.org/x/mod/semver"
 )
 
@@ -22,9 +23,16 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 		TransportAPI:       manifest.Requires.TransportAPI,
 		UIBridge:           manifest.Requires.UIBridge,
 	}
-	if manifest.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
-		manifest.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
-		manifest.Requires.UIBridge != pluginv1.UIBridgeVersion {
+	protocolCompatible := manifest.SchemaVersion == 1 &&
+		manifest.Requires.PluginProtocol == pluginv1.ProtocolVersion &&
+		manifest.Requires.TransportAPI == pluginv1.TransportAPIVersion &&
+		manifest.Requires.UIBridge == pluginv1.UIBridgeVersion
+	if manifest.SchemaVersion == 2 {
+		protocolCompatible = int(manifest.Requires.PluginProtocol) == int(pluginv2.ProtocolVersion) &&
+			manifest.Requires.ExtensionAPI == pluginv2.HostAPIVersion &&
+			manifest.Requires.UIBridge == pluginv1.UIBridgeVersion
+	}
+	if !protocolCompatible {
 		result.Status = "incompatible"
 		result.Message = "插件协议版本与当前 Sub2API 不兼容"
 		return result

@@ -4,6 +4,11 @@ export interface PluginCapability {
   id: string
   platform: string
   account_type: string
+  kind?: string
+  permissions?: string[]
+  timeout_ms?: number
+  failure_mode?: string
+  synchronous?: boolean
 }
 
 export interface PluginRequirements {
@@ -11,7 +16,8 @@ export interface PluginRequirements {
   recommended_sub2api_version?: string
   tested_sub2api_versions?: string[]
   plugin_protocol: number
-  transport_api: number
+  extension_api?: number
+  transport_api?: number
   ui_bridge: number
 }
 

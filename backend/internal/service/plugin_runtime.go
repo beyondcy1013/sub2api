@@ -17,14 +17,19 @@ import (
 	"time"
 
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv2 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v2"
 	hclog "github.com/hashicorp/go-hclog"
 	hcplugin "github.com/hashicorp/go-plugin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 type pluginRuntime struct {
 	installation *PluginInstallation
 	client       *hcplugin.Client
 	api          pluginv1.TransportPluginClient
+	apiV2        pluginv2.ExtensionHandler
+	transportV2  pluginv2.TransportClient
 	inFlight     atomic.Int64
 	draining     atomic.Bool
 	done         chan struct{}
@@ -39,10 +44,18 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 	if err != nil || len(checksum) != sha256.Size {
 		return nil, errors.New("插件二进制哈希无效")
 	}
+	handshake := pluginv1.HandshakeConfig
+	plugins := pluginv1.ClientPluginMap()
+	pluginName := pluginv1.TransportPluginName
+	if installation.Manifest.SchemaVersion == 2 {
+		handshake = pluginv2.HandshakeConfig
+		plugins = pluginv2.ClientPluginMap()
+		pluginName = pluginv2.ExtensionPluginName
+	}
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), installation.BinaryPath)
 	client := hcplugin.NewClient(&hcplugin.ClientConfig{
-		HandshakeConfig:  pluginv1.HandshakeConfig,
-		Plugins:          pluginv1.ClientPluginMap(),
+		HandshakeConfig:  handshake,
+		Plugins:          plugins,
 		Cmd:              cmd,
 		AllowedProtocols: []hcplugin.Protocol{hcplugin.ProtocolGRPC},
 		StartTimeout:     startTimeout,
@@ -61,41 +74,79 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 		client.Kill()
 		return nil, fmt.Errorf("启动插件进程: %w", err)
 	}
-	dispensed, err := rpcClient.Dispense(pluginv1.TransportPluginName)
+	dispensed, err := rpcClient.Dispense(pluginName)
 	if err != nil {
 		client.Kill()
 		return nil, fmt.Errorf("获取插件传输能力: %w", err)
 	}
-	api, ok := dispensed.(pluginv1.TransportPluginClient)
-	if !ok {
-		client.Kill()
-		return nil, errors.New("插件未实现传输 gRPC 客户端")
-	}
 	runtime := &pluginRuntime{
 		installation: installation,
 		client:       client,
-		api:          api,
 		done:         make(chan struct{}),
 	}
 	infoCtx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
-	info, err := api.GetInfo(infoCtx, &pluginv1.GetInfoRequest{})
-	if err != nil {
-		runtime.kill()
-		return nil, fmt.Errorf("读取插件信息: %w", err)
-	}
-	if info.PluginId != installation.PluginKey || info.PluginVersion != installation.Version ||
-		info.ProtocolVersion != pluginv1.ProtocolVersion || info.TransportApiVersion != pluginv1.TransportAPIVersion {
-		runtime.kill()
-		return nil, errors.New("插件运行时信息与已校验清单不一致")
-	}
-	health, err := api.Health(infoCtx, &pluginv1.HealthRequest{})
-	if err != nil || !health.Healthy {
-		runtime.kill()
-		if err != nil {
-			return nil, fmt.Errorf("插件健康检查失败: %w", err)
+
+	if installation.Manifest.SchemaVersion == 2 {
+		api, ok := dispensed.(pluginv2.ExtensionHandler)
+		if !ok {
+			client.Kill()
+			return nil, errors.New("插件未实现扩展 gRPC 客户端")
 		}
-		return nil, fmt.Errorf("插件不健康: %s", health.Message)
+		transport, ok := dispensed.(pluginv2.TransportClient)
+		if !ok {
+			client.Kill()
+			return nil, errors.New("插件未实现保护传输客户端")
+		}
+		runtime.apiV2 = api
+		runtime.transportV2 = transport
+		info, infoErr := api.GetInfo(infoCtx)
+		if infoErr != nil {
+			runtime.kill()
+			return nil, fmt.Errorf("读取插件信息: %w", infoErr)
+		}
+		if info.PluginID != installation.PluginKey || info.PluginVersion != installation.Version ||
+			info.ProtocolVersion != pluginv2.ProtocolVersion {
+			runtime.kill()
+			return nil, errors.New("插件运行时信息与已校验清单不一致")
+		}
+		if len(info.Capabilities) != 1 || info.Capabilities[0].ID != PluginCapabilityOpenAIProtectionTransport {
+			runtime.kill()
+			return nil, errors.New("插件运行时能力与已校验清单不一致")
+		}
+		health, healthErr := api.Health(infoCtx)
+		if healthErr != nil || !health.Healthy {
+			runtime.kill()
+			if healthErr != nil {
+				return nil, fmt.Errorf("插件健康检查失败: %w", healthErr)
+			}
+			return nil, fmt.Errorf("插件不健康: %s", health.Message)
+		}
+	} else {
+		api, ok := dispensed.(pluginv1.TransportPluginClient)
+		if !ok {
+			client.Kill()
+			return nil, errors.New("插件未实现传输 gRPC 客户端")
+		}
+		runtime.api = api
+		info, infoErr := api.GetInfo(infoCtx, &pluginv1.GetInfoRequest{})
+		if infoErr != nil {
+			runtime.kill()
+			return nil, fmt.Errorf("读取插件信息: %w", infoErr)
+		}
+		if info.PluginId != installation.PluginKey || info.PluginVersion != installation.Version ||
+			info.ProtocolVersion != pluginv1.ProtocolVersion || info.TransportApiVersion != pluginv1.TransportAPIVersion {
+			runtime.kill()
+			return nil, errors.New("插件运行时信息与已校验清单不一致")
+		}
+		health, healthErr := api.Health(infoCtx, &pluginv1.HealthRequest{})
+		if healthErr != nil || !health.Healthy {
+			runtime.kill()
+			if healthErr != nil {
+				return nil, fmt.Errorf("插件健康检查失败: %w", healthErr)
+			}
+			return nil, fmt.Errorf("插件不健康: %s", health.Message)
+		}
 	}
 	return runtime, nil
 }
@@ -106,6 +157,33 @@ func (r *pluginRuntime) validateAndApplyConfig(ctx context.Context, configJSON [
 }
 
 func (r *pluginRuntime) validateAndApplyNormalizedConfig(ctx context.Context, configJSON []byte) ([]byte, error) {
+	if r.apiV2 != nil {
+		normalized, err := r.apiV2.ValidateConfig(ctx, configJSON)
+		if err != nil {
+			return nil, fmt.Errorf("插件配置校验失败: %w", err)
+		}
+		if len(normalized) == 0 {
+			normalized = configJSON
+		}
+		if len(normalized) == 0 || len(normalized) > pluginConfigMaxBytes || !json.Valid(normalized) {
+			return nil, errors.New("插件返回的规范化配置不是有效且大小受限的 JSON")
+		}
+		var normalizedValue any
+		if err := json.Unmarshal(normalized, &normalizedValue); err != nil {
+			return nil, fmt.Errorf("解析插件规范化配置: %w", err)
+		}
+		if _, ok := normalizedValue.(map[string]any); !ok {
+			return nil, errors.New("插件返回的规范化配置根节点必须是对象")
+		}
+		normalized, err = json.Marshal(normalizedValue)
+		if err != nil {
+			return nil, fmt.Errorf("序列化插件规范化配置: %w", err)
+		}
+		if err := r.apiV2.ApplyConfig(ctx, normalized); err != nil {
+			return nil, fmt.Errorf("应用插件配置失败: %w", err)
+		}
+		return normalized, nil
+	}
 	validation, err := r.api.ValidateConfig(ctx, &pluginv1.ValidateConfigRequest{ConfigJson: configJSON})
 	if err != nil {
 		return nil, fmt.Errorf("插件配置校验失败: %w", err)
@@ -144,8 +222,22 @@ func (r *pluginRuntime) validateAndApplyNormalizedConfig(ctx context.Context, co
 }
 
 func (r *pluginRuntime) checkHealth(ctx context.Context) error {
-	if r == nil || r.api == nil || r.client == nil || r.client.Exited() {
+	if r == nil || r.client == nil || r.client.Exited() || (r.api == nil && r.apiV2 == nil) {
 		return errors.New("插件进程已退出")
+	}
+	if r.apiV2 != nil {
+		health, err := r.apiV2.Health(ctx)
+		if err != nil {
+			return fmt.Errorf("插件健康检查失败: %w", err)
+		}
+		if !health.Healthy {
+			message := "插件报告不健康"
+			if strings.TrimSpace(health.Message) != "" {
+				message = "插件不健康: " + health.Message
+			}
+			return errors.New(message)
+		}
+		return nil
 	}
 	health, err := r.api.Health(ctx, &pluginv1.HealthRequest{})
 	if err != nil {
@@ -207,10 +299,21 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		return nil, errors.New("插件出站请求参数不完整")
 	}
 	streamCtx, cancel := context.WithCancel(ctx)
-	stream, err := r.api.Forward(streamCtx)
-	if err != nil {
-		cancel()
-		return nil, normalizePluginRPCError(ctx, "创建插件转发流", err, false)
+	var stream pluginv1.TransportPlugin_ForwardClient
+	if r.apiV2 != nil {
+		streamV2, streamErr := r.transportV2.Forward(streamCtx)
+		if streamErr != nil {
+			cancel()
+			return nil, normalizePluginRPCError(ctx, "创建插件转发流", streamErr, false)
+		}
+		stream = &pluginV2ForwardStream{stream: streamV2}
+	} else {
+		var err error
+		stream, err = r.api.Forward(streamCtx)
+		if err != nil {
+			cancel()
+			return nil, normalizePluginRPCError(ctx, "创建插件转发流", err, false)
+		}
 	}
 	requestID := strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatInt(account.ID, 36)
 	if err := stream.Send(&pluginv1.ForwardRequest{Frame: &pluginv1.ForwardRequest_Start{Start: &pluginv1.ForwardRequestStart{
@@ -289,6 +392,42 @@ type PluginTransportError struct {
 	Code        string
 	Message     string
 	RequestSent bool
+}
+
+type pluginV2ForwardStream struct {
+	stream grpc.BidiStreamingClient[pluginv1.ForwardRequest, pluginv1.ForwardResponse]
+}
+
+func (s *pluginV2ForwardStream) Header() (metadata.MD, error) {
+	return s.stream.Header()
+}
+
+func (s *pluginV2ForwardStream) Trailer() metadata.MD {
+	return s.stream.Trailer()
+}
+
+func (s *pluginV2ForwardStream) Context() context.Context {
+	return s.stream.Context()
+}
+
+func (s *pluginV2ForwardStream) SendMsg(message any) error {
+	return s.stream.SendMsg(message)
+}
+
+func (s *pluginV2ForwardStream) RecvMsg(message any) error {
+	return s.stream.RecvMsg(message)
+}
+
+func (s *pluginV2ForwardStream) Send(request *pluginv1.ForwardRequest) error {
+	return s.stream.Send(request)
+}
+
+func (s *pluginV2ForwardStream) Recv() (*pluginv1.ForwardResponse, error) {
+	return s.stream.Recv()
+}
+
+func (s *pluginV2ForwardStream) CloseSend() error {
+	return s.stream.CloseSend()
 }
 
 func (e *PluginTransportError) Error() string {

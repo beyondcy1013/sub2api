@@ -103,3 +103,49 @@ func TestPluginRuntimeIntegration(t *testing.T) {
 	require.Error(t, err)
 	assert.Less(t, time.Since(started), 2*time.Second)
 }
+
+func TestStateReuseV2RuntimeIntegration(t *testing.T) {
+	packagePath := os.Getenv("SUB2API_TEST_STATE_REUSE_PACKAGE")
+	if packagePath == "" {
+		t.Skip("未提供 SUB2API_TEST_STATE_REUSE_PACKAGE，跳过 v2 保护传输插件集成测试")
+	}
+	packageFile, err := os.Open(packagePath)
+	require.NoError(t, err)
+	defer func() { _ = packageFile.Close() }()
+
+	root := t.TempDir()
+	cfg := testPluginConfig(root, false)
+	cfg.Plugins.TrustedPublishers["local-flownode-state-reuse-20260919"] = "kvi1ePhkkYyy8i37U9ewLkrRLUDbzrv0m4Cf4C1S038="
+	installer := NewPluginPackageInstaller(cfg, PluginHostInfo{Version: "0.2.5", BuildType: "release"})
+	installation, err := installer.Install(context.Background(), packageFile, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, installation.Manifest.SchemaVersion)
+	require.Equal(t, PluginSignatureTrusted, installation.SignatureStatus)
+	require.FileExists(t, filepath.Join(installation.InstallPath, "ui", "index.html"))
+
+	runtime, err := startPluginRuntime(context.Background(), installation, 10*time.Second, filepath.Join(root, "runtime"))
+	require.NoError(t, err)
+	defer runtime.kill()
+
+	normalized, err := runtime.validateAndApplyNormalizedConfig(context.Background(), []byte(`{
+		"proxy_url":"socks5h://127.0.0.1:18300",
+		"accounts":[42],
+		"suspended":[]
+	}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"accounts":[42],"proxy_url":"socks5h://127.0.0.1:18300","suspended":[]}`, string(normalized))
+	require.NoError(t, runtime.checkHealth(context.Background()))
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer upstream.Close()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, upstream.URL, bytes.NewBufferString(`{"model":"gpt-6-astra"}`))
+	require.NoError(t, err)
+	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	require.True(t, runtime.beginRequest())
+	_, err = runtime.roundTrip(context.Background(), request, "", account)
+	runtime.finishRequest()
+	var transportErr *PluginTransportError
+	require.ErrorAs(t, err, &transportErr)
+	require.Equal(t, "invalid_upstream", transportErr.Code)
+	require.False(t, transportErr.RequestSent)
+}

@@ -439,9 +439,15 @@ async function handleFileSelected(event: Event): Promise<void> {
 
 function currentRollout(plugin: PluginInstallation): number {
   return (
-    plugin.bindings.find(
-      (binding) => binding.capability === "openai.oauth.outbound_transport.v1",
-    )?.rollout_percent || 100
+    plugin.bindings.find((binding) => isRoutedCapability(binding.capability))
+      ?.rollout_percent || 100
+  );
+}
+
+function isRoutedCapability(capability: string): boolean {
+  return (
+    capability === "openai.oauth.outbound_transport.v1" ||
+    capability === "openai.oauth.protection_transport.v1"
   );
 }
 

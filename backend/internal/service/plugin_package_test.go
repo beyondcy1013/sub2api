@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv2 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,6 +95,20 @@ func TestBuiltInOpenAITransportPublisherDoesNotRequireConfiguration(t *testing.T
 	assert.Len(t, publicKey, ed25519.PublicKeySize)
 	assert.Equal(t, builtInOpenAITransportPublisherKeyBase64, encodedKey)
 	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInOpenAITransportPublisherKeyID, "com.example.other-plugin"))
+}
+
+func TestPluginPackageInstallerAcceptsStateReuseV2Manifest(t *testing.T) {
+	cfg := testPluginConfig(t.TempDir(), true)
+	installer := NewPluginPackageInstaller(cfg, PluginHostInfo{Version: "0.2.5", BuildType: "release"})
+	manifest := testStateReuseV2Manifest(t)
+
+	installation, err := installer.Install(context.Background(), bytes.NewReader(buildPluginArchive(t, manifest, nil, "", nil)), nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, installation.Manifest.SchemaVersion)
+	assert.Equal(t, PluginCapabilityOpenAIProtectionTransport, installation.Manifest.Capabilities[0].ID)
+	assert.True(t, installation.Compatibility.Compatible)
+	assert.Equal(t, "untested", installation.Compatibility.Status)
 }
 
 func TestPluginPackageInstallerRejectsPathTraversal(t *testing.T) {
@@ -245,4 +260,51 @@ func writeZipEntry(t *testing.T, writer *zip.Writer, path string, data []byte) {
 	require.NoError(t, err)
 	_, err = entry.Write(data)
 	require.NoError(t, err)
+}
+
+func testStateReuseV2Manifest(t *testing.T) PluginManifest {
+	t.Helper()
+	files := map[string][]byte{
+		"runtimes/linux-amd64/state-reuse": []byte("binary"),
+		"ui/index.html":                    []byte("<html></html>"),
+	}
+	hashes := make(map[string]string, len(files))
+	for path, data := range files {
+		digest := sha256.Sum256(data)
+		hashes[path] = hex.EncodeToString(digest[:])
+	}
+	return PluginManifest{
+		SchemaVersion: 2,
+		ID:            "local.flownode.state-reuse",
+		Name:          "STATE Reuse",
+		Version:       "1.0.12",
+		Requires: PluginRequirements{
+			Sub2API:        ">=0.2.5 <0.3.0",
+			PluginProtocol: 2,
+			ExtensionAPI:   1,
+			UIBridge:       1,
+		},
+		Capabilities: []PluginCapability{{
+			ID:          PluginCapabilityOpenAIProtectionTransport,
+			Platform:    PlatformOpenAI,
+			AccountType: AccountTypeOAuth,
+			Kind:        "provider",
+			Permissions: []pluginv2.Permission{
+				pluginv2.PermissionRequestMetadata,
+				pluginv2.PermissionRequestBody,
+				pluginv2.PermissionCredentialsForward,
+				pluginv2.PermissionNetworkOutbound,
+				pluginv2.PermissionAccountProtection,
+				pluginv2.PermissionOriginalRequest,
+			},
+			TimeoutMS:   120000,
+			FailureMode: pluginv2.FailureModeClosed,
+			Synchronous: true,
+		}},
+		Runtimes: map[string]PluginRuntime{
+			PluginManifest{}.RuntimeKey(): {Path: "runtimes/linux-amd64/state-reuse"},
+		},
+		UI:    PluginUIManifest{Entrypoint: "ui/index.html"},
+		Files: hashes,
+	}
 }

@@ -12,17 +12,19 @@ import (
 	"time"
 
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	pluginv2 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v2"
 )
 
 const (
-	PluginCapabilityOpenAIOAuthOutbound = "openai.oauth.outbound_transport.v1"
-	PluginStateDisabled                 = "disabled"
-	PluginStateStarting                 = "starting"
-	PluginStateEnabled                  = "enabled"
-	PluginStateError                    = "error"
-	PluginStateIncompatible             = "incompatible"
-	PluginSignatureTrusted              = "trusted"
-	PluginSignatureUnsigned             = "unsigned"
+	PluginCapabilityOpenAIOAuthOutbound       = "openai.oauth.outbound_transport.v1"
+	PluginCapabilityOpenAIProtectionTransport = "openai.oauth.protection_transport.v1"
+	PluginStateDisabled                       = "disabled"
+	PluginStateStarting                       = "starting"
+	PluginStateEnabled                        = "enabled"
+	PluginStateError                          = "error"
+	PluginStateIncompatible                   = "incompatible"
+	PluginSignatureTrusted                    = "trusted"
+	PluginSignatureUnsigned                   = "unsigned"
 )
 
 var pluginIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)+$`)
@@ -49,14 +51,20 @@ type PluginRequirements struct {
 	RecommendedSub2APIVersion string   `json:"recommended_sub2api_version,omitempty"`
 	TestedSub2APIVersions     []string `json:"tested_sub2api_versions,omitempty"`
 	PluginProtocol            int      `json:"plugin_protocol"`
-	TransportAPI              int      `json:"transport_api"`
+	ExtensionAPI              int      `json:"extension_api,omitempty"`
+	TransportAPI              int      `json:"transport_api,omitempty"`
 	UIBridge                  int      `json:"ui_bridge"`
 }
 
 type PluginCapability struct {
-	ID          string `json:"id"`
-	Platform    string `json:"platform"`
-	AccountType string `json:"account_type"`
+	ID          string                  `json:"id"`
+	Platform    string                  `json:"platform"`
+	AccountType string                  `json:"account_type"`
+	Kind        pluginv2.CapabilityKind `json:"kind,omitempty"`
+	Permissions []pluginv2.Permission   `json:"permissions,omitempty"`
+	TimeoutMS   int64                   `json:"timeout_ms,omitempty"`
+	FailureMode pluginv2.FailureMode    `json:"failure_mode,omitempty"`
+	Synchronous bool                    `json:"synchronous,omitempty"`
 }
 
 type PluginRuntime struct {
@@ -145,7 +153,7 @@ func (m PluginManifest) RuntimeKey() string {
 }
 
 func (m PluginManifest) Validate() error {
-	if m.SchemaVersion != 1 {
+	if m.SchemaVersion != 1 && m.SchemaVersion != 2 {
 		return fmt.Errorf("不支持的插件清单版本: %d", m.SchemaVersion)
 	}
 	if !pluginIDPattern.MatchString(m.ID) || len(m.ID) > 160 {
@@ -160,17 +168,58 @@ func (m PluginManifest) Validate() error {
 	if strings.TrimSpace(m.Requires.Sub2API) == "" {
 		return errors.New("插件必须声明 requires.sub2api")
 	}
-	if m.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
-		m.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
-		m.Requires.UIBridge != pluginv1.UIBridgeVersion {
-		return errors.New("插件协议、传输 API 或 UI Bridge 版本与当前宿主不兼容")
+	switch m.SchemaVersion {
+	case 1:
+		if m.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
+			m.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
+			m.Requires.UIBridge != pluginv1.UIBridgeVersion {
+			return errors.New("插件协议、传输 API 或 UI Bridge 版本与当前宿主不兼容")
+		}
+	case 2:
+		if int(m.Requires.PluginProtocol) != int(pluginv2.ProtocolVersion) ||
+			m.Requires.ExtensionAPI != pluginv2.HostAPIVersion ||
+			m.Requires.UIBridge != pluginv1.UIBridgeVersion {
+			return errors.New("插件协议、扩展 API 或 UI Bridge 版本与当前宿主不兼容")
+		}
 	}
 	if len(m.Capabilities) == 0 {
 		return errors.New("插件必须声明至少一个能力")
 	}
 	for _, capability := range m.Capabilities {
-		if capability.ID != PluginCapabilityOpenAIOAuthOutbound || capability.Platform != PlatformOpenAI || capability.AccountType != AccountTypeOAuth {
-			return fmt.Errorf("初期仅支持能力 %s", PluginCapabilityOpenAIOAuthOutbound)
+		if capability.Platform != PlatformOpenAI || capability.AccountType != AccountTypeOAuth {
+			return fmt.Errorf("当前仅支持 OpenAI OAuth 作用域插件")
+		}
+		switch {
+		case capability.ID == PluginCapabilityOpenAIOAuthOutbound:
+			if m.SchemaVersion != 1 {
+				return fmt.Errorf("能力 %s 只能用于 v1 清单", capability.ID)
+			}
+		case capability.ID == PluginCapabilityOpenAIProtectionTransport:
+			if m.SchemaVersion != 2 {
+				return fmt.Errorf("能力 %s 只能用于 v2 清单", capability.ID)
+			}
+			validated := pluginv2.Capability{
+				ID:          capability.ID,
+				Kind:        capability.Kind,
+				Platform:    capability.Platform,
+				AccountType: capability.AccountType,
+				Permissions: capability.Permissions,
+				TimeoutMS:   capability.TimeoutMS,
+				FailureMode: capability.FailureMode,
+				Synchronous: capability.Synchronous,
+			}
+			if err := validated.Validate(); err != nil {
+				return err
+			}
+			if capability.Kind != pluginv2.CapabilityKindProvider || !capability.Synchronous || capability.FailureMode != pluginv2.FailureModeClosed {
+				return fmt.Errorf("能力 %s 必须是同步 fail_closed provider", capability.ID)
+			}
+			if !containsPluginPermission(capability.Permissions, pluginv2.PermissionCredentialsForward) ||
+				!containsPluginPermission(capability.Permissions, pluginv2.PermissionNetworkOutbound) {
+				return fmt.Errorf("能力 %s 必须声明凭据转发和网络出站权限", capability.ID)
+			}
+		default:
+			return fmt.Errorf("当前仅支持能力 %s 或 %s", PluginCapabilityOpenAIOAuthOutbound, PluginCapabilityOpenAIProtectionTransport)
 		}
 	}
 	runtimeEntry, ok := m.Runtimes[m.RuntimeKey()]
@@ -195,6 +244,15 @@ func (m PluginManifest) Validate() error {
 		return errors.New("UI 入口未包含在文件哈希声明中")
 	}
 	return nil
+}
+
+func containsPluginPermission(permissions []pluginv2.Permission, wanted pluginv2.Permission) bool {
+	for _, permission := range permissions {
+		if permission == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func safePluginRelativePath(path string) bool {
