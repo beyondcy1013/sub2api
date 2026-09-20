@@ -178,6 +178,55 @@ func TestAccountHandlerListSchedulingOptimalIgnoresPagination(t *testing.T) {
 	require.Equal(t, false, payload.Data.Items[0]["scheduling_rate_optimal"])
 }
 
+func TestAccountHandlerListLiteKeepsSchedulingRateOptimal(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+	now := time.Now().UTC()
+	groupID := int64(51)
+	rate := 0.8
+	otherRate := 0.2
+	aliveExtra := map[string]any{
+		service.SchedulingLivenessExtraKey: map[string]any{
+			"status":          service.SchedulingLivenessStatusAlive,
+			"last_attempt_at": now.Add(-time.Minute),
+			"fresh_until":     now.Add(time.Hour),
+		},
+	}
+	visible := service.Account{
+		ID: 91, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, RateMultiplier: &rate,
+		GroupIDs: []int64{groupID}, Extra: aliveExtra, CreatedAt: now, UpdatedAt: now,
+	}
+	hiddenCheaper := service.Account{
+		ID: 92, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, RateMultiplier: &otherRate,
+		GroupIDs: []int64{groupID}, Extra: aliveExtra, CreatedAt: now, UpdatedAt: now,
+	}
+	adminSvc.accounts = []service.Account{visible}
+	adminSvc.accountSchedulerScoreFilterAccounts = []service.Account{visible, hiddenCheaper}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet,
+		"/api/v1/admin/accounts?page=1&page_size=1&lite=1&include_scheduling_optimal=1", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, 1, adminSvc.schedulerScoreFilterCalls)
+	var payload struct {
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 1)
+	require.Contains(t, payload.Data.Items[0], "scheduling_rate_multiplier")
+	require.Contains(t, payload.Data.Items[0], "scheduling_rate_known")
+	require.Contains(t, payload.Data.Items[0], "scheduling_rate_source")
+	require.Contains(t, payload.Data.Items[0], "scheduling_rate_sync_mode")
+	require.Contains(t, payload.Data.Items[0], "scheduling_liveness_status")
+	require.Contains(t, payload.Data.Items[0], "scheduling_rate_optimal")
+	require.Equal(t, false, payload.Data.Items[0]["scheduling_rate_optimal"])
+}
+
 func schedulingRateRequest(t *testing.T, router http.Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	recorder := httptest.NewRecorder()

@@ -930,7 +930,7 @@ func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.
 		return nil, false, nil
 	}
 	route := m.route.Load()
-	if route == nil {
+	if route == nil || (route.runtime != nil && runtimeHasProtectionCapability(route.runtime.installation)) {
 		return nil, false, nil
 	}
 	if route.runtime == nil {
@@ -966,7 +966,13 @@ func (m *PluginManager) ShouldRouteOpenAIOAuth(account *Account) bool {
 		return false
 	}
 	route := m.route.Load()
-	return route != nil && route.rolloutPercent > 0 && int(stablePluginBucket(account.ID)) < route.rolloutPercent
+	if route == nil || route.rolloutPercent <= 0 || int(stablePluginBucket(account.ID)) >= route.rolloutPercent {
+		return false
+	}
+	if route.runtime != nil && runtimeHasProtectionCapability(route.runtime.installation) {
+		return false
+	}
+	return true
 }
 
 // RoundTripOpenAIProtection routes one OpenAI OAuth attempt through a v2

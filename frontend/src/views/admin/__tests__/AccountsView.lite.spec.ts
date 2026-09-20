@@ -68,6 +68,7 @@ const DataTableStub = defineComponent({
       <div v-for="row in data" :key="row.id" :data-account-name="row.name">
         <slot name="cell-groups" :row="row" />
         <slot name="cell-actions" :row="row" />
+        <slot name="cell-scheduling_rate" :row="row" />
       </div>
     </div>
   `
@@ -91,6 +92,19 @@ const AccountTestModalStub = defineComponent({
 const AccountStatsModalStub = defineComponent({
   props: { show: Boolean, account: { type: Object, default: null } },
   template: '<div data-test="stats-account">{{ show ? account?.name : "" }}</div>'
+})
+
+const SchedulingRateCellStub = defineComponent({
+  props: { account: { type: Object, required: true } },
+  template: `
+    <span data-test="scheduling-rate">
+      <span data-test="scheduling-rate-value">{{ account.scheduling_rate_multiplier ?? account.rate_multiplier ?? 1 }}x</span>
+      <span
+        v-if="account.scheduling_rate_optimal"
+        data-test="scheduling-rate-optimal"
+      >optimal</span>
+    </span>
+  `
 })
 
 function mountView(stubActionMenu = true) {
@@ -125,6 +139,7 @@ function mountView(stubActionMenu = true) {
         AccountTodayStatsCell: true,
         AccountGroupsCell: AccountGroupsCellStub,
         AccountUsageCell: true,
+        SchedulingRateCell: SchedulingRateCellStub,
         UpstreamBillingRateCell: true,
         HelpTooltip: true,
         Icon: true,
@@ -144,6 +159,13 @@ const listRow = {
   concurrency: 2,
   priority: 1,
   group_ids: [7],
+  rate_multiplier: 0.2,
+  scheduling_rate_multiplier: 0.2,
+  scheduling_rate_known: true,
+  scheduling_rate_source: 'manual',
+  scheduling_rate_sync_mode: 'manual_lock',
+  scheduling_liveness_status: 'alive',
+  scheduling_rate_optimal: false,
   extra: {},
   credentials: {}
 }
@@ -183,9 +205,11 @@ describe('admin AccountsView lite account list', () => {
     expect(listAccounts).toHaveBeenCalledWith(
       1,
       100,
-      expect.objectContaining({ lite: '1' }),
+      expect.objectContaining({ lite: '1', include_scheduling_optimal: '1' }),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+    expect(wrapper.get('[data-test="scheduling-rate-value"]').text()).toBe('0.2x')
+    expect(wrapper.find('[data-test="scheduling-rate-optimal"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

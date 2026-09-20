@@ -220,7 +220,7 @@ type AccountWithConcurrency struct {
 	SchedulerScore           *AccountSchedulerScore              `json:"scheduler_score,omitempty"`
 	SchedulerScores          []AccountSchedulerGroupScore        `json:"scheduler_scores,omitempty"`
 	RuntimeStatus            *service.OpenAIRuntimeStatus        `json:"runtime_status,omitempty"`
-	simpleMode         bool                         `json:"-"`
+	simpleMode               bool                                `json:"-"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -251,12 +251,18 @@ func newTrashAccountResponse(account *service.Account, usageStats *service.Windo
 // so groups/account_groups never appear in the list payload.
 type AccountListItemWithConcurrency struct {
 	*dto.AccountListItem
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
-	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
-	ActiveSessions     *int                         `json:"active_sessions,omitempty"`
-	CurrentRPM         *int                         `json:"current_rpm,omitempty"`
+	SchedulingRateMultiplier *float64                     `json:"scheduling_rate_multiplier,omitempty"`
+	SchedulingRateKnown      bool                         `json:"scheduling_rate_known"`
+	SchedulingRateSource     string                       `json:"scheduling_rate_source"`
+	SchedulingRateSyncMode   string                       `json:"scheduling_rate_sync_mode"`
+	SchedulingLivenessStatus string                       `json:"scheduling_liveness_status"`
+	SchedulingRateOptimal    *bool                        `json:"scheduling_rate_optimal,omitempty"`
+	CurrentConcurrency       int                          `json:"current_concurrency"`
+	SchedulerScore           *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
+	SchedulerScores          []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
+	CurrentWindowCost        *float64                     `json:"current_window_cost,omitempty"`
+	ActiveSessions           *int                         `json:"active_sessions,omitempty"`
+	CurrentRPM               *int                         `json:"current_rpm,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -1009,13 +1015,19 @@ func (h *AccountHandler) List(c *gin.Context) {
 		for i := range result {
 			item := result[i]
 			compact[i] = AccountListItemWithConcurrency{
-				AccountListItem:    dto.AccountListItemFromAccount(item.Account),
-				CurrentConcurrency: item.CurrentConcurrency,
-				SchedulerScore:     item.SchedulerScore,
-				SchedulerScores:    item.SchedulerScores,
-				CurrentWindowCost:  item.CurrentWindowCost,
-				ActiveSessions:     item.ActiveSessions,
-				CurrentRPM:         item.CurrentRPM,
+				AccountListItem:          dto.AccountListItemFromAccount(item.Account),
+				SchedulingRateMultiplier: item.SchedulingRateMultiplier,
+				SchedulingRateKnown:      item.SchedulingRateKnown,
+				SchedulingRateSource:     item.SchedulingRateSource,
+				SchedulingRateSyncMode:   item.SchedulingRateSyncMode,
+				SchedulingLivenessStatus: item.SchedulingLivenessStatus,
+				SchedulingRateOptimal:    item.SchedulingRateOptimal,
+				CurrentConcurrency:       item.CurrentConcurrency,
+				SchedulerScore:           item.SchedulerScore,
+				SchedulerScores:          item.SchedulerScores,
+				CurrentWindowCost:        item.CurrentWindowCost,
+				ActiveSessions:           item.ActiveSessions,
+				CurrentRPM:               item.CurrentRPM,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)

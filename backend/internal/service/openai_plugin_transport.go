@@ -30,6 +30,9 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	useTLSFallback bool,
 ) (*http.Response, error) {
 	if s.pluginManager != nil {
+		if response, handled, err := s.pluginManager.RoundTripOpenAIProtection(request.Context(), request, proxyURL, account); handled {
+			return response, err
+		}
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
 		if handled {
 			return response, err
