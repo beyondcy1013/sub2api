@@ -123,7 +123,7 @@ func TestStateReuseV2RuntimeIntegration(t *testing.T) {
 	require.Equal(t, PluginSignatureTrusted, installation.SignatureStatus)
 	require.FileExists(t, filepath.Join(installation.InstallPath, "ui", "index.html"))
 
-	runtime, err := startPluginRuntime(context.Background(), installation, 10*time.Second, filepath.Join(root, "runtime"))
+	runtime, err := startPluginRuntime(context.Background(), installation, 10*time.Second, filepath.Join(root, "runtime"), nil)
 	require.NoError(t, err)
 	defer runtime.kill()
 

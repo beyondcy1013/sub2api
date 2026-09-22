@@ -128,11 +128,12 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 			return nil, fmt.Errorf("插件不健康: %s", health.Message)
 		}
 	} else {
-		api, ok := dispensed.(pluginv1.TransportPluginClient)
-		if !ok {
+		transportClient, ok := dispensed.(*pluginv1.TransportClient)
+		if !ok || transportClient.TransportPluginClient == nil {
 			client.Kill()
 			return nil, errors.New("插件未实现传输 gRPC 客户端")
 		}
+		api := transportClient.TransportPluginClient
 		runtime.api = api
 		info, infoErr := api.GetInfo(infoCtx, &pluginv1.GetInfoRequest{})
 		if infoErr != nil {
@@ -152,10 +153,10 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 			}
 			return nil, fmt.Errorf("插件不健康: %s", health.Message)
 		}
+		// 可选地把宿主服务（HostService）反向暴露给插件。这是叠加在传输契约之上的能力：
+		// 老插件不实现 InitHostServices（返回 Unimplemented），此处静默跳过，绝不阻断启动。
+		offerPluginHostServices(ctx, installation, api, transportClient.Broker, hostServices, startTimeout)
 	}
-	// 可选地把宿主服务（HostService）反向暴露给插件。这是叠加在传输契约之上的能力：
-	// 老插件不实现 InitHostServices（返回 Unimplemented），此处静默跳过，绝不阻断启动。
-	offerPluginHostServices(ctx, installation, api, transportClient.Broker, hostServices, startTimeout)
 	return runtime, nil
 }
 
