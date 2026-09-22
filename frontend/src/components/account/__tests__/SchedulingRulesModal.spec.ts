@@ -60,7 +60,7 @@ describe('SchedulingRulesModal', () => {
   })
 
   it('saves the selected lowest-cost rule, disables the legacy overlay, and updates the probe interval', async () => {
-    api.getSuperPriority.mockResolvedValue({ mode: 'super_priority', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: true })
+    api.getSuperPriority.mockResolvedValue({ mode: 'super_priority', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', liveness_enabled: true, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: true })
     api.getProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: false })
     api.deactivate.mockResolvedValue({ message: 'ok' })
     api.updateSuperPriority.mockResolvedValue({ message: 'ok', restart_required: false })
@@ -80,6 +80,8 @@ describe('SchedulingRulesModal', () => {
     expect(wrapper.find('[data-testid="scheduling-rule-liveness-abnormal-only"]').exists()).toBe(false)
     await wrapper.get('[data-testid="scheduling-rule-interval"]').setValue(5)
     await wrapper.get('[data-testid="scheduling-rule-notify-on-change-only"]').setValue(true)
+    expect(wrapper.find('[data-testid="scheduling-rule-model-mismatch-on-error"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="scheduling-rule-model-mismatch-on-error"]').setValue(true)
     await wrapper.get('[data-testid="scheduling-rule-save"]').trigger('click')
     await flush()
     await flush()
@@ -88,8 +90,10 @@ describe('SchedulingRulesModal', () => {
     expect(api.updateSuperPriority).toHaveBeenCalledWith(expect.objectContaining({
       base_strategy: 'lowest_cost',
       check_interval: '@every 3m',
+      liveness_enabled: true,
       failure_threshold: 4,
-      liveness_include_unschedulable: false
+      liveness_include_unschedulable: false,
+      model_mismatch_on_error: true
     }))
     expect(api.updateProbeSettings).toHaveBeenCalledWith({ enabled: true, interval_minutes: 5, notify_on_change_only: true })
     expect(wrapper.emitted('saved')).toHaveLength(1)

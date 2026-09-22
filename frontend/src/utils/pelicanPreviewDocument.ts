@@ -98,7 +98,7 @@ const FIT_STYLE = `
   svg {
     max-width: 100% !important;
     max-height: 100% !important;
-    width: auto !important;
+    width: 100% !important;
     height: auto !important;
     object-fit: contain !important;
     display: block !important;

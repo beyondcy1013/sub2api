@@ -125,6 +125,31 @@ func TestSchedulingLivenessRunnerSkipsHealthyAndManuallyPausedAccounts(t *testin
 	require.Empty(t, repo.livenessWrites)
 }
 
+func TestSchedulingLivenessRunnerCanDisableAutomaticChecks(t *testing.T) {
+	repo := newSuperPriorityFakeRepo()
+	account := makeSuperPriorityTestAccount(1, false, true)
+	account.Status = StatusError
+	repo.accounts = []Account{account}
+	tester := &schedulingLivenessTester{results: map[int64]*ScheduledTestResult{
+		1: {Status: "success"},
+	}}
+	enabled := false
+	state := NewSuperPriorityService(repo, &config.Config{SuperPriority: config.SuperPriorityConfig{
+		BaseStrategy:    AccountSchedulingStrategyLowestCost,
+		LivenessEnabled: &enabled,
+	}})
+	runner := NewSuperPriorityRunner(state, tester, repo, &schedulingLivenessRecoverer{})
+
+	runner.RunOnce(context.Background())
+	require.Empty(t, tester.calls)
+	require.False(t, runner.RuntimeStatus().Enabled)
+
+	result, err := runner.RefreshNow(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, result.Checked)
+	require.Equal(t, []int64{1}, tester.calls)
+}
+
 func TestSchedulingLivenessRunnerIgnoresLegacyIncludePausedSetting(t *testing.T) {
 	repo := newSuperPriorityFakeRepo()
 	repo.accounts = []Account{makeSuperPriorityTestAccount(1, false, false)}

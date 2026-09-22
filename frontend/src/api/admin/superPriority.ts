@@ -11,9 +11,11 @@ export interface SuperPrioritySettings {
   base_strategy: 'default' | 'lowest_cost'
   failure_threshold: number
   check_interval: string
+  liveness_enabled: boolean
   liveness_include_unschedulable: boolean
   test_model_id: string
   test_prompt: string
+  model_mismatch_on_error: boolean
   activated_at: string
   demoted_at: string
   is_active: boolean
@@ -24,9 +26,11 @@ export interface SuperPriorityRuntimeParams {
   base_strategy: 'default' | 'lowest_cost'
   failure_threshold: number
   check_interval: string
+  liveness_enabled: boolean
   liveness_include_unschedulable: boolean
   test_model_id: string
   test_prompt: string
+  model_mismatch_on_error: boolean
 }
 
 export interface SuperPriorityActivateResult {

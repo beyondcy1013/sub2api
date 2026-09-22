@@ -16,6 +16,7 @@ type superPrioritySettingsResponse struct {
 	BaseStrategy                 string                                  `json:"base_strategy"`
 	FailureThreshold             int                                     `json:"failure_threshold"`
 	CheckInterval                string                                  `json:"check_interval"`
+	LivenessEnabled              bool                                    `json:"liveness_enabled"`
 	LivenessIncludeUnschedulable bool                                    `json:"liveness_include_unschedulable"`
 	TestModelID                  string                                  `json:"test_model_id"`
 	TestPrompt                   string                                  `json:"test_prompt"`
@@ -23,6 +24,7 @@ type superPrioritySettingsResponse struct {
 	DemotedAt                    string                                  `json:"demoted_at"`
 	IsActive                     bool                                    `json:"is_active"`
 	LivenessRuntime              service.SchedulingLivenessRuntimeStatus `json:"liveness_runtime"`
+	ModelMismatchOnError         bool                                    `json:"model_mismatch_on_error"`
 }
 
 // superPrioritySettingsRequest 用于更新阈值/间隔等运行参数（不会直接切换模式）。
@@ -30,9 +32,11 @@ type superPrioritySettingsRequest struct {
 	FailureThreshold             int    `json:"failure_threshold"`
 	CheckInterval                string `json:"check_interval"`
 	LivenessIncludeUnschedulable *bool  `json:"liveness_include_unschedulable"`
+	LivenessEnabled              *bool  `json:"liveness_enabled"`
 	TestModelID                  string `json:"test_model_id"`
 	TestPrompt                   string `json:"test_prompt"`
 	BaseStrategy                 string `json:"base_strategy" binding:"omitempty,oneof=default lowest_cost"`
+	ModelMismatchOnError         *bool  `json:"model_mismatch_on_error"`
 }
 
 // GetSuperPrioritySettings 返回当前超级优先模式状态。
@@ -52,6 +56,7 @@ func (h *SettingHandler) GetSuperPrioritySettings(c *gin.Context) {
 		BaseStrategy:                 svc.BaseStrategy(),
 		FailureThreshold:             svc.FailureThreshold(),
 		CheckInterval:                svc.CheckInterval(),
+		LivenessEnabled:              svc.LivenessEnabled(),
 		LivenessIncludeUnschedulable: svc.LivenessIncludeUnschedulable(),
 		TestModelID:                  svc.TestModelID(),
 		TestPrompt:                   svc.TestPrompt(),
@@ -59,6 +64,7 @@ func (h *SettingHandler) GetSuperPrioritySettings(c *gin.Context) {
 		DemotedAt:                    svc.DemotedAt(),
 		IsActive:                     svc.IsActive(),
 		LivenessRuntime:              runtime,
+		ModelMismatchOnError:         svc.GetModelMismatchOnError(),
 	})
 }
 
@@ -81,7 +87,14 @@ func (h *SettingHandler) UpdateSuperPrioritySettings(c *gin.Context) {
 	if req.LivenessIncludeUnschedulable != nil {
 		livenessIncludeUnschedulable = *req.LivenessIncludeUnschedulable
 	}
-	svc.UpdateRuntimeParams(req.FailureThreshold, req.CheckInterval, req.TestModelID, req.TestPrompt, req.BaseStrategy, livenessIncludeUnschedulable)
+	livenessEnabled := svc.LivenessEnabled()
+	if req.LivenessEnabled != nil {
+		livenessEnabled = *req.LivenessEnabled
+	}
+	svc.UpdateRuntimeParams(req.FailureThreshold, req.CheckInterval, req.TestModelID, req.TestPrompt, req.BaseStrategy, livenessIncludeUnschedulable, livenessEnabled)
+	if req.ModelMismatchOnError != nil {
+		svc.SetModelMismatchOnError(*req.ModelMismatchOnError)
+	}
 	if err := svc.PersistConfig(); err != nil {
 		response.Error(c, 500, "persist config failed: "+err.Error())
 		return

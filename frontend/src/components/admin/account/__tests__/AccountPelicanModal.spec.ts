@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountPelicanModal from '../AccountPelicanModal.vue'
+import accountPelicanModalSource from '../AccountPelicanModal.vue?raw'
 import {
   clearPelicanResultCache,
   reloadPelicanResultCacheFromStorage,
@@ -105,6 +106,16 @@ describe('AccountPelicanModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('keeps mobile history readable and falls back to source beside sandboxed animation', () => {
+    expect(accountPelicanModalSource).toContain('hidden grid-cols-')
+    expect(accountPelicanModalSource).toContain('lg:grid lg:grid-cols-[minmax(72px,84px)')
+    expect(accountPelicanModalSource).toContain('data-test="pelican-mobile-preview-toggle"')
+    expect(accountPelicanModalSource).toContain('class="h-[56vh] min-h-[320px] w-full border-0"')
+    expect(accountPelicanModalSource).toContain(":class=\"mobilePreviewSource ? 'hidden lg:block' : ''\"")
+    expect(accountPelicanModalSource).toContain('lg:max-h-48')
+    expect(accountPelicanModalSource).toContain('lg:max-h-64')
   })
 
   it('渲染所选账号列表与初始状态', async () => {

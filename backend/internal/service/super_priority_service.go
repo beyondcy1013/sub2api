@@ -97,6 +97,15 @@ func (s *SuperPriorityService) CheckInterval() string {
 	return s.cfg.SuperPriority.CheckInterval
 }
 
+// LivenessEnabled reports whether the periodic failed-account recovery probe
+// is enabled. Manual refresh requests intentionally bypass this switch.
+func (s *SuperPriorityService) LivenessEnabled() bool {
+	if s == nil || s.cfg == nil || s.cfg.SuperPriority.LivenessEnabled == nil {
+		return true
+	}
+	return *s.cfg.SuperPriority.LivenessEnabled
+}
+
 // LivenessIncludeUnschedulable reports whether manually paused accounts are
 // included in connection liveness probes.
 func (s *SuperPriorityService) LivenessIncludeUnschedulable() bool {
@@ -135,8 +144,24 @@ func (s *SuperPriorityService) DemotedAt() string {
 	return s.cfg.SuperPriority.DemotedAt
 }
 
+// GetModelMismatchOnError returns the current gateway.model_mismatch_on_error setting.
+func (s *SuperPriorityService) GetModelMismatchOnError() bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	return s.cfg.Gateway.ModelMismatchOnError
+}
+
+// SetModelMismatchOnError updates the gateway.model_mismatch_on_error setting in-process.
+func (s *SuperPriorityService) SetModelMismatchOnError(enabled bool) {
+	if s == nil || s.cfg == nil {
+		return
+	}
+	s.cfg.Gateway.ModelMismatchOnError = enabled
+}
+
 // UpdateRuntimeParams 更新可热更新的运行参数（阈值/间隔/测试模型/prompt）。
-func (s *SuperPriorityService) UpdateRuntimeParams(failureThreshold int, checkInterval, testModelID, testPrompt, baseStrategy string, livenessIncludeUnschedulable bool) {
+func (s *SuperPriorityService) UpdateRuntimeParams(failureThreshold int, checkInterval, testModelID, testPrompt, baseStrategy string, livenessIncludeUnschedulable bool, livenessEnabled ...bool) {
 	if s == nil || s.cfg == nil {
 		return
 	}
@@ -152,6 +177,10 @@ func (s *SuperPriorityService) UpdateRuntimeParams(failureThreshold int, checkIn
 	s.cfg.SuperPriority.TestPrompt = testPrompt
 	s.cfg.SuperPriority.BaseStrategy = normalizeAccountSchedulingStrategy(baseStrategy)
 	s.cfg.SuperPriority.LivenessIncludeUnschedulable = livenessIncludeUnschedulable
+	if len(livenessEnabled) > 0 {
+		enabled := livenessEnabled[0]
+		s.cfg.SuperPriority.LivenessEnabled = &enabled
+	}
 }
 
 // Activate enables the request-time preference overlay.
@@ -227,10 +256,14 @@ func (s *SuperPriorityService) persistConfig() error {
 	return s.persistConfigImpl()
 }
 
-// persistConfigImpl 将当前 super_priority 段落写回 YAML 配置文件（mirror balance_check 习惯）。
+// persistConfigImpl 将当前 super_priority 段落及 gateway.model_mismatch_on_error 写回 YAML 配置文件。
 func (s *SuperPriorityService) persistConfigImpl() error {
 	path := superPriorityConfigFilePath()
-	return saveSuperPriorityConfig(path, &s.cfg.SuperPriority)
+	var gwCfg *config.GatewayConfig
+	if s.cfg != nil {
+		gwCfg = &s.cfg.Gateway
+	}
+	return saveSuperPriorityConfig(path, &s.cfg.SuperPriority, gwCfg)
 }
 
 // PersistConfig 导出持久化入口，供 handler 更新运行参数后调用。
@@ -262,9 +295,9 @@ func absoluteSuperPriorityPath(path string) string {
 	return path
 }
 
-// saveSuperPriorityConfig 仅更新 YAML 根下的 super_priority 段落，保留其它键。
+// saveSuperPriorityConfig 仅更新 YAML 根下的 super_priority 和 gateway.model_mismatch_on_error，保留其它键。
 // 自包含实现：直接读/解析/改/原子写，不引入 handler/admin 依赖。
-func saveSuperPriorityConfig(path string, cfg *config.SuperPriorityConfig) error {
+func saveSuperPriorityConfig(path string, cfg *config.SuperPriorityConfig, gatewayCfg *config.GatewayConfig) error {
 	if cfg == nil {
 		return nil
 	}
@@ -294,6 +327,15 @@ func saveSuperPriorityConfig(path string, cfg *config.SuperPriorityConfig) error
 		return fmt.Errorf("unmarshal super_priority section: %w", err)
 	}
 	root["super_priority"] = section
+
+	if gatewayCfg != nil {
+		gwSection, ok := root["gateway"].(map[string]any)
+		if !ok || gwSection == nil {
+			gwSection = map[string]any{}
+		}
+		gwSection["model_mismatch_on_error"] = gatewayCfg.ModelMismatchOnError
+		root["gateway"] = gwSection
+	}
 
 	newContent, err := yaml.Marshal(root)
 	if err != nil {

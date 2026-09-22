@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -291,6 +293,44 @@ func upstreamModelsMatchForAudit(sentModel, responseModel string) bool {
 	// observability and for the separate response-model billing safeguards.
 	sentGrokModel := canonicalGrokBuildRuntimeModel(sentModel)
 	return sentGrokModel != "" && sentGrokModel == canonicalGrokBuildRuntimeModel(responseModel)
+}
+
+var (
+	dateSuffixPattern   = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
+	date8SuffixPattern  = regexp.MustCompile(`-\d{8}$`)
+	latestSuffixPattern = regexp.MustCompile(`-latest$`)
+)
+
+func normalizeModelVariant(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	model = latestSuffixPattern.ReplaceAllString(model, "")
+	model = dateSuffixPattern.ReplaceAllString(model, "")
+	model = date8SuffixPattern.ReplaceAllString(model, "")
+	return model
+}
+
+func isLikelyModelVariant(sentModel, responseModel string) bool {
+	normSent := normalizeModelVariant(sentModel)
+	normResp := normalizeModelVariant(responseModel)
+	return normSent != "" && normResp != "" && normSent == normResp
+}
+
+// ModelMismatchErrorMsg 返回模型不一致的错误信息字符串。
+// 仅当 upstreamModelMismatch 为 true 且 responseModel 非空时返回非空字符串；
+// 变体差异（仅日期/latest后缀不同）不视为不一致。
+func ModelMismatchErrorMsg(sentModel, responseModel string) string {
+	responseModel = strings.TrimSpace(responseModel)
+	sentModel = strings.TrimSpace(sentModel)
+	if responseModel == "" || sentModel == "" {
+		return ""
+	}
+	if upstreamModelsMatchForAudit(sentModel, responseModel) {
+		return ""
+	}
+	if isLikelyModelVariant(sentModel, responseModel) {
+		return ""
+	}
+	return fmt.Sprintf("model mismatch: sent %q, upstream responded with %q", sentModel, responseModel)
 }
 
 func canonicalGrokBuildRuntimeModel(model string) string {

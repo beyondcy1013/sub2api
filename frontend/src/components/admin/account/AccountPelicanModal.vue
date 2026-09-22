@@ -293,7 +293,7 @@
         </div>
         <div v-else class="mt-2 grid gap-3 lg:grid-cols-[minmax(420px,1fr)_minmax(300px,420px)]">
           <div class="min-w-0">
-            <div class="grid grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] gap-2 border-b border-gray-100 px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:border-dark-700">
+            <div class="hidden grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] gap-2 border-b border-gray-100 px-1 pb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 lg:grid dark:border-dark-700">
               <span>{{ t('admin.accounts.columns.name') }}</span>
               <span>{{ t('admin.accounts.pelicanModel') }}</span>
               <span>{{ t('admin.accounts.pelicanResultColumn') }}</span>
@@ -306,7 +306,7 @@
                 :key="`${entry.account.id}-${entry.testedAt}`"
                 type="button"
                 data-test="pelican-global-history-entry"
-                class="grid w-full grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] items-center gap-2 border-b border-gray-100 px-1 py-1.5 text-left text-[11px] transition last:border-b-0 dark:border-dark-700"
+                class="w-full rounded-md border-b border-gray-100 px-1 py-2 text-left text-[11px] transition last:border-b-0 lg:grid lg:grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] lg:items-center lg:gap-2 dark:border-dark-700"
                 :class="isHistoryPreview(entry) ? 'bg-primary-50/60 dark:bg-primary-950/20' : 'hover:bg-gray-50 dark:hover:bg-dark-700/60'"
                 @click="historyPreview = entry"
               >
@@ -394,12 +394,22 @@
                 :srcdoc="pelicanPreviewDocument(historyPreviewHtml)"
                 sandbox="allow-scripts"
                 class="h-[56vh] min-h-[320px] w-full border-0"
+                :class="mobilePreviewSource ? 'hidden lg:block' : ''"
                 title="Pelican History Preview"
               />
             </div>
+            <button
+              v-if="historyPreviewHtml"
+              type="button"
+              data-test="pelican-mobile-preview-toggle"
+              class="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700 lg:hidden"
+              @click="mobilePreviewSource = !mobilePreviewSource"
+            >
+              {{ mobilePreviewSource ? t('admin.accounts.pelicanPreviewTab') : t('admin.accounts.pelicanSourceTab') }}
+            </button>
             <div class="mt-2 space-y-1">
               <div class="text-xs font-medium">{{ t('admin.accounts.pelicanPromptColumn') }}</div>
-              <pre data-test="pelican-history-prompt" class="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs dark:bg-dark-900/50">{{ historyPreview.prompt || t('admin.accounts.pelicanPromptMissing') }}</pre>
+              <pre data-test="pelican-history-prompt" class="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs dark:bg-dark-900/50 lg:max-h-48">{{ historyPreview.prompt || t('admin.accounts.pelicanPromptMissing') }}</pre>
             </div>
             <details
               :key="`source:${historyPreview.account.id}:${historyPreview.testedAt}`"
@@ -408,7 +418,7 @@
               class="mt-2 space-y-1"
             >
               <summary class="cursor-pointer text-xs font-medium">{{ t('admin.accounts.pelicanResultColumn') }} / {{ t('admin.accounts.pelicanSourceTab') }}</summary>
-              <pre data-test="pelican-history-output" class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
+              <pre data-test="pelican-history-output" class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200 lg:max-h-64">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
             </details>
           </div>
         </div>
@@ -646,7 +656,7 @@
           </div>
 
           <!-- Card Footer Actions -->
-          <div class="mt-auto flex items-center justify-between border-t border-gray-100 pt-2 text-xs dark:border-dark-700">
+          <div class="mt-auto flex flex-wrap items-start justify-between gap-x-2 gap-y-2 border-t border-gray-100 pt-2 text-xs dark:border-dark-700 lg:flex-nowrap lg:items-center lg:justify-between">
             <div class="flex items-center gap-1.5">
               <template v-if="item.result?.has_html">
                 <button
@@ -678,7 +688,7 @@
               </span>
             </div>
 
-            <div class="flex items-center gap-1">
+            <div class="flex flex-wrap items-center gap-1 lg:flex-nowrap">
               <!-- Manual mark buttons: available whenever not running -->
               <template v-if="item.status !== 'running'">
                 <button
@@ -1016,6 +1026,7 @@ const selectedAccountIds = ref<Set<number>>(new Set())
 const expandedHistoryAccountIds = ref<Set<number>>(new Set())
 const showHistoryPanel = ref(false)
 const historyPreview = ref<PelicanCachedResult | null>(null)
+const mobilePreviewSource = ref(false)
 const historyPreviewHtml = computed(() => {
   const entry = historyPreview.value
   return entry?.result?.html?.trim() || extractPelicanPreviewHtml(entry?.output || '')
@@ -1125,6 +1136,7 @@ const toggleHistory = (accountId: number) => {
 const toggleHistoryPanel = () => {
   historyAccountId.value = null
   showHistoryPanel.value = !showHistoryPanel.value
+  mobilePreviewSource.value = false
   if (showHistoryPanel.value && !historyPreview.value) {
     historyPreview.value = allCachedPelicanResults.value[0] || null
   }
@@ -1194,6 +1206,7 @@ const selectHistoryResult = (item: PelicanAccountState, index: number) => {
   historyAccountId.value = item.account.id
   historyPreview.value = entry
   showHistoryPanel.value = true
+  mobilePreviewSource.value = false
 }
 
 const formatTestedAt = (testedAt: number) => new Date(testedAt).toLocaleString()
@@ -1280,7 +1293,7 @@ const gridColsClass = computed(() => {
 
 const previewHeightClass = computed(() => {
   const count = accountStates.value.length
-  if (count <= 1) return 'h-[480px]'
+  if (count <= 1) return 'h-[min(70vh,480px)]'
   if (count === 2) return 'h-[380px]'
   return 'h-72'
 })

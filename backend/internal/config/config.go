@@ -1108,6 +1108,11 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
+
+	// ModelMismatchOnError: 上游响应模型与发送模型不一致时将账号置为 error。
+	// 默认关闭；开启后，上游返回的 model 与发送的 model 不匹配（非变体差异）时，
+	// 账号会被立即置为 error 并记录详细的不一致信息，需管理员手动清除错误状态。
+	ModelMismatchOnError bool `mapstructure:"model_mismatch_on_error"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -1706,6 +1711,9 @@ type SuperPriorityConfig struct {
 	FailureThreshold int `mapstructure:"failure_threshold" yaml:"failure_threshold"`
 	// CheckInterval 定时探测 cron 表达式，默认 "@every 1m"。
 	CheckInterval string `mapstructure:"check_interval" yaml:"check_interval"`
+	// LivenessEnabled controls the automatic failed-account recovery probe.
+	// Manual refreshes remain available when this is disabled.
+	LivenessEnabled *bool `mapstructure:"liveness_enabled" yaml:"liveness_enabled"`
 	// LivenessIncludeUnschedulable is retained for configuration compatibility.
 	// Recovery probes now target only error-state API-key accounts.
 	LivenessIncludeUnschedulable bool `mapstructure:"liveness_include_unschedulable" yaml:"liveness_include_unschedulable"`
@@ -2356,6 +2364,7 @@ func setDefaults() {
 	viper.SetDefault("super_priority.base_strategy", "default")
 	viper.SetDefault("super_priority.failure_threshold", 2)
 	viper.SetDefault("super_priority.check_interval", "@every 1m")
+	viper.SetDefault("super_priority.liveness_enabled", true)
 	viper.SetDefault("super_priority.liveness_include_unschedulable", false)
 	viper.SetDefault("super_priority.test_model_id", "")
 	viper.SetDefault("super_priority.test_prompt", "")
@@ -2681,6 +2690,7 @@ func setEnvReachableDefaults() {
 	viper.SetDefault("gateway.openai_scheduler.sticky_escape_enabled", true)
 	viper.SetDefault("gateway.openai_scheduler.sticky_escape_error_rate", 0.0)
 	viper.SetDefault("gateway.openai_scheduler.sticky_escape_ttft_ms", 0)
+	viper.SetDefault("gateway.model_mismatch_on_error", false)
 
 	// server.trusted_proxies and security.forwarded_client_ip_headers are the
 	// other exception: load() distinguishes explicit configuration from absence

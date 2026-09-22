@@ -163,6 +163,12 @@ Both profiles must preserve all of the following:
   prompt, raw output, HTML, error, and timestamp. Selecting a history entry
   exposes the full prompt/output and sandboxed animation preview; manual ratings
   must not replace the historical prompt with the current editor content.
+- Pelican history and animation previews must remain usable on phones and the
+  native Android WebView: history rows collapse to a card layout below `lg`,
+  animation stays in an opaque-origin `allow-scripts` iframe, the generated SVG
+  fills the available width while preserving aspect ratio, and mobile offers an
+  explicit animation/source toggle so large generated source cannot crowd out
+  the preview. Desktop retains the side-by-side history table/detail layout.
 - Admin account identifiers remain visible in plaintext.
 - Admin responses and edit forms expose `credentials.api_key` in plaintext.
 - `api_key` stays out of `SensitiveCredentialKeys`.

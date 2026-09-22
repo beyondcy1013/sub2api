@@ -480,6 +480,25 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.SubscriptionID = &subscription.ID
 	}
 
+	// 模型不一致时将账号置为 error（需管理员开启 gateway.model_mismatch_on_error）
+	if s.cfg != nil && s.cfg.Gateway.ModelMismatchOnError && account != nil {
+		if errMsg := ModelMismatchErrorMsg(sentModel, result.UpstreamResponseModel); errMsg != "" {
+			if setErr := s.accountRepo.SetError(context.WithoutCancel(ctx), account.ID, errMsg); setErr != nil {
+				logger.L().Warn("openai_gateway_usage.model_mismatch_set_error_failed",
+					zap.Int64("account_id", account.ID),
+					zap.Error(setErr),
+				)
+			} else {
+				logger.L().Warn("openai_gateway_usage.model_mismatch_account_set_error",
+					zap.Int64("account_id", account.ID),
+					zap.String("platform", account.Platform),
+					zap.String("sent_model", sentModel),
+					zap.String("response_model", strings.TrimSpace(result.UpstreamResponseModel)),
+				)
+			}
+		}
+	}
+
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,

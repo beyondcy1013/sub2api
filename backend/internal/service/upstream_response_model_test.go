@@ -270,3 +270,31 @@ func TestObservedUpstreamResponseServiceTierFromContext(t *testing.T) {
 	observer.ObserveOpenAI([]byte(`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.6-sol","service_tier":"default"}}`), "response.completed")
 	require.Equal(t, "default", observedUpstreamResponseServiceTier(c))
 }
+
+func TestModelMismatchErrorMsg(t *testing.T) {
+	// Empty cases
+	require.Empty(t, ModelMismatchErrorMsg("", "gpt-4o"))
+	require.Empty(t, ModelMismatchErrorMsg("gpt-4o", ""))
+	require.Empty(t, ModelMismatchErrorMsg("", ""))
+
+	// Exact matches (case insensitive)
+	require.Empty(t, ModelMismatchErrorMsg("gpt-4o", "gpt-4o"))
+	require.Empty(t, ModelMismatchErrorMsg("gpt-4o", "GPT-4O"))
+
+	// Variant matches (dates, -latest)
+	require.Empty(t, ModelMismatchErrorMsg("gpt-4o", "gpt-4o-2024-08-06"))
+	require.Empty(t, ModelMismatchErrorMsg("claude-3-5-sonnet", "claude-3-5-sonnet-20241022"))
+	require.Empty(t, ModelMismatchErrorMsg("claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022"))
+	require.Empty(t, ModelMismatchErrorMsg("claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest"))
+
+	// Grok build runtime aliases
+	require.Empty(t, ModelMismatchErrorMsg("grok-4.5", "grok-4.5-build"))
+	require.Empty(t, ModelMismatchErrorMsg("grok-4.5-latest", "grok-4.5-build"))
+
+	// Real mismatches
+	msg1 := ModelMismatchErrorMsg("gpt-6-astra", "gpt-5.6-luna")
+	require.Equal(t, `model mismatch: sent "gpt-6-astra", upstream responded with "gpt-5.6-luna"`, msg1)
+
+	msg2 := ModelMismatchErrorMsg("claude-3-7-sonnet", "deepseek-chat")
+	require.Equal(t, `model mismatch: sent "claude-3-7-sonnet", upstream responded with "deepseek-chat"`, msg2)
+}

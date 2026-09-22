@@ -63,6 +63,13 @@
         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
           {{ t('admin.accounts.schedulingRules.liveness') }}
         </div>
+        <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input v-model="livenessEnabled" data-testid="scheduling-rule-liveness-enabled" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          <span>
+            <span class="block font-medium">{{ t('admin.accounts.schedulingRules.livenessEnabled') }}</span>
+            <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRules.livenessEnabledHint') }}</span>
+          </span>
+        </label>
         <label class="flex items-center justify-between gap-3 text-sm text-gray-700 dark:text-gray-300">
           <span>{{ t('admin.accounts.schedulingRules.livenessInterval') }}</span>
           <input v-model.number="livenessIntervalMinutes" data-testid="scheduling-rule-liveness-interval" type="number" min="1" max="1440" step="1" class="h-9 w-24 rounded border border-gray-300 px-2 text-sm dark:border-dark-600 dark:bg-dark-700 dark:text-white" />
@@ -117,6 +124,16 @@
           </span>
         </label>
       </div>
+
+      <div class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input v-model="modelMismatchOnError" data-testid="scheduling-rule-model-mismatch-on-error" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          <span>
+            <span class="block font-medium">{{ t('admin.accounts.schedulingRules.modelMismatchOnError') }}</span>
+            <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRules.modelMismatchOnErrorHint') }}</span>
+          </span>
+        </label>
+      </div>
     </div>
 
     <template #footer>
@@ -162,6 +179,8 @@ const intervalMinutes = ref(30)
 const notifyOnChangeOnly = ref(false)
 const livenessIntervalMinutes = ref(1)
 const livenessFailureThreshold = ref(2)
+const livenessEnabled = ref(true)
+const modelMismatchOnError = ref(false)
 const currentSettings = ref<SuperPrioritySettings | null>(null)
 const livenessRuntime = ref<SchedulingLivenessRuntimeStatus | null>(null)
 const schedulingRuntime = ref<SchedulingRulesRuntimeStatus | null>(null)
@@ -288,6 +307,8 @@ const load = async () => {
     notifyOnChangeOnly.value = probe.notify_on_change_only === true
     livenessIntervalMinutes.value = intervalFromExpression(settings.check_interval)
     livenessFailureThreshold.value = settings.failure_threshold
+    livenessEnabled.value = settings.liveness_enabled !== false
+    modelMismatchOnError.value = settings.model_mismatch_on_error === true
     livenessRuntime.value = settings.liveness_runtime ?? null
     await loadRuntime()
     nowMs.value = Date.now()
@@ -324,9 +345,11 @@ const save = async () => {
       base_strategy: strategy.value,
       failure_threshold: livenessFailureThreshold.value,
       check_interval: `@every ${livenessIntervalMinutes.value}m`,
+      liveness_enabled: livenessEnabled.value,
       liveness_include_unschedulable: false,
       test_model_id: current.test_model_id,
-      test_prompt: current.test_prompt
+      test_prompt: current.test_prompt,
+      model_mismatch_on_error: modelMismatchOnError.value
     })
     await adminAPI.accounts.updateUpstreamBillingProbeSettings({
       enabled: probeEnabled.value,

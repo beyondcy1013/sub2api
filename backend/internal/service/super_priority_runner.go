@@ -141,7 +141,7 @@ func (r *SuperPriorityRunner) RuntimeStatus() SchedulingLivenessRuntimeStatus {
 	}
 	status.History = append([]SchedulingLivenessRunStatus(nil), r.runtime.History...)
 	r.statusMu.RUnlock()
-	status.Enabled = r.state != nil && r.state.BaseStrategy() == AccountSchedulingStrategyLowestCost
+	status.Enabled = r.state != nil && r.state.BaseStrategy() == AccountSchedulingStrategyLowestCost && r.state.LivenessEnabled()
 	if !status.Enabled {
 		status.Running = false
 		status.NextRunAt = nil
@@ -160,7 +160,7 @@ func (r *SuperPriorityRunner) runOnce() {
 
 func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool, trigger string) (SchedulingRefreshResult, error) {
 	var refreshResult SchedulingRefreshResult
-	if r == nil || r.state == nil || r.accountRepo == nil || r.livenessRepo == nil || r.accountTestSvc == nil || r.state.BaseStrategy() != AccountSchedulingStrategyLowestCost {
+	if r == nil || r.state == nil || r.accountRepo == nil || r.livenessRepo == nil || r.accountTestSvc == nil || r.state.BaseStrategy() != AccountSchedulingStrategyLowestCost || (!force && !r.state.LivenessEnabled()) {
 		return refreshResult, nil
 	}
 	r.runMu.Lock()
@@ -310,7 +310,7 @@ func (r *SuperPriorityRunner) recoverSuccessfulProbe(ctx context.Context, accoun
 
 func (r *SuperPriorityRunner) startRun() {
 	r.statusMu.Lock()
-	r.runtime.Enabled = true
+	r.runtime.Enabled = r.state != nil && r.state.BaseStrategy() == AccountSchedulingStrategyLowestCost && r.state.LivenessEnabled()
 	r.runtime.Running = true
 	r.runtime.NextRunAt = nil
 	r.statusMu.Unlock()
@@ -343,7 +343,7 @@ func (r *SuperPriorityRunner) finishRun(trigger string, startedAt time.Time, res
 func (r *SuperPriorityRunner) setNextRunAt(next time.Time) {
 	next = r.nextScheduledScanAt(next)
 	r.statusMu.Lock()
-	r.runtime.Enabled = r.state != nil && r.state.BaseStrategy() == AccountSchedulingStrategyLowestCost
+	r.runtime.Enabled = r.state != nil && r.state.BaseStrategy() == AccountSchedulingStrategyLowestCost && r.state.LivenessEnabled()
 	r.runtime.Running = false
 	r.runtime.NextRunAt = schedulingLivenessTimePtr(next)
 	r.statusMu.Unlock()

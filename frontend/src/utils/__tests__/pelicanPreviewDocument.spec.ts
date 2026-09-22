@@ -15,6 +15,8 @@ describe('pelicanPreviewDocument', () => {
     // 验证样式重置与居中
     expect(doc).toContain('overflow: hidden !important')
     expect(doc).toContain('object-fit: contain !important')
+    expect(doc).toContain('width: 100% !important')
+    expect(doc).toContain('height: auto !important')
 
     // 验证自适应缩放与 viewBox 修复脚本
     expect(doc).toContain('preserveAspectRatio')

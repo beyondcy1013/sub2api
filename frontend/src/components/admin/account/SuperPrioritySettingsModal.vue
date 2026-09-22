@@ -122,6 +122,31 @@
           />
         </label>
 
+        <!-- 模型不一致自动下线 -->
+        <div class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+          <div class="flex-1">
+            <div class="text-xs font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.schedulingRules.modelMismatchOnError') }}
+            </div>
+            <div class="mt-0.5 text-[11px] text-gray-400">
+              {{ t('admin.accounts.schedulingRules.modelMismatchOnErrorHint') }}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="form.model_mismatch_on_error"
+            class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+            :class="form.model_mismatch_on_error ? 'bg-orange-500' : 'bg-gray-200 dark:bg-dark-500'"
+            @click="form.model_mismatch_on_error = !form.model_mismatch_on_error"
+          >
+            <span
+              class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+              :class="form.model_mismatch_on_error ? 'translate-x-4' : 'translate-x-0'"
+            />
+          </button>
+        </div>
+
         <button
           type="button"
           :disabled="savingParams"
@@ -175,9 +200,11 @@ const form = reactive<SuperPriorityRuntimeParams>({
   base_strategy: 'default',
   failure_threshold: 2,
   check_interval: '@every 1m',
+  liveness_enabled: true,
   liveness_include_unschedulable: false,
   test_model_id: '',
   test_prompt: '',
+  model_mismatch_on_error: false,
 })
 
 const load = async () => {
@@ -188,9 +215,11 @@ const load = async () => {
     form.base_strategy = data.base_strategy
     form.failure_threshold = data.failure_threshold
     form.check_interval = data.check_interval
+    form.liveness_enabled = data.liveness_enabled !== false
     form.liveness_include_unschedulable = data.liveness_include_unschedulable === true
     form.test_model_id = data.test_model_id
     form.test_prompt = data.test_prompt
+    form.model_mismatch_on_error = data.model_mismatch_on_error === true
   } catch (err) {
     console.error('Failed to load super priority settings:', err)
   } finally {
@@ -223,9 +252,11 @@ const saveParams = async () => {
       base_strategy: form.base_strategy,
       failure_threshold: form.failure_threshold,
       check_interval: form.check_interval,
+      liveness_enabled: form.liveness_enabled,
       liveness_include_unschedulable: form.liveness_include_unschedulable,
       test_model_id: form.test_model_id,
       test_prompt: form.test_prompt,
+      model_mismatch_on_error: form.model_mismatch_on_error,
     })
     await load()
   } catch (err) {

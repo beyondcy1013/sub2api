@@ -818,6 +818,26 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost)
 
+	// 模型不一致时将账号置为 error（需管理员开启 gateway.model_mismatch_on_error）
+	if s.cfg != nil && s.cfg.Gateway.ModelMismatchOnError && account != nil {
+		sentModel := upstreamSentModel(result.Model, result.UpstreamModel)
+		if errMsg := ModelMismatchErrorMsg(sentModel, result.UpstreamResponseModel); errMsg != "" {
+			if setErr := s.accountRepo.SetError(context.WithoutCancel(ctx), account.ID, errMsg); setErr != nil {
+				slog.Warn("gateway_usage_billing.model_mismatch_set_error_failed",
+					"account_id", account.ID,
+					"error", setErr,
+				)
+			} else {
+				slog.Warn("gateway_usage_billing.model_mismatch_account_set_error",
+					"account_id", account.ID,
+					"platform", account.Platform,
+					"sent_model", sentModel,
+					"response_model", strings.TrimSpace(result.UpstreamResponseModel),
+				)
+			}
+		}
+	}
+
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
