@@ -82,6 +82,8 @@ describe('SuperPrioritySettingsModal', () => {
       failure_threshold: 2,
       check_interval: '@every 1m',
       liveness_include_unschedulable: false,
+      liveness_enabled: true,
+      model_mismatch_on_error: false,
       test_model_id: '',
       test_prompt: '',
     })
