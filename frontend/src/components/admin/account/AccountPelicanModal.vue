@@ -104,8 +104,9 @@
                 :aria-label="t('admin.accounts.pelicanModel')"
                 class="w-40 shrink-0 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
               >
-                <option v-for="m in MODEL_PRESETS" :key="m.value" :value="m.value">
-                  {{ m.label }}
+                <option value="">{{ t('admin.accounts.pelicanModelDefault') }}</option>
+                <option v-for="m in globalModelOptions" :key="m.id" :value="m.id">
+                  {{ pelicanModelOptionLabel(m) }}
                 </option>
               </select>
               <input
@@ -120,9 +121,12 @@
                 class="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
               />
               <datalist id="pelican-model-presets">
-                <option v-for="m in MODEL_PRESETS" :key="`input-${m.value}`" :value="m.value">{{ m.label }}</option>
+                <option v-for="m in globalModelOptions" :key="`input-${m.id}`" :value="m.id">{{ pelicanModelOptionLabel(m) }}</option>
               </datalist>
             </div>
+            <p class="text-[11px] text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.pelicanModelOverridePlaceholder') }}
+            </p>
           </div>
 
           <!-- Prompt Scenario Dropdown -->
@@ -572,6 +576,32 @@
             </button>
           </div>
 
+          <!-- Per-account model catalog: never reuse another account's model list -->
+          <div class="mt-2 space-y-1">
+            <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-300">
+              {{ t('admin.accounts.pelicanAccountModel') }}
+            </label>
+            <select
+              v-model="item.selectedModel"
+              :data-test="`pelican-account-model-${item.account.id}`"
+              :disabled="isRunning || item.modelsLoading"
+              :aria-label="`${item.account.name} ${t('admin.accounts.pelicanModel')}`"
+              class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-700 focus:border-primary-500 focus:outline-none disabled:opacity-60 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              <option value="">
+                {{ item.modelsLoading
+                  ? t('admin.accounts.pelicanModelsLoading')
+                  : (item.availableModels || []).length
+                    ? `${t('admin.accounts.pelicanModelDefault')} · ${pelicanModelOptionLabel((item.availableModels || [])[0])}`
+                    : t('admin.accounts.pelicanModelsUnavailable')
+                }}
+              </option>
+              <option v-for="model in (item.availableModels || [])" :key="model.id" :value="model.id">
+                {{ pelicanModelOptionLabel(model) }}
+              </option>
+            </select>
+          </div>
+
           <!-- Card Content / Preview -->
           <div class="my-2 flex flex-1 flex-col justify-center">
             <!-- Animation iframe preview with enlarged responsive height -->
@@ -898,17 +928,10 @@ import {
 import { adminAPI } from '@/api'
 import type { Account } from '@/types'
 
-const DEFAULT_PELICAN_MODEL = 'gpt-6-astra'
-
-const MODEL_PRESETS = [
-  { label: 'gpt-6-astra (默认)', value: 'gpt-6-astra' },
-  { label: 'gpt-5.6-sol', value: 'gpt-5.6-sol' },
-  { label: 'gpt-5.6-terra', value: 'gpt-5.6-terra' },
-  { label: 'gpt-5.6-luna', value: 'gpt-5.6-luna' },
-  { label: 'gpt-5.5', value: 'gpt-5.5' },
-  { label: 'gpt-5.4', value: 'gpt-5.4' },
-  { label: 'gpt-5.4-mini', value: 'gpt-5.4-mini' }
-]
+interface PelicanModel {
+  id: string
+  display_name?: string
+}
 
 const props = withDefaults(
   defineProps<{
@@ -943,6 +966,9 @@ interface PelicanAccountState {
   elapsedMs?: number
   testedAt?: number
   activeTab: 'preview' | 'source'
+  selectedModel?: string
+  availableModels?: PelicanModel[]
+  modelsLoading?: boolean
   result?: {
     has_html: boolean
     html?: string
@@ -952,9 +978,77 @@ interface PelicanAccountState {
   }
 }
 
-// 默认模型选择与思考程度；点击开始后所有选中账号同时测试
-const selectedModel = ref(DEFAULT_PELICAN_MODEL)
+type PelicanStateWithModels = PelicanAccountState & {
+  selectedModel: string
+  availableModels: PelicanModel[]
+  modelsLoading: boolean
+}
+
+// 全局值仅在非空时批量覆盖；空值表示每个账号使用自身目录中的默认模型。
+const selectedModel = ref('')
 const reasoningEffort = ref('low')
+const accountModelOptions = ref(new Map<number, PelicanModel[]>())
+const accountModelsLoading = ref(new Set<number>())
+
+const globalModelOptions = computed(() => {
+  const merged = new Map<string, PelicanModel>()
+  for (const models of accountModelOptions.value.values()) {
+    for (const model of models) {
+      if (!merged.has(model.id)) merged.set(model.id, model)
+    }
+  }
+  return [...merged.values()].sort((a, b) => a.id.localeCompare(b.id))
+})
+
+const pelicanModelOptionLabel = (model?: PelicanModel) => (
+  model?.display_name?.trim() || model?.id || ''
+)
+
+const ensureAccountModels = async (item: PelicanAccountState) => {
+  const state = item as PelicanStateWithModels
+  if (state.availableModels?.length || state.modelsLoading) return
+  const accountID = state.account.id
+  const loading = new Set(accountModelsLoading.value)
+  loading.add(accountID)
+  accountModelsLoading.value = loading
+  state.modelsLoading = true
+  try {
+    const models = await adminAPI.accounts.getAvailableModels(accountID)
+    const normalized = (models || [])
+      .map(model => ({
+        id: String(model?.id || '').trim(),
+        display_name: String(model?.display_name || '').trim()
+      }))
+      .filter(model => model.id)
+    const options = new Map(accountModelOptions.value)
+    options.set(accountID, normalized)
+    accountModelOptions.value = options
+    state.availableModels = normalized
+    // The backend catalog is authoritative. Do not invent a static default when
+    // an account exposes no models.
+    if (normalized.length > 0 && !state.selectedModel) {
+      state.selectedModel = normalized[0].id
+    }
+  } catch (error) {
+    console.error('Failed to load pelican account models:', error)
+    state.availableModels = []
+  } finally {
+    const nextLoading = new Set(accountModelsLoading.value)
+    nextLoading.delete(accountID)
+    accountModelsLoading.value = nextLoading
+    state.modelsLoading = false
+  }
+}
+
+const hydrateAccountRuntime = async (item: PelicanAccountState) => {
+  const state = item as PelicanStateWithModels
+  if (!state.availableModels) {
+    state.availableModels = accountModelOptions.value.get(state.account.id) || []
+  }
+  if (!state.availableModels.length && !state.modelsLoading) {
+    await ensureAccountModels(state)
+  }
+}
 
 const isRunning = ref(false)
 const showAccountPicker = ref(false)
@@ -1225,6 +1319,8 @@ const handleClearCache = () => {
     item.error = undefined
     item.elapsedMs = undefined
     item.testedAt = undefined
+    const state = item as PelicanStateWithModels
+    state.selectedModel = state.availableModels[0]?.id || ''
   }
 }
 
@@ -1241,6 +1337,7 @@ const toggleAccountSelection = (acc: Account) => {
       activeTab: 'preview'
     }
     hydrateFromCache(item)
+    void hydrateAccountRuntime(item)
     accountStates.value.push(item)
   }
 }
@@ -1276,6 +1373,7 @@ const syncAccountStatesFromSelected = () => {
           activeTab: 'preview'
         }
         hydrateFromCache(item)
+        void hydrateAccountRuntime(item)
         newStates.push(item)
       }
     }
@@ -1372,9 +1470,6 @@ watch(
   () => [props.show, props.accounts] as const,
   ([show, accounts]) => {
     if (show) {
-      if (!selectedModel.value) {
-        selectedModel.value = DEFAULT_PELICAN_MODEL
-      }
       if (!reasoningEffort.value) {
         reasoningEffort.value = 'low'
       }
@@ -1391,6 +1486,7 @@ watch(
             activeTab: 'preview'
           }
           hydrateFromCache(item)
+          void hydrateAccountRuntime(item)
           accountStates.value.push(item)
           selectedAccountIds.value.add(account.id)
         }
@@ -1404,8 +1500,12 @@ watch(
             activeTab: 'preview'
           }
           hydrateFromCache(item)
+          void hydrateAccountRuntime(item)
           return item
         })
+        for (const item of accountStates.value) {
+          void hydrateAccountRuntime(item)
+        }
       }
 
       // 默认不在打开弹窗时直接开始，需在弹出窗口中选择好大模型后点击“开始测智”手动开始
@@ -1437,7 +1537,13 @@ const handleClose = () => {
 }
 
 async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal) {
-  const testModel = selectedModel.value.trim() || DEFAULT_PELICAN_MODEL
+  const overrideModel = selectedModel.value?.trim() || ''
+  const testModel = overrideModel || item.selectedModel?.trim() || ''
+  if (!testModel) {
+    item.status = 'failed'
+    item.error = t('admin.accounts.pelicanModelsUnavailable')
+    return
+  }
   const testPrompt = customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
   item.prompt = testPrompt
   item.status = 'running'

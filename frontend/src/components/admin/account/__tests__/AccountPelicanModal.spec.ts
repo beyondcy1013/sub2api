@@ -9,9 +9,12 @@ import {
   setCachedPelicanResult
 } from '@/utils/pelicanResultCache'
 
-const { copyToClipboard, updateDowngradedFlag } = vi.hoisted(() => ({
+const { copyToClipboard, updateDowngradedFlag, getAvailableModels } = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
-  updateDowngradedFlag: vi.fn().mockResolvedValue({})
+  updateDowngradedFlag: vi.fn().mockResolvedValue({}),
+  getAvailableModels: vi.fn().mockImplementation((id: number) => Promise.resolve([
+    { id: `account-${id}-model`, type: 'model', display_name: `Account ${id} Model`, created_at: '' }
+  ]))
 }))
 
 vi.mock('@/composables/useClipboard', () => ({
@@ -23,7 +26,8 @@ vi.mock('@/composables/useClipboard', () => ({
 vi.mock('@/api', () => ({
   adminAPI: {
     accounts: {
-      updateDowngradedFlag: (...args: any[]) => updateDowngradedFlag(...args)
+      updateDowngradedFlag: (...args: any[]) => updateDowngradedFlag(...args),
+      getAvailableModels: (...args: any[]) => getAvailableModels(...args)
     }
   }
 }))
@@ -94,6 +98,10 @@ describe('AccountPelicanModal', () => {
   beforeEach(() => {
     localStorage.clear()
     clearPelicanResultCache()
+    getAvailableModels.mockClear()
+    getAvailableModels.mockImplementation((id: number) => Promise.resolve([
+      { id: `account-${id}-model`, type: 'model', display_name: `Account ${id} Model`, created_at: '' }
+    ]))
     copyToClipboard.mockReset()
     global.fetch = vi.fn().mockImplementation(() =>
       createStreamResponse([
@@ -141,7 +149,7 @@ describe('AccountPelicanModal', () => {
     const [, req1] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(req1.body)).toMatchObject({
       mode: 'pelican',
-      model_id: 'gpt-6-astra',
+      model_id: 'account-1-model',
       reasoning_effort: 'low'
     })
 
@@ -194,13 +202,13 @@ describe('AccountPelicanModal', () => {
 
   it('下拉选择模型后批量测试和重测均使用当前选择，重测清除旧模型与缓存时间', async () => {
     const wrapper = mountModal()
-    await wrapper.find('select').setValue('gpt-5.4')
+    await wrapper.get('[data-test="pelican-model-input"]').setValue('gpt-5.4')
     await (wrapper.vm as any).startAllTests()
     for (const [, request] of vi.mocked(fetch).mock.calls) {
       expect(JSON.parse(request!.body as string).model_id).toBe('gpt-5.4')
     }
 
-    await wrapper.find('select').setValue('gpt-6-astra')
+    await wrapper.get('[data-test="pelican-model-input"]').setValue('gpt-6-astra')
     const state = (wrapper.vm as any).accountStates[0]
     state.responseModel = 'gpt-5.6-luna'
     state.testedAt = 123
@@ -215,6 +223,51 @@ describe('AccountPelicanModal', () => {
     expect(JSON.parse(request!.body as string).model_id).toBe('gpt-6-astra')
     expect(state.responseModel).toBe('gpt-6-astra')
     expect(state.status).toBe('failed')
+    wrapper.unmount()
+  })
+
+  it('未指定批量覆盖模型时，每个账号使用自身模型目录中的默认模型', async () => {
+    vi.mocked(fetch)
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        data: [
+          { id: 'account-one-model', type: 'model', display_name: 'Account One Model', created_at: '' }
+        ]
+      }) as any)
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        data: [
+          { id: 'account-two-model', type: 'model', display_name: 'Account Two Model', created_at: '' }
+        ]
+      }) as any)
+      .mockImplementationOnce(async (_url, init) => {
+        expect(JSON.parse(init!.body as string)).toMatchObject({ mode: 'pelican', model_id: 'account-51-model' })
+        return createStreamResponse([
+        'data: {"type":"test_start","model":"account-51-model"}\n',
+          'data: {"type":"test_complete","success":true}\n'
+        ]) as Response
+      })
+      .mockImplementationOnce(async (_url, init) => {
+        expect(JSON.parse(init!.body as string)).toMatchObject({ mode: 'pelican', model_id: 'account-52-model' })
+        return createStreamResponse([
+        'data: {"type":"test_start","model":"account-52-model"}\n',
+          'data: {"type":"test_complete","success":true}\n'
+        ]) as Response
+      })
+    const wrapper = mountModal([
+      { id: 51, name: 'Account One', platform: 'openai', type: 'oauth', status: 'active' },
+      { id: 52, name: 'Account Two', platform: 'anthropic', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="pelican-account-model-51"]').element).toBeInstanceOf(HTMLSelectElement)
+    expect((wrapper.find('[data-test="pelican-account-model-51"]').element as HTMLSelectElement).value).toBe('account-51-model')
+    expect((wrapper.find('[data-test="pelican-account-model-52"]').element as HTMLSelectElement).value).toBe('account-52-model')
+
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    const states = (wrapper.vm as any).accountStates
+    expect(states.map((item: any) => item.responseModel)).toEqual(['account-51-model', 'account-52-model'])
     wrapper.unmount()
   })
 
@@ -248,6 +301,7 @@ describe('AccountPelicanModal', () => {
       { id: 31, name: 'One', platform: 'openai', type: 'oauth', status: 'active' },
       { id: 32, name: 'Two', platform: 'openai', type: 'oauth', status: 'active' }
     ])
+    await flushPromises()
     expect(wrapper.text()).toContain('admin.accounts.pelicanTestAll')
     await wrapper.get('[data-test="pelican-test-31"]').trigger('click')
     expect(fetch).toHaveBeenCalledTimes(1)
@@ -404,11 +458,11 @@ describe('AccountPelicanModal', () => {
     expect(body.reasoning_effort).toBe('high')
   })
 
-  it('默认大模型为 gpt-6-astra 且思考程度默认为 low', async () => {
+  it('默认不批量覆盖模型且思考程度默认为 low', async () => {
     const wrapper = mountModal()
     await flushPromises()
 
-    expect((wrapper.vm as any).selectedModel).toBe('gpt-6-astra')
+    expect((wrapper.vm as any).selectedModel).toBe('')
     expect((wrapper.vm as any).reasoningEffort).toBe('low')
   })
 
@@ -590,11 +644,11 @@ describe('AccountPelicanModal', () => {
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-prompt-scenarios:v1') || 'null').selectedId)
       .not.toBe('default')
 
-    await selects.find(select => select.findAll('option').length === 2)!.setValue('default')
+    await selects[1].setValue('default')
     await flushPromises()
     expect((wrapper.vm as any).customPrompt).toBe('Pelican on spaceship')
 
-    await selects.find(select => select.findAll('option').length === 2)!.setValue((wrapper.vm as any).selectedPromptId === 'default'
+    await selects[1].setValue((wrapper.vm as any).selectedPromptId === 'default'
       ? (wrapper.vm as any).promptScenarios[1].id
       : 'default')
     await flushPromises()

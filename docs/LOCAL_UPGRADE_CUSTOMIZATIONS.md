@@ -150,10 +150,13 @@ Both profiles must preserve all of the following:
   OpenAI passthrough accounts and accounts without a whitelist keep the
   catalog minus models routing would never serve. 测试连接不得出现模型白名单
   之外的模型。
-- Pelican batch tests and single-account retries use the current model dropdown
-  selection. Pelican requests bypass account `model_mapping` (including wildcard
-  aliases), so all accounts are compared against the same selected model.
-  Ordinary connection tests keep their existing model-mapping behavior.
+- Pelican model catalogs are account-owned. The UI calls each account's
+  `/models` picker endpoint, shows that account's options, and defaults to its
+  first catalog model; it must not use stale frontend model presets. An explicit
+  global override may force one model across the batch, but the default empty
+  value preserves each account's own choice. Requests still bypass account
+  `model_mapping` (including wildcard aliases), while ordinary connection tests
+  keep their existing model-mapping behavior.
   Starting a test clears the previous result's model/timestamp/duration and
   displays the selected model until the current upstream reports its model.
 - Pelican cards expose independent test/stop actions, each with its own abort
