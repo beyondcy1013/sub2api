@@ -390,6 +390,15 @@
             color="indigo"
           />
           <UsageProgressBar
+            v-else-if="usageInfo.seven_day"
+            label="7d"
+            :utilization="usageInfo.seven_day.utilization"
+            :resets-at="usageInfo.seven_day.resets_at"
+            :window-stats="usageInfo.seven_day.window_stats"
+            :show-now-when-idle="true"
+            color="indigo"
+          />
+          <UsageProgressBar
             v-if="grokMonthlyBillingBar"
             label="30d"
             :utilization="grokMonthlyBillingBar.utilization"
@@ -773,7 +782,27 @@ onBeforeUnmount(() => { unmounted.value = true })
 const loading = ref(false)
 const activeQueryLoading = ref(false)
 const error = ref<string | null>(null)
-const usageInfo = ref<AccountUsageInfo | null>(props.externalUsage)
+const persistedGrokBilling = (account: Account): AccountUsageInfo['grok_billing'] => {
+  const raw = account.extra?.grok_billing_snapshot
+  if (!raw || typeof raw !== 'object') return null
+  return raw as NonNullable<AccountUsageInfo['grok_billing']>
+}
+const withPersistedGrokBilling = (usage: AccountUsageInfo | null): AccountUsageInfo | null => {
+  const billing = persistedGrokBilling(props.account)
+  if (!billing) return usage
+  if (usage?.grok_billing) return usage
+  return {
+    updated_at: billing.updated_at || billing.fetched_at || null,
+    five_hour: null,
+    seven_day: null,
+    seven_day_sonnet: null,
+    ...(usage || {}),
+    grok_billing: billing,
+    grok_quota_snapshot_state: usage?.grok_quota_snapshot_state || 'billing_observed',
+    subscription_tier: usage?.subscription_tier || billing.subscription_tier || billing.plan
+  }
+}
+const usageInfo = ref<AccountUsageInfo | null>(withPersistedGrokBilling(props.externalUsage))
 watch(usageInfo, (usage) => {
   if (usage) emit('usage-loaded', usage)
 })
@@ -781,7 +810,7 @@ watch(
   () => props.externalUsage,
   (usage) => {
     if (!usage || usage === usageInfo.value) return
-    usageInfo.value = usage
+    usageInfo.value = withPersistedGrokBilling(usage)
     _usageCache.set(props.account.id, { data: usage, ts: Date.now() })
   }
 )
@@ -1349,7 +1378,7 @@ const grokFreeTokenBar = computed(() => {
 const grokQuotaUnknown = computed(() => {
   if (props.account.platform !== 'grok') return false
   if (grokIsFree.value) return !grokFreeTokenBar.value
-  if (grokWeeklyBillingBar.value || grokMonthlyBillingBar.value || grokPrepaidMoneyLine.value || grokCreditLine.value) return false
+  if (grokWeeklyBillingBar.value || grokMonthlyBillingBar.value || grokPrepaidMoneyLine.value || grokCreditLine.value || usageInfo.value?.seven_day) return false
   return usageInfo.value?.grok_quota_snapshot_state !== 'observed'
 })
 const grokQuotaUnknownLabel = computed(() => {
@@ -1461,7 +1490,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   if (!options?.bypassCache) {
     const cached = _usageCache.get(props.account.id)
     if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
-      usageInfo.value = cached.data
+      usageInfo.value = withPersistedGrokBilling(cached.data)
       loading.value = false
       return
     }
@@ -1476,7 +1505,7 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
       : adminAPI.accounts.getUsage(props.account.id)
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
-      usageInfo.value = result
+      usageInfo.value = withPersistedGrokBilling(result)
       _usageCache.set(props.account.id, { data: result, ts: Date.now() })
     }
   } catch (e: any) {
@@ -1542,7 +1571,7 @@ const attachVisibilityObserver = () => {
 const loadActiveUsage = async () => {
   activeQueryLoading.value = true
   try {
-    usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    usageInfo.value = withPersistedGrokBilling(await adminAPI.accounts.getUsage(props.account.id, 'active', true))
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {

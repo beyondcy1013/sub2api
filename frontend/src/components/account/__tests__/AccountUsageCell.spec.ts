@@ -1199,6 +1199,44 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('2M|')
   })
 
+  it('Grok usage window renders persisted billing before rate-limit headers arrive', async () => {
+    getUsage.mockResolvedValue({
+      grok_quota_snapshot_state: 'unknown_until_first_response',
+      error_code: 'quota_unknown',
+      error: 'Grok quota is unknown until billing is probed or an upstream response includes xAI rate-limit headers'
+    })
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4299,
+          platform: 'grok',
+          type: 'oauth',
+          extra: {
+            grok_billing_snapshot: {
+              period_type: 'weekly',
+              usage_percent: 13,
+              period_end: '2026-10-04T09:29:28Z',
+              plan: 'GrokPro',
+              subscription_tier: 'GrokPro'
+            }
+          }
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'utilization', 'resetsAt'],
+            template: '<div class="usage-bar">{{ label }}|{{ utilization }}|{{ resetsAt }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('7d|13|2026-10-04T09:29:28Z')
+    expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.grokUnknown')
+  })
+
   it.each([
     { tokens: 0, expected: 0 },
     { tokens: 500_000, expected: 50 },
