@@ -417,6 +417,13 @@
               {{ grokPrepaidMoneyLine.used }}/{{ grokPrepaidMoneyLine.limit }}
             </span>
           </div>
+          <div
+            v-if="grokCreditLine"
+            class="text-[10px] text-gray-500 dark:text-gray-400"
+            title="Grok Build weekly credits"
+          >
+            Credits {{ grokCreditLine.remaining }}/{{ grokCreditLine.total }}
+          </div>
           <div v-if="grokQuotaUnknown" class="text-[10px] text-gray-500 dark:text-gray-400">
             {{ grokQuotaUnknownLabel }}
           </div>
@@ -662,9 +669,45 @@
         color="purple"
       />
 
+      <!-- API Key 账号：余额直接显示在用量窗口列，值取 extra.balance 与
+           balance_query.last_result 中较新者；行内按钮即席刷新上游余额 -->
+      <div
+        v-if="supportsAccountBalanceQuery(account)"
+        class="flex items-center gap-1"
+      >
+        <span
+          class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[9px] dark:bg-gray-800"
+          :class="apiKeyBalanceFailed ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'"
+          :title="apiKeyBalanceFailed ? t('admin.accounts.balanceQuery.notDetected') : undefined"
+        >{{ t('admin.accounts.columns.balance') }} {{ apiKeyBalanceDisplay }}</span>
+        <button
+          type="button"
+          data-test="refresh-balance"
+          class="inline-flex h-4 w-4 items-center justify-center text-gray-400 transition-colors hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-primary-300"
+          :disabled="apiKeyBalanceRefreshing"
+          :title="t('admin.accounts.balanceQuery.action')"
+          @click.stop="refreshApiKeyBalance"
+        >
+          <svg
+            class="h-3 w-3"
+            :class="{ 'animate-spin': apiKeyBalanceRefreshing }"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+        </button>
+      </div>
+
       <!-- No data at all -->
       <div
-        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible && !account.opencode_go_usage?.eligible"
+        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !supportsAccountBalanceQuery(account) && !account.ollama_cloud_usage?.eligible && !account.opencode_go_usage?.eligible"
         class="text-xs text-gray-400"
       >-</div>
     </div>
@@ -680,6 +723,11 @@ import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
+import {
+  applyAccountBalanceQueryResult,
+  formatAccountBalanceCell,
+  supportsAccountBalanceQuery
+} from '@/utils/accountBalance'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import ClaudeResetCreditsCell from './ClaudeResetCreditsCell.vue'
@@ -1182,11 +1230,16 @@ const grokLocalUsageMonthly = computed(() => (
 ))
 const grokWeeklyBillingBar = computed((): GrokQuotaBarInfo | null => {
   const billing = grokBilling.value
-  if (billing?.period_type?.toLowerCase() !== 'weekly' || billing.usage_percent == null) {
+  if (billing?.period_type?.toLowerCase() !== 'weekly') {
     return null
   }
+  let utilization = billing.usage_percent
+  if (utilization == null && billing.weekly_total != null && billing.weekly_total > 0) {
+    utilization = ((billing.weekly_used || 0) / billing.weekly_total) * 100
+  }
+  if (utilization == null) return null
   return {
-    utilization: Math.min(100, Math.max(0, billing.usage_percent)),
+    utilization: Math.min(100, Math.max(0, utilization)),
     resetsAt: billing.period_end || null,
     windowStats: grokLocalUsage7d.value
   }
@@ -1250,6 +1303,17 @@ const grokPrepaidMoneyLine = computed(() => {
     limit: showUsedLimit ? formatGrokMoney(limitRaw) : null
   }
 })
+const grokCreditLine = computed(() => {
+  const billing = grokBilling.value
+  if (!billing?.weekly_total || billing.weekly_total <= 0) return null
+  const used = billing.weekly_used ?? 0
+  const remaining = billing.weekly_remaining ?? Math.max(0, billing.weekly_total - used)
+  return {
+    used: formatGrokMoney(used),
+    remaining: formatGrokMoney(remaining),
+    total: formatGrokMoney(billing.weekly_total)
+  }
+})
 const grokPlanLabelIsFree = (value: string) => value.includes('free') || value.includes('basic')
 const grokPlanLabelIsPaid = (value: string) => {
   return value !== '' && !grokPlanLabelIsFree(value) && !value.includes('unknown')
@@ -1285,7 +1349,7 @@ const grokFreeTokenBar = computed(() => {
 const grokQuotaUnknown = computed(() => {
   if (props.account.platform !== 'grok') return false
   if (grokIsFree.value) return !grokFreeTokenBar.value
-  if (grokWeeklyBillingBar.value || grokMonthlyBillingBar.value || grokPrepaidMoneyLine.value) return false
+  if (grokWeeklyBillingBar.value || grokMonthlyBillingBar.value || grokPrepaidMoneyLine.value || grokCreditLine.value) return false
   return usageInfo.value?.grok_quota_snapshot_state !== 'observed'
 })
 const grokQuotaUnknownLabel = computed(() => {
@@ -1515,6 +1579,9 @@ const handleGrokProbed = (result: GrokQuotaProbeResult) => {
     grok_token_quota: snapshot?.tokens ?? current.grok_token_quota,
     grok_retry_after_seconds: snapshot?.retry_after_seconds ?? current.grok_retry_after_seconds,
     grok_entitlement_status: entitlementStatus,
+    subscription_tier: result.subscription?.subscription_tier ||
+      result.billing?.subscription_tier ||
+      current.subscription_tier,
     grok_quota_snapshot_state: result.billing
       ? 'billing_observed'
       : snapshot?.headers_observed
@@ -1611,6 +1678,37 @@ const handleOllamaCloudUsageUpdated = (state: NonNullable<Account['ollama_cloud_
 
 const handleOpenCodeGoUsageUpdated = (state: NonNullable<Account['opencode_go_usage']>) => {
   emit('account-updated', { ...props.account, opencode_go_usage: state })
+}
+
+// ===== API Key balance (usage-window column) =====
+
+const apiKeyBalanceRefreshing = ref(false)
+const apiKeyBalanceFailed = ref(false)
+const apiKeyBalanceOverride = ref<string | null>(null)
+
+const apiKeyBalanceDisplay = computed(() => {
+  if (apiKeyBalanceFailed.value) return '--'
+  return apiKeyBalanceOverride.value ?? formatAccountBalanceCell(props.account)
+})
+
+const refreshApiKeyBalance = async () => {
+  if (apiKeyBalanceRefreshing.value || !supportsAccountBalanceQuery(props.account)) return
+  apiKeyBalanceRefreshing.value = true
+  apiKeyBalanceFailed.value = false
+  try {
+    const result = await adminAPI.accounts.queryAccountBalance(props.account.id)
+    if (!result.success) {
+      apiKeyBalanceFailed.value = true
+      return
+    }
+    const patched = applyAccountBalanceQueryResult(props.account, result)
+    apiKeyBalanceOverride.value = formatAccountBalanceCell(patched)
+    emit('account-updated', patched)
+  } catch {
+    apiKeyBalanceFailed.value = true
+  } finally {
+    apiKeyBalanceRefreshing.value = false
+  }
 }
 
 // ===== Key account today stats formatters =====

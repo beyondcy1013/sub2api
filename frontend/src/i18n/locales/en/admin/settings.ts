@@ -14,6 +14,17 @@ export default {
         payment: 'Payment',
       },
       features: {
+        excelBpsImages: {
+          title: 'Excel / BPS image relay',
+          description: 'Automatically convert uploaded base64 images and tool screenshots into temporary HTTPS links hosted by this server.',
+          enabled: 'Enable image relay',
+          enabledHint: 'Applies immediately upon saving without restarting the service. Disabling stops conversions and blocks access to temporary images.',
+          baseUrl: 'Public HTTPS origin',
+          baseUrlHint: 'Enter the public HTTPS domain used to access this server, without /v1 or any trailing path. The account must also have Excel / BPS protocol enabled.',
+          retentionHint: 'Supports PNG, JPEG, GIF, and WebP. Up to 20 MiB per image, up to 20 images and 32 MiB total per request. Images are staged on disk with a 1 GiB / 512 images per-process quota. Links expire 30 minutes after last submission and are cleaned by background workers.',
+          capacityHint: 'When enabled, HTTP Requests for OpenAI/Composite Responses, Chat, and Messages are subject to a 64 MiB body limit, shared memory budget, and up to 32 concurrent requests.',
+          invalidBaseUrl: 'Please enter a valid HTTPS URL without path, credentials, query parameters, or fragment.',
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Choose either V1 active probes or V2 passive usage monitoring. When disabled, both background jobs stop and the user entry is hidden.',
@@ -564,6 +575,27 @@ export default {
         claudeCodeVersionAutoSyncHint: 'Fetches the latest Claude Code client version from the official release channel every hour, so you never need to upgrade this service just to keep the version current. When disabled, fetching stops but the previously synced version remains available. The manual version above always takes priority.',
         claudeCodeVersionSyncedValue: 'Currently synced: {version}',
         codexHardeningTitle: "Codex Settings",
+        codexTicketEnabled: "780 ticket harvest",
+        codexTicketEnabledDesc:
+          "When off, the gateway neither harvests nor injects x-codex-turn-state and forwards traffic as usual. When on, it harvests tickets in the background and overwrites that header on production requests.",
+        codexTicketFailClosed: "Pause accounts without a ticket",
+        codexTicketFailClosedDesc:
+          "Off by default. When off, a missing, expired, or mismatched ticket only disables injection and the account remains schedulable. When on, target-model accounts without a valid ticket are paused.",
+        codexTicketModels: "Ticket models",
+        codexTicketModelsDesc: "Harvest and inject tickets only for selected models. Unselected models use the normal forwarding path.",
+        codexTicketShapeNotice: "780 only describe the observed state shape and do not measure model quality. Only tickets matching the current validation rules are injected; with account pausing off, a shape mismatch does not block requests.",
+        codexTicketHarvestProxy: "780 harvest proxy",
+        codexTicketHarvestProxyDesc:
+          "Used only for minting 780 tickets when the ticket feature is enabled. Changes apply to subsequent probes without a restart. Production traffic still uses each account's residential proxy. Paste a full HTTP or SOCKS5h proxy URL including username and password. The proxy provider must handle IP rotation. Leave blank when saving to keep the stored value.",
+        codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
+        codexTicketHarvestProxyConfigured: "Configured (password hidden). Paste a full new proxy URL to replace it.",
+        codexTicketProxyMode: "Ticket exit type",
+        codexTicketProxyModeMihomo: "Mihomo/VPN kernel",
+        codexTicketProxyModeStatic: "Static residential proxy",
+        codexTicketProxyMihomoEndpoint: "Kernel local endpoint",
+        codexTicketProxyMihomoSelected: 'Mihomo selected for ticket harvesting. Click "Save Settings" to apply.',
+        codexTicketProxyMihomoHint:
+          "Uses the Mihomo airport subscription running on this server. Run install-mihomo-codex.sh from the release package first; normal account proxies are unchanged.",
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:
           "Only affects OpenAI OAuth accounts with 'Codex official clients only' enabled (global). Beyond User-Agent/Originator, harden the decision with a version range, an engine-fingerprint gate, and black/whitelists.",

@@ -399,6 +399,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
       'admin.accounts.testConnection',
+      '打票',
       'admin.accounts.pelicanAction',
       'admin.accounts.recycle',
       'common.more'
@@ -586,6 +587,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
       created_at: '2026-07-28T09:30:00+08:00',
       updated_at: '2026-07-28T09:30:00+08:00'
     }
+    getById.mockResolvedValueOnce(importedAccount)
     listAccounts
       .mockResolvedValueOnce({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
       .mockResolvedValueOnce({ items: [account, importedAccount], total: 2, page: 1, page_size: 20, pages: 1 })
@@ -600,6 +602,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     ).find(button => button.textContent?.includes('admin.accounts.dataImport'))
     expect(importButton).toBeDefined()
     importButton!.click()
+    console.log("Clicked import button");
     await wrapper.vm.$nextTick()
     await wrapper.get('[data-test="complete-data-import"]').trigger('click')
     await flushPromises()
@@ -648,6 +651,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
       document.body.querySelectorAll<HTMLButtonElement>('[data-test="account-tools-dropdown"] button')
     ).find(button => button.textContent?.includes('admin.accounts.dataImport'))
     importButton!.click()
+    console.log("Clicked import button");
     await wrapper.vm.$nextTick()
     await wrapper.get('[data-test="complete-data-import"]').trigger('click')
     await flushPromises()

@@ -2163,6 +2163,74 @@ func (a *Account) IsOpenAIResponsesWebSocketV2Enabled() bool {
 	return false
 }
 
+// IsExcelBPSEnabled routes an existing ChatGPT OAuth account to the Excel gateway.
+// Credentials and refresh remain on the original account; no sidecar is involved.
+func (a *Account) IsExcelBPSEnabled() bool {
+	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth || a.IsShadow() || a.IsOpenAIAgentIdentity() || a.IsOpenAIPersonalAccessToken() {
+		return false
+	}
+	enabled, _ := a.Extra["openai_excel_bps"].(bool)
+	return enabled
+}
+
+// IsExcelBPSCacheCreationAsInputEnabled controls local cache-creation billing only.
+// The setting has no effect unless this account uses the Excel/BPS protocol.
+func (a *Account) IsExcelBPSCacheCreationAsInputEnabled() bool {
+	if !a.IsExcelBPSEnabled() {
+		return false
+	}
+	enabled, _ := a.Extra["openai_excel_bps_cache_creation_as_input"].(bool)
+	return enabled
+}
+
+// isExcelBPSAllModelsEnabled preserves legacy account-wide routing. An explicit
+// list, including an empty or malformed list, never enables BPS for all models.
+func (a *Account) isExcelBPSAllModelsEnabled() bool {
+	if !a.IsExcelBPSEnabled() {
+		return false
+	}
+	_, scoped := a.Extra["openai_excel_bps_models"]
+	return !scoped
+}
+
+// IsExcelBPSEnabledForModel selects the protocol after account model mapping.
+// The list selects a protocol; it does not restrict access to other models.
+func (a *Account) IsExcelBPSEnabledForModel(requestedModel string) bool {
+	if !a.IsExcelBPSEnabled() {
+		return false
+	}
+	return a.isExcelBPSUpstreamModelEnabled(a.GetMappedModel(requestedModel))
+}
+
+func (a *Account) isExcelBPSUpstreamModelEnabled(model string) bool {
+	if !a.IsExcelBPSEnabled() {
+		return false
+	}
+	raw, scoped := a.Extra["openai_excel_bps_models"]
+	if !scoped {
+		return true
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	switch models := raw.(type) {
+	case []string:
+		for _, selected := range models {
+			if strings.TrimSpace(selected) == model {
+				return true
+			}
+		}
+	case []any:
+		for _, selected := range models {
+			if name, ok := selected.(string); ok && strings.TrimSpace(name) == model {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 const (
 	OpenAIWSIngressModeOff         = "off"
 	OpenAIWSIngressModeShared      = "shared"

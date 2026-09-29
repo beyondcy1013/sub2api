@@ -40,10 +40,12 @@ func TestGrokQuotaQueryRemainsAvailableWhileSchedulingIsPaused(t *testing.T) {
 			require.NotNil(t, result.Billing)
 			require.Equal(t, used, *result.Billing.UsagePercent)
 			requests, _ := upstream.quotaSnapshot()
-			require.Len(t, requests, 2)
+			require.Len(t, requests, 3)
 			for _, req := range requests {
 				require.Equal(t, http.MethodGet, req.Method)
-				require.Equal(t, "/v1/billing", req.URL.Path)
+				if req.URL.Path != "/v1/user" {
+					require.Equal(t, "/v1/billing", req.URL.Path)
+				}
 			}
 			// Observing quota must not resume model traffic or alter cooldowns.
 			require.False(t, account.IsSchedulable())

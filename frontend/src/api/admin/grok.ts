@@ -112,6 +112,13 @@ export interface GrokQuotaProbeResult {
   source: 'active_probe' | 'billing_probe' | 'hybrid_probe'
   model?: string
   billing?: GrokBillingSummary | null
+  subscription?: {
+    email?: string
+    subscription_tier?: string
+    subscription_status?: string
+    has_grok_code_access?: boolean
+    status_code?: number
+  } | null
   snapshot?: GrokQuotaSnapshot | null
   local_usage_24h?: WindowStats | null
   local_usage_7d?: WindowStats | null

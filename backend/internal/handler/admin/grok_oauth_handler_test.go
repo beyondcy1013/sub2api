@@ -81,6 +81,13 @@ func (u *grokQuotaHandlerUpstream) Do(req *http.Request, _ string, _ int64, _ in
 			Body: io.NopCloser(strings.NewReader(`{"id":"resp_probe"}`)),
 		}, nil
 	}
+	if req.URL.Path == "/v1/user" {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"email":"user@example.test","hasGrokCodeAccess":true,"subscription":{"tier":"SUBSCRIPTION_TIER_SUPERGROK","status":"SUBSCRIPTION_STATUS_ACTIVE"}}`)),
+		}, nil
+	}
 	payload := `{"config":{"billingPeriodStart":"2026-07-01T00:00:00Z","billingPeriodEnd":"2026-08-01T00:00:00Z"}}`
 	if req.URL.RawQuery == "format=credits" {
 		payload = `{"config":{"currentPeriod":{"type":"WEEKLY","start":"2026-07-09T03:25:00Z","end":"2026-07-16T03:25:00Z"}}}`
@@ -133,15 +140,16 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	require.Eventually(t, func() bool {
 		upstream.mu.Lock()
 		defer upstream.mu.Unlock()
-		return len(upstream.requests) == 4
+		return len(upstream.requests) == 5
 	}, time.Second, 10*time.Millisecond)
 	upstream.mu.Lock()
 	requests := append([]*http.Request(nil), upstream.requests...)
 	bodies := append([][]byte(nil), upstream.bodies...)
 	upstream.mu.Unlock()
-	require.Len(t, requests, 4)
+	require.Len(t, requests, 5)
 	responsesProbeSeen := false
 	modelsSyncSeen := false
+	subscriptionProbeSeen := false
 	for i, upstreamReq := range requests {
 		require.Equal(t, "Bearer access-token", upstreamReq.Header.Get("Authorization"))
 		if upstreamReq.URL.String() == xai.DefaultCLIBaseURL+"/responses" {
@@ -156,9 +164,13 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 		if upstreamReq.URL.String() == xai.DefaultCLIBaseURL+"/models" {
 			modelsSyncSeen = true
 		}
+		if upstreamReq.URL.Path == "/v1/user" {
+			subscriptionProbeSeen = true
+		}
 	}
 	require.True(t, responsesProbeSeen)
 	require.True(t, modelsSyncSeen)
+	require.True(t, subscriptionProbeSeen)
 	require.NotNil(t, repo.updates[42])
 }
 

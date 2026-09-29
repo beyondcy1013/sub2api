@@ -250,7 +250,9 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	if s == nil || s.openaiGatewayService == nil {
 		return nil, errors.New("OpenAI model discovery service is unavailable")
 	}
-	response, err := s.openaiGatewayService.FetchOpenAIModelsList(ctx, account)
+	// 测试连接的模型选择器是交互路径：接受过期保留副本（后台刷新已自动触发），
+	// 避免冷缓存时每次打开都阻塞在上游目录拉取的数秒延迟上。
+	response, err := s.openaiGatewayService.FetchOpenAIModelsList(WithOpenAIModelsServeExpired(ctx), account)
 	if err != nil {
 		return nil, err
 	}
@@ -869,6 +871,10 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
 func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
+	if account.IsExcelBPSEnabled() && s.openaiGatewayService != nil {
+		return s.testExcelBPSAccountConnection(c, account, modelID, prompt)
+	}
+
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
@@ -1079,6 +1085,78 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 	// Process SSE stream
 	return s.processOpenAIStreamWithMode(c, resp.Body, mode, testModelID)
+}
+
+func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+	model := strings.TrimSpace(modelID)
+	if model == "" {
+		model = openai.DefaultTestModel
+	}
+	model = account.GetMappedModel(model)
+	prompt = promptOrDefault(prompt)
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: model})
+
+	body, err := buildExcelBPSAccountTestBody(model, prompt)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create Excel BPS test payload")
+	}
+
+	probe := httptest.NewRecorder()
+	probeCtx, _ := gin.CreateTestContext(probe)
+	probeCtx.Request = c.Request.Clone(c.Request.Context())
+	result, err := s.openaiGatewayService.Forward(probeCtx, probeCtx, account, body)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	answer := strings.Builder{}
+	completed := false
+	for _, line := range strings.Split(probe.Body.String(), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var event map[string]any
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event) != nil {
+			continue
+		}
+		switch event["type"] {
+		case "response.output_text.delta":
+			if delta, ok := event["delta"].(string); ok {
+				_, _ = answer.WriteString(delta)
+				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
+			}
+		case "response.completed":
+			completed = true
+		}
+	}
+	if result == nil || result.ClientDisconnect {
+		return s.sendErrorAndEnd(c, "Excel BPS test response was interrupted")
+	}
+	if !completed {
+		return s.sendErrorAndEnd(c, "Excel BPS test response ended before completion")
+	}
+	if strings.TrimSpace(answer.String()) == "" {
+		return s.sendErrorAndEnd(c, "Excel BPS returned empty output")
+	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
+func buildExcelBPSAccountTestBody(model, prompt string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"model": model, "stream": true, "store": false,
+		"input": []any{map[string]any{"type": "message", "role": "user", "content": []any{
+			map[string]any{"type": "input_text", "text": promptOrDefault(prompt)},
+		}}},
+		"reasoning": map[string]any{"effort": "medium"},
+	})
+}
+
+func promptOrDefault(prompt string) string {
+	if value := strings.TrimSpace(prompt); value != "" {
+		return value
+	}
+	return "hi"
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,

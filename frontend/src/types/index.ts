@@ -1463,6 +1463,9 @@ export interface GrokQuotaWindow {
 export interface GrokBillingProductUsage {
   product: string
   usage_percent?: number | null
+  used?: number | null
+  total?: number | null
+  remaining?: number | null
 }
 
 export interface GrokBillingSummary {
@@ -1485,6 +1488,13 @@ export interface GrokBillingSummary {
   on_demand_used?: number | null
   top_up_method?: string
   is_unified_billing_user?: boolean
+  subscription_tier?: string
+  subscription_status?: string
+  email?: string
+  has_grok_code_access?: boolean
+  weekly_used?: number | null
+  weekly_total?: number | null
+  weekly_remaining?: number | null
   plan?: string
   status_code?: number
   source?: string

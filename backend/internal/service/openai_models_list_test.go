@@ -322,6 +322,90 @@ func TestFetchOpenAIModelsListRejectsUnexpectedCold304(t *testing.T) {
 	require.Equal(t, http.StatusBadGateway, infraerrors.Code(err))
 }
 
+// 回归：真实 Codex manifest 约 500KB，upstreamSourceBody 与 Body 逐字节相同；
+// 过去两份拷贝叠加会超过单条 1MiB 预算导致 set 静默拒绝缓存，OAuth 账号的
+// 管理端模型选择器每次都回源上游（秒级）。去重后必须正常缓存。
+func TestFetchOpenAIModelsListOAuthLargeManifestStillCaches(t *testing.T) {
+	padding := strings.Repeat("x", 600<<10)
+	manifestBody := `{"models":[{"slug":"gpt-5.5","display_name":"` + padding + `"}]}`
+	_, calls := newCodexModelsOAuthCacheServer(t, manifestBody)
+	s := &OpenAIGatewayService{}
+	account := newCodexModelsTestAccount()
+
+	response, err := s.FetchOpenAIModelsList(context.Background(), account)
+	require.NoError(t, err)
+	require.Contains(t, string(response.Body), `"id":"gpt-5.5"`)
+	for range 3 {
+		_, err = s.FetchOpenAIModelsList(context.Background(), account)
+		require.NoError(t, err)
+	}
+	require.EqualValues(t, 1, calls.Load(), "大于半预算的 manifest 也必须缓存（Body 与源体去重后计量）")
+}
+
+// 超过 stale 窗口但仍在保留期内的条目：声明接受过期副本的调用方（管理端测试
+// 连接的模型选择器）必须立即拿到旧目录并触发后台刷新；未声明的调用方保持
+// 阻塞回源的既有语义。
+func TestFetchOpenAIModelsListExpiredCatalogServesForOptedInCaller(t *testing.T) {
+	var calls atomic.Int32
+	refreshStarted := make(chan struct{}, 1)
+	releaseRefresh := make(chan struct{})
+	s := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			return ordinaryModelsUpstreamResponse(`{"data":[{"id":"v1"}]}`), nil
+		}
+		select {
+		case refreshStarted <- struct{}{}:
+		default:
+		}
+		<-releaseRefresh
+		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"v2"}]}`), nil
+	}})
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+
+	first, err := s.FetchOpenAIModelsList(context.Background(), account)
+	require.NoError(t, err)
+	require.Contains(t, string(first.Body), `"id":"v1"`)
+
+	expireOpenAIModelsCacheIntoExpired(s)
+
+	// 接受过期副本：上游刷新尚未完成也必须立即返回 v1。
+	stale, err := s.FetchOpenAIModelsList(WithOpenAIModelsServeExpired(context.Background()), account)
+	require.NoError(t, err)
+	require.Contains(t, string(stale.Body), `"id":"v1"`, "过期保留副本必须即时返回，不得阻塞在上游刷新上")
+	select {
+	case <-refreshStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("过期保留副本必须同时触发后台刷新")
+	}
+	close(releaseRefresh)
+
+	// 等后台刷新落缓存后，未声明接受过期副本的调用方保持阻塞回源语义：
+	// 令其再次过期，普通调用必须等到上游返回 v2，而不是拿到保留的 v1。
+	require.Eventually(t, func() bool {
+		s.openAIModelsCache.mu.Lock()
+		defer s.openAIModelsCache.mu.Unlock()
+		for _, entry := range s.openAIModelsCache.entries {
+			return strings.Contains(string(entry.manifest.Body), `"id":"v2"`)
+		}
+		return false
+	}, 2*time.Second, time.Millisecond)
+	expireOpenAIModelsCacheIntoExpired(s)
+	refreshed, err := s.FetchOpenAIModelsList(context.Background(), account)
+	require.NoError(t, err)
+	require.Contains(t, string(refreshed.Body), `"id":"v2"`, "常规调用在过期态必须阻塞回源并返回新内容")
+	require.EqualValues(t, 3, calls.Load())
+}
+
+func expireOpenAIModelsCacheIntoExpired(s *OpenAIGatewayService) {
+	s.openAIModelsCache.mu.Lock()
+	defer s.openAIModelsCache.mu.Unlock()
+	for key, entry := range s.openAIModelsCache.entries {
+		entry.expiresAt = time.Now().Add(-time.Hour)
+		entry.staleUntil = time.Now().Add(-time.Hour)
+		s.openAIModelsCache.entries[key] = entry
+	}
+}
+
 func TestOpenAIModelsCacheSeparatesRepresentationsForIdenticalRequests(t *testing.T) {
 	s := &OpenAIGatewayService{}
 	request := openAIModelsRequest{url: "https://models.example/v1/models", accountID: 7}

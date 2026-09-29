@@ -724,3 +724,36 @@ browser reload can retain cached version state; after deployment use
 - 历史面板只读取当前已选账号 ID 的记录，不按 OpenAI/API Key 类型、名称或模型合并账号；同名账号仍独立。
 - 多账号历史可按账号筛选，从账号行进入详情时锁定该账号；取消选择后同步更新列表与详情，空选择不显示其他缓存。
 - 保留全部原始缓存及动画预览，筛选不删除历史、不触发上游请求。
+
+## OpenAI Basis Points Plugin (installed 2026-09-28)
+
+- The `.s2plugin` source module is
+  `github.com/Wei-Shaw/sub2api-oai-basispoints` (built against
+  `github.com/Wei-Shaw/sub2api` via a local `../../backend` replace); the
+  corresponding GitHub repository is not publicly reachable as of
+  2026-09-28, so treat the signed package as a vendor-distributed artifact.
+  The in-repo `backend/internal/service/basispoints` package is a separate
+  source port of the same protocol from https://github.com/hloolx/codex2api;
+  `JaxsonWang/cpa-plugin-oai-basispoints` is only a review reference and uses
+  the incompatible CPA plugin ABI.
+- `sub2api.openai.basispoints` v0.6.0 is installed and enabled on the main
+  profile, bound to `openai.oauth.outbound_transport.v1` (platform `openai`,
+  account_type `oauth`, rollout 100%). The host allows only one transport
+  plugin at a time; `local.flownode.state-reuse` was disabled when this plugin
+  was enabled. Do not re-enable state-reuse while basispoints is active —
+  enabling either while the other holds the route fails, and two enabled
+  transport bindings poison the OAuth route.
+- The vendor package shipped unsigned. A local Ed25519 publisher key was
+  generated to sign `manifest.json`; the public key is registered in
+  `deploy/data/config.yaml` as
+  `plugins.trusted_publishers."local-oai-basispoints-20260928"`, and
+  `plugins.allow_unsigned` stays `false`. Keep that trusted-publishers entry
+  when editing or regenerating the deploy config.
+- The signing private key lives at
+  `/root/sub2api-plugin-keys/oai-basispoints-20260928.private` (mode 600) for
+  re-signing future package versions; it is not part of the repo or the
+  plugin package.
+- Reinstall or signature re-checks must use a signed package; installing an
+  unsigned re-pack requires either this trusted key (re-sign) or a temporary,
+  reverted `allow_unsigned` change plus a service restart — config is read
+  only at process start.

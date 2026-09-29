@@ -369,6 +369,8 @@ func TestRateLimitService_HandleUpstreamError_OpenAIAPIKeyRelay401(t *testing.T)
 		require.True(t, shouldDisable)
 		require.Equal(t, 1, repo.setErrorCalls)
 	})
+}
+
 func TestRateLimitService_HandleUpstreamError_NonOAuthModel401StillDisablesCredentials(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)

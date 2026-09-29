@@ -338,7 +338,10 @@ func isKnownGrokFreeAccount(account *Account) bool {
 		}
 		// Usage % or a monthly dollar cap is evidence of a paid plan.
 		if billing.UsagePercent != nil || billing.UsedPercent != nil ||
-			(billing.MonthlyLimitCents != nil && *billing.MonthlyLimitCents > 0) {
+			(billing.MonthlyLimitCents != nil && *billing.MonthlyLimitCents > 0) ||
+			(billing.WeeklyTotal != nil && *billing.WeeklyTotal > 0) ||
+			strings.TrimSpace(billing.SubscriptionTier) != "" ||
+			strings.TrimSpace(billing.SubscriptionStatus) != "" {
 			paidSignal = true
 		}
 		// Empty plan + successful monthly observation → inferred free (no paid plan/limit).

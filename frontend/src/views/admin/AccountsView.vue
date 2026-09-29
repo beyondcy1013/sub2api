@@ -643,6 +643,16 @@
                 {{ t('admin.accounts.testConnection') }}
               </button>
               <button
+                v-if="row.platform === 'openai' && !row.parent_account_id && !deleted && !recycled"
+                data-test="account-harvest-action"
+                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-violet-200 px-2 text-xs font-medium leading-none text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-900/20"
+                title="手动打票"
+                aria-label="手动打票"
+                @click="openHarvestModal(row)"
+              >
+                打票
+              </button>
+              <button
                 data-test="account-pelican-action"
                 class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-cyan-200 px-2 text-xs font-medium leading-none text-cyan-700 transition-colors hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-900/20"
                 :title="t('admin.accounts.pelicanAction')"
@@ -723,6 +733,7 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" />
     <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" :all-accounts="accounts" @close="closePelicanModal" @updated="handlePelicanAccountUpdated" @running-change="handlePelicanRunningChange" />
+    <CodexHarvestModal v-model:visible="showHarvestModal" :account-id="harvestAccountId" />
     <SchedulingRulesModal
       :show="showSchedulingRules"
       @close="closeSchedulingRulesModal"
@@ -813,6 +824,7 @@ import SchedulingRulesModal from '@/components/account/SchedulingRulesModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
+import CodexHarvestModal from '@/components/account/CodexHarvestModal.vue'
 import AccountBalanceQueryModal from '@/components/admin/account/AccountBalanceQueryModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
@@ -990,6 +1002,8 @@ const showStats = ref(false)
 const showStickySessions = ref(false)
 const showScheduledAction = ref(false)
 const showBalanceQuery = ref(false)
+const showHarvestModal = ref(false)
+const harvestAccountId = ref(0)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -3181,6 +3195,10 @@ const handleTest = async (a: AccountListItem) => {
   if (!account) return
   testingAcc.value = account
   showTest.value = true
+}
+const openHarvestModal = (a: AccountListItem) => {
+  harvestAccountId.value = a.id
+  showHarvestModal.value = true
 }
 const closePelicanModal = () => {
   showPelicanModal.value = false

@@ -338,6 +338,15 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ClaudeCodeClientVersion:                                settings.ClaudeCodeClientVersion,
 		ClaudeCodeClientVersionSynced:                          settings.ClaudeCodeClientVersionSynced,
 		ClaudeCodeVersionAutoSyncEnabled:                       settings.ClaudeCodeVersionAutoSyncEnabled,
+		OpenAICodexTicketEnabled:                               settings.OpenAICodexTicketEnabled,
+		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(settings.OpenAICodexTicketHarvestProxyURL),
+		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(settings.OpenAICodexTicketStaticProxyURL),
+		OpenAICodexTicketHarvestScope:                          settings.OpenAICodexTicketHarvestScope,
+		OpenAICodexTicketStrategy:                              settings.OpenAICodexTicketStrategy,
+		OpenAICodexTicketStrictResponse:                        settings.OpenAICodexTicketStrictResponse,
+		OpenAICodexTicketFailClosed:                            settings.OpenAICodexTicketFailClosed,
+		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL) != "",
+		OpenAICodexTicketModels:                                settings.OpenAICodexTicketModels,
 		MinCodexVersion:                                        settings.MinCodexVersion,
 		MaxCodexVersion:                                        settings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                                  settings.CodexCLIOnlyBlacklist,
@@ -429,6 +438,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+
+		ExcelBPSImageRelayEnabled: settings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageBaseURL:      settings.ExcelBPSImageBaseURL,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

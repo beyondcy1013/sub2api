@@ -29,6 +29,8 @@ const (
 
 	SuperGrokLimitCents      = 15_000  // $150.00
 	SuperGrokHeavyLimitCents = 150_000 // $1,500.00
+
+	SubscriptionPath = "/user?include=subscription"
 )
 
 // BillingPeriod describes the current weekly/monthly window.
@@ -40,8 +42,11 @@ type BillingPeriod struct {
 
 // BillingProductUsage is per-product usage inside the weekly credits window.
 type BillingProductUsage struct {
-	Product      string   `json:"product,omitempty"`
-	UsagePercent *float64 `json:"usagePercent,omitempty"`
+	Product      string          `json:"product,omitempty"`
+	UsagePercent *float64        `json:"usagePercent,omitempty"`
+	Used         json.RawMessage `json:"used,omitempty"`
+	Total        json.RawMessage `json:"total,omitempty"`
+	Remaining    json.RawMessage `json:"remaining,omitempty"`
 }
 
 // BillingConfig is the nested config object from /v1/billing responses.
@@ -52,6 +57,13 @@ type BillingConfig struct {
 	CurrentPeriod        *BillingPeriod        `json:"currentPeriod,omitempty"`
 	CreditUsagePercent   *float64              `json:"creditUsagePercent,omitempty"`
 	ProductUsage         []BillingProductUsage `json:"productUsage,omitempty"`
+	SubscriptionTier     string                `json:"subscriptionTier,omitempty"`
+	SubscriptionStatus   string                `json:"subscriptionStatus,omitempty"`
+	Credits              json.RawMessage       `json:"credits,omitempty"`
+	IncludedCredits      json.RawMessage       `json:"includedCredits,omitempty"`
+	SubscriptionCredits  json.RawMessage       `json:"subscriptionCredits,omitempty"`
+	WeeklyCredits        json.RawMessage       `json:"weeklyCredits,omitempty"`
+	SharedPool           json.RawMessage       `json:"sharedPool,omitempty"`
 	MonthlyLimit         json.RawMessage       `json:"monthlyLimit,omitempty"`
 	Used                 json.RawMessage       `json:"used,omitempty"`
 	OnDemandCap          json.RawMessage       `json:"onDemandCap,omitempty"`
@@ -68,10 +80,28 @@ type BillingPayload struct {
 	Config *BillingConfig `json:"config,omitempty"`
 }
 
+type SubscriptionPayload struct {
+	Email             string           `json:"email,omitempty"`
+	HasGrokCodeAccess bool             `json:"hasGrokCodeAccess,omitempty"`
+	Subscription      map[string]any   `json:"subscription,omitempty"`
+	Subscriptions     []map[string]any `json:"subscriptions,omitempty"`
+}
+
+type SubscriptionSummary struct {
+	Email              string `json:"email,omitempty"`
+	SubscriptionTier   string `json:"subscription_tier,omitempty"`
+	SubscriptionStatus string `json:"subscription_status,omitempty"`
+	HasGrokCodeAccess  bool   `json:"has_grok_code_access,omitempty"`
+	StatusCode         int    `json:"status_code,omitempty"`
+}
+
 // BillingProductSummary is a normalized product usage row for UI.
 type BillingProductSummary struct {
 	Product      string   `json:"product"`
 	UsagePercent *float64 `json:"usage_percent,omitempty"`
+	Used         *float64 `json:"used,omitempty"`
+	Total        *float64 `json:"total,omitempty"`
+	Remaining    *float64 `json:"remaining,omitempty"`
 }
 
 // BillingSummary is the merged weekly + monthly billing view.
@@ -98,6 +128,13 @@ type BillingSummary struct {
 	OnDemandUsed         *float64 `json:"on_demand_used,omitempty"`
 	TopUpMethod          string   `json:"top_up_method,omitempty"`
 	IsUnifiedBillingUser bool     `json:"is_unified_billing_user,omitempty"`
+	SubscriptionTier     string   `json:"subscription_tier,omitempty"`
+	SubscriptionStatus   string   `json:"subscription_status,omitempty"`
+	Email                string   `json:"email,omitempty"`
+	WeeklyUsed           *float64 `json:"weekly_used,omitempty"`
+	WeeklyTotal          *float64 `json:"weekly_total,omitempty"`
+	WeeklyRemaining      *float64 `json:"weekly_remaining,omitempty"`
+	HasGrokCodeAccess    bool     `json:"has_grok_code_access,omitempty"`
 	Plan                 string   `json:"plan,omitempty"` // SuperGrok | SuperGrok Heavy | ""
 	StatusCode           int      `json:"status_code,omitempty"`
 	WeeklyStatusCode     int      `json:"weekly_status_code,omitempty"`
@@ -135,6 +172,14 @@ func BuildBillingURLWithValidator(baseURL string, formatCredits bool, validator 
 	return validatedBaseURL + BillingMonthlyPath, nil
 }
 
+func BuildSubscriptionURLWithValidator(baseURL string, validator BaseURLValidator) (string, error) {
+	validatedBaseURL, err := validatedBaseURLWithValidator(baseURL, validator)
+	if err != nil {
+		return "", fmt.Errorf("invalid base url: %w", err)
+	}
+	return validatedBaseURL + SubscriptionPath, nil
+}
+
 // ApplyCLIBillingHeaders sets Authorization + CLI identity headers for billing GETs.
 func ApplyCLIBillingHeaders(req *http.Request, accessToken string) {
 	if req == nil {
@@ -151,6 +196,20 @@ func ApplyCLIBillingHeaders(req *http.Request, accessToken string) {
 	req.Header.Set("User-Agent", billingCLIUserAgent)
 }
 
+// ApplyCLISubscriptionHeaders adds the identity headers that the CLI proxy
+// requires for /v1/user. Missing user identity commonly turns into 403 even
+// when the same bearer token works for inference traffic.
+func ApplyCLISubscriptionHeaders(req *http.Request, accessToken, userID string) {
+	if req == nil {
+		return
+	}
+	ApplyCLIBillingHeaders(req, accessToken)
+	if userID = strings.TrimSpace(userID); userID != "" {
+		req.Header.Set("X-UserID", userID)
+		req.Header.Set("x-authenticateresponse", "authenticate-response")
+	}
+}
+
 // ParseBillingPayload unmarshals a billing API response body.
 func ParseBillingPayload(body []byte) (*BillingPayload, error) {
 	if len(body) == 0 {
@@ -161,6 +220,45 @@ func ParseBillingPayload(body []byte) (*BillingPayload, error) {
 		return nil, err
 	}
 	return &payload, nil
+}
+
+func ParseSubscriptionSummary(body []byte) (*SubscriptionSummary, error) {
+	var payload SubscriptionPayload
+	if len(body) == 0 {
+		return nil, fmt.Errorf("empty subscription body")
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	subscription := payload.Subscription
+	if subscription == nil {
+		for _, item := range payload.Subscriptions {
+			if status, _ := item["status"].(string); strings.EqualFold(strings.TrimSpace(status), "SUBSCRIPTION_STATUS_ACTIVE") {
+				subscription = item
+				break
+			}
+		}
+	}
+	getString := func(keys ...string) string {
+		object := subscription
+		if object == nil {
+			object = map[string]any{}
+		}
+		for _, key := range keys {
+			if value, ok := object[key]; ok {
+				if text, _ := value.(string); strings.TrimSpace(text) != "" {
+					return strings.TrimSpace(text)
+				}
+			}
+		}
+		return ""
+	}
+	return &SubscriptionSummary{
+		Email:              strings.TrimSpace(payload.Email),
+		SubscriptionTier:   getString("tier", "subscriptionTier", "subscription_tier"),
+		SubscriptionStatus: getString("status", "subscriptionStatus", "subscription_status"),
+		HasGrokCodeAccess:  payload.HasGrokCodeAccess,
+	}, nil
 }
 
 // BuildBillingSummary normalizes a billing config into a UI-friendly summary.
@@ -189,9 +287,13 @@ func BuildBillingSummary(config *BillingConfig) *BillingSummary {
 		if product == "" {
 			continue
 		}
+		used, total, remaining := creditAmountsFromRaw(item.Used, item.Total, item.Remaining)
 		products = append(products, BillingProductSummary{
 			Product:      product,
 			UsagePercent: cloneFloat(item.UsagePercent),
+			Used:         used,
+			Total:        total,
+			Remaining:    remaining,
 		})
 	}
 
@@ -202,6 +304,10 @@ func BuildBillingSummary(config *BillingConfig) *BillingSummary {
 	prepaid := parseCentValue(config.PrepaidBalance)
 	onDemandCap := parseCentValue(config.OnDemandCap)
 	onDemandUsed := parseCentValue(config.OnDemandUsed)
+	weeklyUsed, weeklyTotal, weeklyRemaining := creditAmounts(
+		config.Credits, config.IncludedCredits, config.SubscriptionCredits,
+		config.WeeklyCredits, config.SharedPool,
+	)
 	billingStart := strings.TrimSpace(config.BillingPeriodStart)
 	billingEnd := strings.TrimSpace(config.BillingPeriodEnd)
 
@@ -221,7 +327,9 @@ func BuildBillingSummary(config *BillingConfig) *BillingSummary {
 		usedPercent = &v
 	}
 
-	hasWeekly := creditUsage != nil || periodType == "weekly" || len(products) > 0 || prepaid != nil || onDemandCap != nil || onDemandUsed != nil
+	hasWeekly := creditUsage != nil || periodType == "weekly" || len(products) > 0 ||
+		prepaid != nil || onDemandCap != nil || onDemandUsed != nil ||
+		weeklyUsed != nil || weeklyTotal != nil || weeklyRemaining != nil
 	hasMonthly := monthlyLimit != nil || used != nil || (!hasWeekly && billingEnd != "")
 	if !hasWeekly && !hasMonthly {
 		return nil
@@ -269,6 +377,11 @@ func BuildBillingSummary(config *BillingConfig) *BillingSummary {
 	}
 	summary.TopUpMethod = strings.TrimSpace(config.TopUpMethod)
 	summary.IsUnifiedBillingUser = config.IsUnifiedBillingUser
+	summary.SubscriptionTier = strings.TrimSpace(config.SubscriptionTier)
+	summary.SubscriptionStatus = strings.TrimSpace(config.SubscriptionStatus)
+	summary.WeeklyUsed = weeklyUsed
+	summary.WeeklyTotal = weeklyTotal
+	summary.WeeklyRemaining = weeklyRemaining
 	summary.Plan = resolvePlan(monthlyLimit)
 	return summary
 }
@@ -314,6 +427,21 @@ func MergeBillingProbeResult(previous, weekly, monthly *BillingSummary, weeklyOK
 		if weekly.IsUnifiedBillingUser {
 			out.IsUnifiedBillingUser = true
 		}
+		if weekly.SubscriptionTier != "" {
+			out.SubscriptionTier = weekly.SubscriptionTier
+		}
+		if weekly.SubscriptionStatus != "" {
+			out.SubscriptionStatus = weekly.SubscriptionStatus
+		}
+		if weekly.WeeklyUsed != nil {
+			out.WeeklyUsed = weekly.WeeklyUsed
+		}
+		if weekly.WeeklyTotal != nil {
+			out.WeeklyTotal = weekly.WeeklyTotal
+		}
+		if weekly.WeeklyRemaining != nil {
+			out.WeeklyRemaining = weekly.WeeklyRemaining
+		}
 		out.WeeklyUpdatedAt = now
 	}
 	if monthlyOK && monthly != nil {
@@ -334,6 +462,12 @@ func MergeBillingProbeResult(previous, weekly, monthly *BillingSummary, weeklyOK
 		}
 		if monthly.OnDemandUsed != nil && out.OnDemandUsed == nil {
 			out.OnDemandUsed = monthly.OnDemandUsed
+		}
+		if out.SubscriptionTier == "" {
+			out.SubscriptionTier = monthly.SubscriptionTier
+		}
+		if out.SubscriptionStatus == "" {
+			out.SubscriptionStatus = monthly.SubscriptionStatus
 		}
 		out.Plan = monthly.Plan
 		out.MonthlyUpdatedAt = now
@@ -364,6 +498,29 @@ func StampBillingSummary(summary *BillingSummary, statusCode int, source string)
 	summary.FetchedAt = now
 	summary.UpdatedAt = now
 	return summary
+}
+
+func (s *BillingSummary) MergeSubscription(subscription *SubscriptionSummary) *BillingSummary {
+	if s == nil || subscription == nil {
+		return s
+	}
+	if subscription.Email != "" && s.Plan == "" {
+		s.Plan = subscription.SubscriptionTier
+	}
+	if subscription.SubscriptionTier != "" {
+		s.SubscriptionTier = subscription.SubscriptionTier
+		s.Plan = subscription.SubscriptionTier
+	}
+	if subscription.Email != "" {
+		s.Email = subscription.Email
+	}
+	if subscription.SubscriptionStatus != "" {
+		s.SubscriptionStatus = subscription.SubscriptionStatus
+	}
+	if subscription.HasGrokCodeAccess {
+		s.HasGrokCodeAccess = true
+	}
+	return s
 }
 
 func resolvePeriodType(period *BillingPeriod) string {
@@ -413,6 +570,103 @@ func parseCentValue(raw json.RawMessage) *float64 {
 		return nil
 	}
 	return anyToFloat(n)
+}
+
+func creditAmounts(values ...json.RawMessage) (*float64, *float64, *float64) {
+	for _, raw := range values {
+		if len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			continue
+		}
+		if used, total, remaining, ok := creditAmountsFromValue(value); ok {
+			return used, total, remaining
+		}
+	}
+	return nil, nil, nil
+}
+
+func creditAmountsFromRaw(usedRaw, totalRaw, remainingRaw json.RawMessage) (*float64, *float64, *float64) {
+	used := parseCentValue(usedRaw)
+	total := parseCentValue(totalRaw)
+	remaining := parseCentValue(remainingRaw)
+	if used == nil && total == nil && remaining == nil {
+		return nil, nil, nil
+	}
+	if used == nil && total != nil && remaining != nil {
+		v := math.Max(*total-*remaining, 0)
+		used = &v
+	}
+	if remaining == nil && total != nil && used != nil {
+		v := math.Max(*total-*used, 0)
+		remaining = &v
+	}
+	return used, total, remaining
+}
+
+func creditAmountsFromValue(value any) (*float64, *float64, *float64, bool) {
+	switch item := value.(type) {
+	case []any:
+		for _, child := range item {
+			if used, total, remaining, ok := creditAmountsFromValue(child); ok {
+				return used, total, remaining, true
+			}
+		}
+	case map[string]any:
+		total := firstNumericValue(item, "total", "limit", "cap", "allocation", "amount")
+		used := firstNumericValue(item, "used", "spent", "consumed", "usage")
+		remaining := firstNumericValue(item, "remaining", "balance", "left")
+		if total != nil || used != nil || remaining != nil {
+			if used == nil && total != nil && remaining != nil {
+				v := math.Max(*total-*remaining, 0)
+				used = &v
+			}
+			if remaining == nil && total != nil && used != nil {
+				v := math.Max(*total-*used, 0)
+				remaining = &v
+			}
+			return used, total, remaining, true
+		}
+		for _, key := range []string{"bags", "items"} {
+			if child, ok := item[key]; ok {
+				if used, total, remaining, ok := creditAmountsFromValue(child); ok {
+					return used, total, remaining, true
+				}
+			}
+		}
+	}
+	return nil, nil, nil, false
+}
+
+func firstNumericValue(object map[string]any, keys ...string) *float64 {
+	for _, key := range keys {
+		if raw, ok := object[key]; ok && raw != nil {
+			if value := numericValue(raw); value != nil {
+				return value
+			}
+		}
+	}
+	return nil
+}
+
+func numericValue(value any) *float64 {
+	switch item := value.(type) {
+	case float64:
+		if !math.IsNaN(item) && !math.IsInf(item, 0) {
+			return &item
+		}
+	case map[string]any:
+		return firstNumericValue(item, "val", "value", "amount")
+	case string:
+		var parsed float64
+		if err := json.Unmarshal([]byte(item), &parsed); err == nil &&
+			!math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return &parsed
+		}
+	}
+	return nil
 }
 
 func anyToFloat(v any) *float64 {

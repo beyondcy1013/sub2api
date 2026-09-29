@@ -14,6 +14,17 @@ export default {
         payment: '支付设置',
       },
       features: {
+        excelBpsImages: {
+          title: 'Excel / BPS 图片中转',
+          description: '将上传的 base64 图片和工具截图自动转为当前服务器的临时 HTTPS 链接.',
+          enabled: '启用图片中转',
+          enabledHint: '保存后立即生效, 无需重启服务. 关闭后停止转换并禁止访问临时图片.',
+          baseUrl: '公网 HTTPS 访问地址',
+          baseUrlHint: '填写可从公网访问当前服务的 HTTPS 域名, 不要附加 /v1 或其他路径. 账号仍需开启 Excel / BPS 协议.',
+          retentionHint: '支持 PNG, JPEG, GIF 和 WebP. 单张最多 20 MiB, 每请求最多 20 张且合计 32 MiB. 图片暂存于数据目录, 每进程最多 1 GiB / 512 张. 链接在最后一次提交 30 分钟后失效, 文件由后台清理. 链接持有者可在有效期内读取.',
+          capacityHint: '开启后, OpenAI/Composite 的 Responses, Chat 和 Messages HTTP 请求(含纯文本)受 64 MiB 请求体上限, 共享资源预算及最多 32 个在途请求限制. 大请求可用并发更低, 超额返回 503, 不在内存中排队. 这些限制不代表 200 并发容量承诺.',
+          invalidBaseUrl: '请填写有效的 HTTPS 访问地址, 不包含路径, 账号密码, 查询参数或片段.',
+        },
         channelMonitor: {
           title: '渠道监控',
           description: '启用后在 V1 主动探测与 V2 被动用量监控中二选一。关闭后两种模式的后台任务均停止，用户端入口隐藏。',
@@ -557,6 +568,27 @@ export default {
         claudeCodeVersionAutoSyncHint: '每小时从官方发布渠道获取最新版本的 Claude Code 客户端版本号，无需为了跟版本而升级本服务。关闭后停止获取新版本，已同步的版本仍可使用；上方手填版本始终优先。',
         claudeCodeVersionSyncedValue: '当前同步到：{version}',
         codexHardeningTitle: 'Codex 设置',
+        codexTicketEnabled: '780 打票',
+        codexTicketEnabledDesc:
+          '关闭后不打票、不注入 x-codex-turn-state，按原链路转发。开启后后台打票，并在业务请求中覆盖该头。',
+        codexTicketFailClosed: '无票时暂停账号',
+        codexTicketFailClosedDesc:
+          '默认关闭。关闭时，票据缺失、过期或形态不匹配只影响注入，账号仍可正常调度；开启后，无有效票据的目标模型账号会暂停调度。',
+        codexTicketModels: '打票模型',
+        codexTicketModelsDesc: '只对勾选的模型打票和注入；取消勾选后该模型按原链路转发。',
+        codexTicketShapeNotice: '780 仅表示观测到的 state 形态，不代表模型质量。系统只注入符合当前校验规则的票据；关闭「无票时暂停账号」后，形态不匹配不会阻断请求。',
+        codexTicketHarvestProxy: '780 打票代理',
+        codexTicketHarvestProxyDesc:
+          '仅在门票功能开启时用于打票，保存后后续探测会使用新代理，无需重启。日常业务仍走账号自己的住宅代理。填写完整代理 URL（http 或 socks5h，含用户名和密码）。代理服务商需自行负责出口 IP 轮换。留空并保存表示不改已保存的值。',
+        codexTicketHarvestProxyPlaceholder: "http://user:pass{'@'}proxy.example.com:1080",
+        codexTicketHarvestProxyConfigured: '已配置（密码已隐藏）。要更换请整段粘贴新的代理 URL。',
+        codexTicketProxyMode: '打票出口类型',
+        codexTicketProxyModeMihomo: 'Mihomo/VPN 内核',
+        codexTicketProxyModeStatic: '静态住宅代理',
+        codexTicketProxyMihomoEndpoint: '内核本地出口',
+        codexTicketProxyMihomoSelected: '已选择 Mihomo 打票代理，请点击“保存设置”后生效。',
+        codexTicketProxyMihomoHint:
+          '使用服务器上的 Mihomo 机场订阅轮换出口。请先运行发布包中的 install-mihomo-codex.sh，日常业务代理不受影响。',
         codexClientRestrictionTitle: 'Codex 客户端限制',
         codexHardeningDesc:
           '仅对已开启「仅允许 Codex 官方客户端」的 OpenAI OAuth 账号生效（全局）。在 User-Agent/Originator 之外，用版本区间、引擎指纹门与黑/白名单巩固判定。',

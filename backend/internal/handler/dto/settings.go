@@ -28,7 +28,11 @@ type CustomEndpoint struct {
 
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
-	RegistrationEnabled                 bool                     `json:"registration_enabled"`
+	OpenAICodexTicketHarvestScope       service.CodexTicketHarvestScope `json:"openai_codex_ticket_harvest_scope"`
+	OpenAICodexTicketStrictResponse     bool                            `json:"openai_codex_ticket_strict_response,omitempty"`
+	OpenAICodexTicketFailClosed         bool                            `json:"openai_codex_ticket_fail_closed"`
+	OpenAICodexTicketStrategy           string                          `json:"openai_codex_ticket_strategy"`
+	RegistrationEnabled                 bool                            `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
@@ -221,6 +225,11 @@ type SystemSettings struct {
 	ClaudeCodeClientVersion                string `json:"claude_code_client_version"`
 	ClaudeCodeClientVersionSynced          string `json:"claude_code_client_version_synced"`
 	ClaudeCodeVersionAutoSyncEnabled       bool   `json:"claude_code_version_auto_sync_enabled"`
+	OpenAICodexTicketEnabled               bool     `json:"openai_codex_ticket_enabled"`
+	OpenAICodexTicketHarvestProxyURL       string   `json:"openai_codex_ticket_harvest_proxy_url"`
+	OpenAICodexTicketStaticProxyURL        string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
+	OpenAICodexTicketHarvestProxyConfigured bool     `json:"openai_codex_ticket_harvest_proxy_configured"`
+	OpenAICodexTicketModels                []string `json:"openai_codex_ticket_models"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -354,6 +363,9 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	ExcelBPSImageRelayEnabled bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL      string `json:"excel_bps_image_base_url"`
 }
 
 type DefaultSubscriptionSetting struct {

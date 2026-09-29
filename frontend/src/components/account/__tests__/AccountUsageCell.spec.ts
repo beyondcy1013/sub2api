@@ -3,14 +3,16 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account } from '@/types'
 
-const { getUsage } = vi.hoisted(() => ({
-  getUsage: vi.fn()
+const { getUsage, queryAccountBalance } = vi.hoisted(() => ({
+  getUsage: vi.fn(),
+  queryAccountBalance: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
-      getUsage
+      getUsage,
+      queryAccountBalance
     }
   }
 }))
@@ -115,6 +117,7 @@ const cnUsageCellStubs = {
 describe('AccountUsageCell', () => {
   beforeEach(() => {
     getUsage.mockReset()
+    queryAccountBalance.mockReset()
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -462,8 +465,8 @@ describe('AccountUsageCell', () => {
 
     expect(wrapper.findAll('[data-test="opencode-go-cell"]')).toHaveLength(1)
     expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
-    // 用量单元格已渲染时不再叠加 `-` 占位符
-    expect(wrapper.text()).not.toContain('-')
+    // 用量单元格已渲染时不再叠加单独 `-` 占位符（apikey 余额行的 `余额 -` 不算占位符）
+    expect(wrapper.findAll('div').some(d => d.text().trim() === '-')).toBe(false)
   })
 
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
@@ -1704,7 +1707,7 @@ describe('AccountUsageCell', () => {
 		expect(wrapper.findAll('.animate-pulse').length).toBeGreaterThan(0)
   })
 
-  it('Key 账号在无 today stats 且无配额时显示兜底短横线', async () => {
+  it('Key 账号在无 today stats 且无配额时仍显示余额行（值占位为 -）', async () => {
 		const wrapper = mount(AccountUsageCell, {
 		  props: {
 		    account: makeAccount({
@@ -1714,6 +1717,33 @@ describe('AccountUsageCell', () => {
 		      quota_limit: 0,
 		      quota_daily_limit: 0,
 		      quota_weekly_limit: 0
+		    }),
+		    todayStats: null,
+		    todayStatsLoading: false
+		  },
+		  global: {
+		    stubs: {
+		      UsageProgressBar: true,
+		      AccountQuotaInfo: true
+		    }
+		  }
+		})
+
+		await flushPromises()
+
+		expect(wrapper.text()).toContain('admin.accounts.columns.balance')
+		expect(wrapper.text()).toContain('-')
+		expect(wrapper.find('[data-test="refresh-balance"]').exists()).toBe(true)
+  })
+
+  it('不支持余额查询的 Key 账号（bedrock）在无数据时显示兜底短横线', async () => {
+		const wrapper = mount(AccountUsageCell, {
+		  props: {
+		    account: makeAccount({
+		      id: 3004,
+		      platform: 'anthropic',
+		      type: 'bedrock',
+		      quota_limit: 0
 		    }),
 		    todayStats: null,
 		    todayStatsLoading: false
@@ -1864,5 +1894,170 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|56')
     expect(wrapper.text()).not.toContain('7d S')
     expect(wrapper.text()).not.toContain('7d F')
+  })
+
+  it('apikey 账号在用量窗口列直接显示 extra.balance 余额', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4001,
+          platform: 'openai',
+          type: 'apikey',
+          credentials: { base_url: 'https://upstream.example.com' },
+          extra: {
+            balance: 12.5,
+            balance_updated_at: '2026-07-23T01:00:00Z'
+          }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.columns.balance')
+    expect(wrapper.text()).toContain('$12.50')
+    expect(wrapper.find('[data-test="refresh-balance"]').exists()).toBe(true)
+    // 余额行已渲染时不再叠加 `-` 占位符
+    expect(wrapper.text()).not.toContain('-')
+    expect(getUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('apikey 账号优先展示较新的 balance_query.last_result', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4002,
+          platform: 'openai',
+          type: 'apikey',
+          credentials: { base_url: 'https://upstream.example.com' },
+          extra: {
+            balance: 9.99,
+            balance_updated_at: '2026-07-23T01:00:00Z',
+            balance_query: {
+              scheme: 'sub2api',
+              last_result: {
+                balance: 3.21,
+                unit: 'USD',
+                unlimited: false,
+                queried_at: '2026-07-23T02:00:00Z'
+              }
+            }
+          }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('$3.21')
+    expect(wrapper.text()).not.toContain('$9.99')
+    wrapper.unmount()
+  })
+
+  it('apikey 账号点击行内刷新后更新余额并透传 account-updated', async () => {
+    queryAccountBalance.mockResolvedValue({
+      success: true,
+      balance: 7.5,
+      unit: 'USD',
+      unlimited: false,
+      queried_at: '2026-07-23T03:00:00Z',
+      scheme: 'sub2api',
+      api_url: 'https://upstream.example.com/v1/usage'
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4003,
+          platform: 'openai',
+          type: 'apikey',
+          credentials: { base_url: 'https://upstream.example.com' },
+          extra: {}
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.columns.balance')
+
+    await wrapper.get('[data-test="refresh-balance"]').trigger('click')
+    await flushPromises()
+
+    expect(queryAccountBalance).toHaveBeenCalledWith(4003)
+    expect(wrapper.text()).toContain('$7.50')
+    const updatedAccount = wrapper.emitted<Account[]>('account-updated')?.[0]?.[0]
+    expect(updatedAccount?.id).toBe(4003)
+    expect(updatedAccount?.extra?.balance_query?.last_result?.balance).toBe(7.5)
+    wrapper.unmount()
+  })
+
+  it('apikey 余额查询失败时余额行显示 --', async () => {
+    queryAccountBalance.mockResolvedValue({
+      success: false,
+      balance: 0,
+      unit: '',
+      unlimited: false,
+      queried_at: '2026-07-23T03:00:00Z'
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4004,
+          platform: 'openai',
+          type: 'apikey',
+          credentials: { base_url: 'https://upstream.example.com' },
+          extra: { balance: 1.5, balance_updated_at: '2026-07-23T01:00:00Z' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('$1.50')
+
+    await wrapper.get('[data-test="refresh-balance"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('--')
+    expect(wrapper.text()).not.toContain('$1.50')
+    expect(wrapper.emitted('account-updated')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('oauth 账号不渲染余额行', async () => {
+    getUsage.mockResolvedValue({})
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4005,
+          platform: 'openai',
+          type: 'oauth',
+          status: 'active',
+          extra: { balance: 5 }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true, OpenAIQuotaResetCell: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="refresh-balance"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.accounts.columns.balance')
+    wrapper.unmount()
   })
 })

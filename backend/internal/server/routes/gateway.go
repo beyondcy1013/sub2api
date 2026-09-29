@@ -29,8 +29,13 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	// BPS fetches these capability URLs without the client's API key. There is
+	// no public upload route; only authenticated BPS requests can create them.
+	r.GET("/api/bps-images/:token", h.OpenAIGateway.ExcelBPSImage)
+	r.HEAD("/api/bps-images/:token", h.OpenAIGateway.ExcelBPSImage)
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
+	imageAdmission := middleware.ExcelBPSImageAdmission(settingService, cfg.Gateway.MaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
@@ -189,6 +194,7 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	gateway.Use(imageAdmission)
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	gateway.Use(groupModelAllowlist)
 	gateway.Use(compositeTarget)

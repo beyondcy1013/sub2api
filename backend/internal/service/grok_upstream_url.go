@@ -111,6 +111,18 @@ func buildGrokBillingURL(account *Account, cfg *config.Config, weekly bool) (str
 	return xai.BuildBillingURLWithValidator(baseURL, weekly, validator)
 }
 
+func buildGrokUserURL(account *Account, cfg *config.Config) (string, error) {
+	validator, err := grokBaseURLValidator(account, cfg)
+	if err != nil {
+		return "", err
+	}
+	baseURL := account.GetGrokBaseURL()
+	if xai.IsOfficialBaseURL(baseURL) && !isGrokCLIProxyBaseURL(baseURL) {
+		baseURL = xai.DefaultCLIBaseURL
+	}
+	return xai.BuildSubscriptionURLWithValidator(baseURL, validator)
+}
+
 func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaEndpoint, requestID string) (string, error) {
 	validator, err := grokBaseURLValidator(account, cfg)
 	if err != nil {

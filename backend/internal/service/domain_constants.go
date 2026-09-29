@@ -455,9 +455,7 @@ const (
 	SettingKeyEnableIdentityPatch = "enable_identity_patch"
 	SettingKeyIdentityPatchPrompt = "identity_patch_prompt"
 
-	// =========================
 	// Ops Monitoring (vNext)
-	// =========================
 
 	// SettingKeyOpsMonitoringEnabled is a DB-backed soft switch to enable/disable ops module at runtime.
 	SettingKeyOpsMonitoringEnabled = "ops_monitoring_enabled"
@@ -483,9 +481,7 @@ const (
 	// SettingKeyOpsRuntimeLogConfig stores JSON config for runtime log settings.
 	SettingKeyOpsRuntimeLogConfig = "ops_runtime_log_config"
 
-	// =========================
 	// Channel Monitor (渠道监控)
-	// =========================
 
 	// SettingKeyChannelMonitorEnabled is a DB-backed soft switch for the channel monitor feature.
 	// When false: runner skips scheduling and user-facing endpoints return an empty list.
@@ -575,9 +571,7 @@ const (
 	// SettingKeyOpenCodeGoUsageSettings stores the opt-in global runner switch and interval.
 	SettingKeyOpenCodeGoUsageSettings = "opencode_go_usage_settings"
 
-	// =========================
 	// Overload Cooldown (529)
-	// =========================
 
 	// SettingKeyOverloadCooldownSettings stores JSON config for 529 overload cooldown handling.
 	SettingKeyOverloadCooldownSettings = "overload_cooldown_settings"
@@ -589,23 +583,17 @@ const (
 	// SettingKeyOpenAIAPIKeyHealthBreakerSettings stores the opt-in OpenAI pool API-key breaker config.
 	SettingKeyOpenAIAPIKeyHealthBreakerSettings = "openai_apikey_health_breaker_settings"
 
-	// =========================
 	// Stream Timeout Handling
-	// =========================
 
 	// SettingKeyStreamTimeoutSettings stores JSON config for stream timeout handling.
 	SettingKeyStreamTimeoutSettings = "stream_timeout_settings"
 
-	// =========================
 	// Request Rectifier (请求整流器)
-	// =========================
 
 	// SettingKeyRectifierSettings stores JSON config for rectifier settings (thinking signature + budget).
 	SettingKeyRectifierSettings = "rectifier_settings"
 
-	// =========================
 	// Beta Policy Settings
-	// =========================
 
 	// SettingKeyBetaPolicySettings stores JSON config for beta policy rules.
 	SettingKeyBetaPolicySettings = "beta_policy_settings"
@@ -616,9 +604,7 @@ const (
 	// anthropic-beta header.
 	SettingKeyOpenAIFastPolicySettings = "openai_fast_policy_settings"
 
-	// =========================
 	// Claude Code Version Check
-	// =========================
 
 	// SettingKeyMinClaudeCodeVersion 最低 Claude Code 版本号要求 (semver, 如 "2.1.0"，空值=不检查)
 	SettingKeyMinClaudeCodeVersion = "min_claude_code_version"
@@ -721,6 +707,19 @@ const (
 	SettingKeyClaudeCodeClientVersionSynced = "claude_code_client_version_synced"
 	// SettingKeyClaudeCodeVersionAutoSyncEnabled 是否启用 Claude Code 客户端版本号自动同步（默认 true）。
 	SettingKeyClaudeCodeVersionAutoSyncEnabled = "claude_code_version_auto_sync_enabled"
+	// SettingKeyOpenAICodexTicketEnabled Codex 292 打票总开关（后台可改、热更新）。
+	// 关闭：不打票、不注入 x-codex-turn-state，按原链路转发。
+	// 开启：后台打票并在业务请求中覆盖该头。
+	SettingKeyOpenAICodexTicketEnabled = "openai_codex_ticket_enabled"
+	// SettingKeyOpenAICodexTicketFailClosed controls whether a missing/expired
+	// ticket makes an otherwise schedulable account ineligible. Missing defaults
+	// to false so ticket harvesting remains an optional enhancement.
+	SettingKeyOpenAICodexTicketFailClosed = "openai_codex_ticket_fail_closed"
+	// SettingKeyOpenAICodexTicketHarvestProxyURL Codex 292 打票出口（socks5h/http），后台可改、热更新。
+	SettingKeyOpenAICodexTicketHarvestProxyURL = "openai_codex_ticket_harvest_proxy_url"
+	SettingKeyOpenAICodexTicketStaticProxyURL  = "openai_codex_ticket_static_proxy_url"
+	// SettingKeyOpenAICodexTicketModels Codex 292 打票模型列表，JSON 数组格式；缺失时回退配置文件。
+	SettingKeyOpenAICodexTicketModels = "openai_codex_ticket_models"
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"

@@ -38,14 +38,35 @@ const (
 	// 额外上游请求。单条清单通常几十 KB，512 条最坏内存占用在几十 MB 量级。
 	openAIModelsCacheMaxEntries = 512
 	// 三段时效：≤TTL 为新鲜（直接返回缓存，零上游请求）；TTL 到 StaleTTL 之间
-	// 乐观返回旧值并后台单飞刷新（携带上游 ETag，304 续期）；超过 StaleTTL 丢弃
-	// 缓存同步等待刷新。TTL 取 1 分钟：manifest 变化低频，1 分钟内同账号重复
+	// 乐观返回旧值并后台单飞刷新（携带上游 ETag，304 续期）；超过 StaleTTL 常规
+	// 调用丢弃缓存语义改为同步等待刷新。TTL 取 1 分钟：manifest 变化低频，1 分钟内同账号重复
 	// 请求完全吸收；StaleTTL 取 5 分钟，控制旧内容最长可见时间在分钟级。
-	openAIModelsCacheTTL              = 60 * time.Second
-	openAIModelsCacheStaleTTL         = 5 * time.Minute
+	openAIModelsCacheTTL      = 60 * time.Second
+	openAIModelsCacheStaleTTL = 5 * time.Minute
+	// openAIModelsCacheRetainTTL 是过期条目在缓存中的保留时长：超出 StaleTTL 后
+	// 常规调用依旧阻塞回源，但显式声明可接受过期副本的调用方（如管理端「测试连接」
+	// 的模型选择器）可以即时返回最后一次成功的目录并触发后台刷新，避免每次打开
+	// 都阻塞在上游数秒的目录拉取上。
+	openAIModelsCacheRetainTTL        = 24 * time.Hour
 	codexModelsManifestRequestTimeout = 15 * time.Second
 	codexAutoModelPrefix              = "codex-auto-"
 )
+
+// openAIModelsServeExpiredContextKey 标记允许直接服务「已过期但仍保留」的缓存
+// 目录：见 WithOpenAIModelsServeExpired。
+type openAIModelsServeExpiredContextKey struct{}
+
+// WithOpenAIModelsServeExpired 声明调用方接受过期保留副本：缓存条目超出
+// stale 窗口但未超出保留期时立即返回旧目录并后台刷新，而不是阻塞等待上游。
+// 仅用于对秒级响应敏感、且能容忍目录短期滞后的管理端交互路径。
+func WithOpenAIModelsServeExpired(ctx context.Context) context.Context {
+	return context.WithValue(ctx, openAIModelsServeExpiredContextKey{}, true)
+}
+
+func openAIModelsServeExpiredCatalog(ctx context.Context) bool {
+	allow, _ := ctx.Value(openAIModelsServeExpiredContextKey{}).(bool)
+	return allow
+}
 
 // FilterCodexModelIDsForGroup removes dedicated media-generation models,
 // wildcard mapping keys, and Codex automatic modes from a client catalog.
@@ -1596,6 +1617,9 @@ type openAIModelsCacheEntry struct {
 	order      uint64
 	expiresAt  time.Time
 	staleUntil time.Time
+	// retainUntil 之后条目被物理移除；staleUntil 到 retainUntil 之间条目处于
+	// expired 状态：常规调用阻塞回源，接受过期副本的调用方可即时返回。
+	retainUntil time.Time
 }
 
 type openAIModelsCacheState uint8
@@ -1604,6 +1628,7 @@ const (
 	openAIModelsCacheMiss openAIModelsCacheState = iota
 	openAIModelsCacheFresh
 	openAIModelsCacheStale
+	openAIModelsCacheExpired
 )
 
 type openAIModelsCache struct {
@@ -1620,19 +1645,28 @@ func (c *openAIModelsCache) get(key string, now time.Time) (*OpenAIModelsRespons
 	if !ok {
 		return nil, openAIModelsCacheMiss
 	}
-	if !now.Before(entry.staleUntil) {
+	if !now.Before(entry.retainUntil) {
 		delete(c.entries, key)
 		return nil, openAIModelsCacheMiss
 	}
 	if now.Before(entry.expiresAt) {
 		return entry.manifest, openAIModelsCacheFresh
 	}
-	return entry.manifest, openAIModelsCacheStale
+	if now.Before(entry.staleUntil) {
+		return entry.manifest, openAIModelsCacheStale
+	}
+	return entry.manifest, openAIModelsCacheExpired
 }
 
 func (c *openAIModelsCache) set(key string, manifest *OpenAIModelsResponse, now time.Time) {
 	if manifest == nil || len(manifest.Body) > openAIModelsCacheBodyLimit {
 		return
+	}
+	// OAuth manifest 透传场景下 upstreamSourceBody 与 Body 逐字节相同；去掉这份
+	// 重复拷贝，否则真实 manifest（数百 KB）的双倍计量会静默超出单条预算，
+	// 导致缓存永远不命中、每次读取都回源数秒。
+	if bytes.Equal(manifest.upstreamSourceBody, manifest.Body) {
+		manifest.upstreamSourceBody = nil
 	}
 	remainingBodyBudget := openAIModelsCacheBodyLimit - len(manifest.Body)
 	if len(manifest.upstreamSourceBody) > remainingBodyBudget {
@@ -1647,7 +1681,7 @@ func (c *openAIModelsCache) set(key string, manifest *OpenAIModelsResponse, now 
 		oldestKey := ""
 		var oldestOrder uint64
 		for candidateKey, entry := range c.entries {
-			if !now.Before(entry.staleUntil) {
+			if !now.Before(entry.retainUntil) {
 				delete(c.entries, candidateKey)
 				continue
 			}
@@ -1662,10 +1696,11 @@ func (c *openAIModelsCache) set(key string, manifest *OpenAIModelsResponse, now 
 	}
 	c.nextOrder++
 	c.entries[key] = openAIModelsCacheEntry{
-		manifest:   manifest,
-		order:      c.nextOrder,
-		expiresAt:  now.Add(openAIModelsCacheTTL),
-		staleUntil: now.Add(openAIModelsCacheStaleTTL),
+		manifest:    manifest,
+		order:       c.nextOrder,
+		expiresAt:   now.Add(openAIModelsCacheTTL),
+		staleUntil:  now.Add(openAIModelsCacheStaleTTL),
+		retainUntil: now.Add(openAIModelsCacheRetainTTL),
 	}
 }
 
@@ -1855,6 +1890,11 @@ func (s *OpenAIGatewayService) fetchCachedOpenAIModels(ctx context.Context, requ
 	if state == openAIModelsCacheStale {
 		return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
 	}
+	// 已过期但仍保留：默认按未命中阻塞回源；显式接受过期副本的调用方（管理端
+	// 测试连接的模型选择器）立即返回旧目录，后台刷新由上面的 DoChan 触发。
+	if state == openAIModelsCacheExpired && openAIModelsServeExpiredCatalog(ctx) {
+		return openAIModelsResponseForClient(manifest, ifNoneMatch), nil
+	}
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -2037,11 +2077,18 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 		}
 	}
 	etag := response.upstreamETag
+	var upstreamSourceBody []byte
+	if !bytes.Equal(body, upstreamBody) {
+		// 只有在本地产出与上游原始响应不一致时才保留原始副本（API Key 上游的
+		// 模型列表转换 / 元数据补全路径需要在按账号重放时回到原始体）；OAuth
+		// 透传的 manifest 与 Body 完全相同，再存一份只会浪费缓存预算。
+		upstreamSourceBody = append([]byte(nil), upstreamBody...)
+	}
 	manifest := &OpenAIModelsResponse{
 		Body:                         body,
 		ETag:                         etag,
 		upstreamETag:                 etag,
-		upstreamSourceBody:           append([]byte(nil), upstreamBody...),
+		upstreamSourceBody:           upstreamSourceBody,
 		convertedFromOpenAIModelList: convertedFromOpenAIModelList,
 	}
 	if request.useAPIKeyUpstream && !bytes.Equal(body, upstreamBody) {

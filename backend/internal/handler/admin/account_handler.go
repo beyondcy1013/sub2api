@@ -70,8 +70,13 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	superPriorityService    *service.SuperPriorityService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	openAIGatewayService    *service.OpenAIGatewayService
 	cfg                     *config.Config
 	opencodeGoUsage         *service.OpenCodeGoUsageService
+}
+
+func (h *AccountHandler) SetOpenAIGatewayService(gateway *service.OpenAIGatewayService) {
+	h.openAIGatewayService = gateway
 }
 
 type accountTestRunner interface {

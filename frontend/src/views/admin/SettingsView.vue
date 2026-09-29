@@ -4502,6 +4502,87 @@
               </h2>
             </div>
             <div class="p-6 space-y-4">
+                <div class="flex items-center justify-between gap-4">
+                  <div class="min-w-0">
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+                      {{ t("admin.settings.gatewayForwarding.codexTicketEnabled") }}
+                    </h3>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.codexTicketEnabledDesc") }}
+                    </p>
+                  </div>
+                  <Toggle
+                    id="codex-ticket-enabled"
+                    v-model="form.openai_codex_ticket_enabled"
+                  />
+                </div>
+                <div class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <div class="min-w-0">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                      {{ t("admin.settings.gatewayForwarding.codexTicketFailClosed") }}
+                    </h3>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.codexTicketFailClosedDesc") }}
+                    </p>
+                  </div>
+                  <Toggle
+                    id="codex-ticket-fail-closed"
+                    v-model="form.openai_codex_ticket_fail_closed"
+                  />
+                </div>
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketModels") }}
+                  </h3>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketModelsDesc") }}
+                  </p>
+                  <label class="mt-3 block text-sm" for="codex-ticket-strategy">{{ localText('票据刷新策略', 'Ticket refresh strategy') }}</label>
+                  <select id="codex-ticket-strategy" v-model="form.openai_codex_ticket_strategy" class="input mt-2">
+                    <option value="standby">{{ localText('提前准备备用（默认）', 'Prepare standby (default)') }}</option>
+                    <option value="fixed">{{ localText('固定主用，失效后再采集', 'Keep primary until invalid') }}</option>
+                  </select>
+                  <label class="mt-3 flex items-center gap-2 text-sm"><input id="codex-ticket-strict" type="checkbox" v-model="form.openai_codex_ticket_strict_response" />{{ localText('严格拦截票据响应不匹配（默认关闭）', 'Reject mismatched ticket responses (off by default)') }}</label>
+                  <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <input
+                        id="codex-ticket-model-astra"
+                        type="checkbox"
+                        :checked="form.openai_codex_ticket_models.includes('gpt-6-astra')"
+                        @change="toggleCodexTicketModel('gpt-6-astra', ($event.target as HTMLInputElement).checked)"
+                      />
+                      <span>Astra (gpt-6-astra)</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <input
+                        id="codex-ticket-model-sol"
+                        type="checkbox"
+                        :checked="form.openai_codex_ticket_models.includes('gpt-5.6-sol')"
+                        @change="toggleCodexTicketModel('gpt-5.6-sol', ($event.target as HTMLInputElement).checked)"
+                      />
+                      <span>Sol (gpt-5.6-sol)</span>
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
+                  </h3>
+                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyDesc") }}
+                    <span class="text-xs text-primary-600 dark:text-primary-400 block mt-1">
+                      {{ localText('支持使用 {sid} 占位符自动轮换会话（如 socks5://user-sid-{sid}-t-5:pass@host:port），每次采票自动分配新出口 IP。', 'Supports {sid} placeholder for dynamic session rotation to acquire fresh exit IPs.') }}
+                    </span>
+                  </p>
+                  <input
+                    id="codex-ticket-harvest-proxy"
+                    v-model="form.openai_codex_ticket_harvest_proxy_url"
+                    type="text"
+                    class="input mt-3 w-full font-mono text-sm"
+                    :placeholder="t('admin.settings.gatewayForwarding.codexTicketHarvestProxyPlaceholder')"
+                    autocomplete="off"
+                  />
+                </div>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexClientRestrictionTitle") }}
@@ -7178,6 +7259,53 @@
 	        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
 
+        <!-- Excel / BPS 图片中转 -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.excelBpsImages.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.excelBpsImages.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label for="excel-bps-image-enabled" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.excelBpsImages.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.excelBpsImages.enabledHint') }}
+                </p>
+              </div>
+              <Toggle id="excel-bps-image-enabled" v-model="form.excel_bps_image_relay_enabled" />
+            </div>
+            <div v-if="form.excel_bps_image_relay_enabled">
+              <label for="excel-bps-image-base-url" class="input-label">
+                {{ t('admin.settings.features.excelBpsImages.baseUrl') }}
+              </label>
+              <input
+                id="excel-bps-image-base-url"
+                v-model.trim="form.excel_bps_image_base_url"
+                type="url"
+                class="input"
+                placeholder="https://your-api.example.com"
+                required
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.excelBpsImages.baseUrlHint') }}
+              </p>
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.excelBpsImages.retentionHint') }}
+              </p>
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.excelBpsImages.capacityHint') }}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -9752,6 +9880,8 @@ type SettingsForm = Omit<
   channel_monitor_hide_throughput: boolean;
   channel_monitor_show_quota: boolean;
   channel_monitor_hide_user_ranking: boolean;
+  excel_bps_image_relay_enabled: boolean;
+  excel_bps_image_base_url: string;
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
@@ -10052,6 +10182,14 @@ const form = reactive<SettingsForm>({
   // 只读展示：自动同步任务写入的官方最新稳定版，不参与提交（提交载荷按字段显式构造）
   claude_code_client_version_synced: "",
   claude_code_version_auto_sync_enabled: true,
+  openai_codex_ticket_enabled: false,
+  openai_codex_ticket_fail_closed: false,
+  openai_codex_ticket_strategy: 'standby',
+  openai_codex_ticket_harvest_scope: { mode: 'all' as 'all' | 'selected', group_ids: [] as number[], account_policy: 'schedulable_only' as 'schedulable_only' | 'prioritize_schedulable' },
+  openai_codex_ticket_strict_response: false,
+  openai_codex_ticket_harvest_proxy_url: "",
+  openai_codex_ticket_harvest_proxy_configured: false,
+  openai_codex_ticket_models: ["gpt-6-astra", "gpt-5.6-sol"],
   // codex_cli_only 加固
   min_codex_version: "",
   max_codex_version: "",
@@ -10088,6 +10226,8 @@ const form = reactive<SettingsForm>({
   affiliate_enabled: false,
   // Allow user view error requests
   allow_user_view_error_requests: false,
+  excel_bps_image_relay_enabled: false,
+  excel_bps_image_base_url: '',
 });
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
@@ -11328,6 +11468,16 @@ const siteBillingModeHint = computed(() =>
   t(`admin.settings.features.siteBillingMode.hints.${SITE_BILLING_MODE_I18N_KEYS[siteBillingMode.value]}`),
 );
 
+function toggleCodexTicketModel(model: string, enabled: boolean) {
+  const models = new Set(form.openai_codex_ticket_models);
+  if (enabled) {
+    models.add(model);
+  } else {
+    models.delete(model);
+  }
+  form.openai_codex_ticket_models = [...models];
+}
+
 async function saveSettings() {
   saving.value = true;
   try {
@@ -11404,6 +11554,21 @@ async function saveSettings() {
     form.forwarded_client_ip_headers = normalizeForwardedClientIpHeaders(
       form.forwarded_client_ip_headers,
     );
+
+    const imageBaseUrl = (form.excel_bps_image_base_url || '').trim();
+    if (form.excel_bps_image_relay_enabled || imageBaseUrl) {
+      try {
+        const parsed = new URL(imageBaseUrl);
+        if (parsed.protocol !== 'https:' || !parsed.hostname || (parsed.pathname !== '/' && parsed.pathname !== '') || parsed.search || parsed.hash || parsed.username || parsed.password) {
+          throw new Error('invalid url');
+        }
+        form.excel_bps_image_base_url = parsed.origin;
+      } catch {
+        appStore.showError(t('admin.settings.features.excelBpsImages.invalidBaseUrl'));
+        saving.value = false;
+        return;
+      }
+    }
 
     const normalizedDefaultSubscriptions = normalizeDefaultSubscriptionSettings(
       form.default_subscriptions,
@@ -11697,6 +11862,18 @@ async function saveSettings() {
       claude_code_client_version: form.claude_code_client_version?.trim() || "",
       claude_code_version_auto_sync_enabled:
         form.claude_code_version_auto_sync_enabled,
+      openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
+      openai_codex_ticket_fail_closed: form.openai_codex_ticket_fail_closed,
+      openai_codex_ticket_strategy: form.openai_codex_ticket_strategy || 'standby',
+      openai_codex_ticket_harvest_scope: form.openai_codex_ticket_harvest_scope ? {
+        mode: form.openai_codex_ticket_harvest_scope.mode,
+        group_ids: [...form.openai_codex_ticket_harvest_scope.group_ids],
+        account_policy: form.openai_codex_ticket_harvest_scope.account_policy,
+      } : undefined,
+      openai_codex_ticket_strict_response: form.openai_codex_ticket_strict_response || false,
+      openai_codex_ticket_harvest_proxy_url:
+        form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
+      openai_codex_ticket_models: form.openai_codex_ticket_models ? [...form.openai_codex_ticket_models] : undefined,
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -11811,6 +11988,8 @@ async function saveSettings() {
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
+      excel_bps_image_relay_enabled: form.excel_bps_image_relay_enabled,
+      excel_bps_image_base_url: (form.excel_bps_image_base_url || '').trim(),
     };
 
     // 仅当 openai_fast_policy_settings 已成功从后端加载时才回写，

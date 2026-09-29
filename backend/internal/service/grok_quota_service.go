@@ -28,20 +28,23 @@ const (
 )
 
 type GrokQuotaProbeResult struct {
-	Source            string              `json:"source"`
-	Model             string              `json:"model,omitempty"`
-	Billing           *xai.BillingSummary `json:"billing,omitempty"`
-	Snapshot          *xai.QuotaSnapshot  `json:"snapshot,omitempty"`
-	LocalUsage24h     *WindowStats        `json:"local_usage_24h,omitempty"`
-	LocalUsage7d      *WindowStats        `json:"local_usage_7d,omitempty"`
-	LocalUsageMonthly *WindowStats        `json:"local_usage_monthly,omitempty"`
-	StatusCode        int                 `json:"status_code,omitempty"`
-	HeadersObserved   bool                `json:"headers_observed"`
-	ResetSupported    bool                `json:"reset_supported"`
-	FetchedAt         int64               `json:"fetched_at"`
-	Persisted         bool                `json:"persisted"`
-	ProbeError        string              `json:"probe_error,omitempty"`
+	Source            string                   `json:"source"`
+	Model             string                   `json:"model,omitempty"`
+	Billing           *xai.BillingSummary      `json:"billing,omitempty"`
+	Subscription      *GrokSubscriptionSummary `json:"subscription,omitempty"`
+	Snapshot          *xai.QuotaSnapshot       `json:"snapshot,omitempty"`
+	LocalUsage24h     *WindowStats             `json:"local_usage_24h,omitempty"`
+	LocalUsage7d      *WindowStats             `json:"local_usage_7d,omitempty"`
+	LocalUsageMonthly *WindowStats             `json:"local_usage_monthly,omitempty"`
+	StatusCode        int                      `json:"status_code,omitempty"`
+	HeadersObserved   bool                     `json:"headers_observed"`
+	ResetSupported    bool                     `json:"reset_supported"`
+	FetchedAt         int64                    `json:"fetched_at"`
+	Persisted         bool                     `json:"persisted"`
+	ProbeError        string                   `json:"probe_error,omitempty"`
 }
+
+type GrokSubscriptionSummary = xai.SubscriptionSummary
 
 type GrokQuotaResetResult struct {
 	Supported bool   `json:"supported"`
@@ -133,8 +136,9 @@ func grokBillingHasAuthoritativeQuota(billing *xai.BillingSummary) bool {
 	}
 	return billing.UsagePercent != nil ||
 		billing.UsedPercent != nil ||
+		(billing.WeeklyTotal != nil && *billing.WeeklyTotal > 0) ||
 		(billing.MonthlyLimitCents != nil && *billing.MonthlyLimitCents > 0) ||
-		strings.TrimSpace(billing.Plan) != ""
+		(strings.TrimSpace(billing.Plan) != "" && strings.TrimSpace(billing.SubscriptionTier) == "")
 }
 
 func (s *GrokQuotaService) ProbeUsage(ctx context.Context, accountID int64) (*GrokQuotaProbeResult, error) {
@@ -275,13 +279,14 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 	probeCtx, cancel := context.WithTimeout(ctx, grokQuotaUpstreamTimeout)
 	defer cancel()
 	type billingResult struct {
-		summary *xai.BillingSummary
-		status  int
-		err     error
+		summary      *xai.BillingSummary
+		subscription *xai.SubscriptionSummary
+		status       int
+		err          error
 	}
-	var weekly, monthly billingResult
+	var weekly, monthly, subscription billingResult
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		weekly.summary, weekly.status, weekly.err = s.fetchBilling(probeCtx, account, token, proxyURL, true)
@@ -289,6 +294,10 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 	go func() {
 		defer wg.Done()
 		monthly.summary, monthly.status, monthly.err = s.fetchBilling(probeCtx, account, token, proxyURL, false)
+	}()
+	go func() {
+		defer wg.Done()
+		subscription.subscription, subscription.status, subscription.err = s.fetchSubscription(probeCtx, account, token, proxyURL)
 	}()
 	wg.Wait()
 
@@ -314,6 +323,9 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 	billing.WeeklyStatusCode = weekly.status
 	billing.MonthlyStatusCode = monthly.status
 	billing = xai.StampBillingSummary(billing, statusCode, "billing_probe")
+	if subscription.subscription != nil {
+		billing.MergeSubscription(subscription.subscription)
+	}
 	persistErr := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
 		grokBillingExtraKey: billing,
 	})
@@ -331,6 +343,7 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 		StatusCode:        statusCode,
 		FetchedAt:         now.Unix(),
 		Persisted:         persistErr == nil,
+		Subscription:      subscription.subscription,
 	}, nil
 }
 
@@ -432,6 +445,49 @@ func (s *GrokQuotaService) fetchBilling(
 		return xai.BuildBillingSummary(payload.Config), statusCode, nil
 	}
 	return nil, 0, infraerrors.New(http.StatusBadGateway, "GROK_QUOTA_PROBE_REQUEST_FAILED", "billing request failed")
+}
+
+func (s *GrokQuotaService) fetchSubscription(
+	ctx context.Context,
+	account *Account,
+	token string,
+	proxyURL string,
+) (*xai.SubscriptionSummary, int, error) {
+	subscriptionURL, err := buildGrokUserURL(account, s.cfg)
+	if err != nil {
+		return nil, 0, infraerrors.Newf(http.StatusBadRequest, "GROK_QUOTA_BASE_URL_INVALID", "invalid Grok base_url: %v", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, subscriptionURL, nil)
+	if err != nil {
+		return nil, 0, infraerrors.Newf(http.StatusInternalServerError, "GROK_SUBSCRIPTION_REQUEST_BUILD_FAILED", "failed to build subscription request: %v", err)
+	}
+	xai.ApplyCLISubscriptionHeaders(req, token, strings.TrimSpace(account.GetCredential("sub")))
+	account.ApplyHeaderOverrides(req.Header)
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 2))
+	if err != nil {
+		return nil, 0, infraerrors.Newf(http.StatusBadGateway, "GROK_SUBSCRIPTION_REQUEST_FAILED", "subscription request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden ||
+		resp.StatusCode == http.StatusTooManyRequests {
+		bodyText := truncate(strings.TrimSpace(string(bodyBytes)), 240)
+		slog.Warn("grok_subscription_probe_limited", "account_id", account.ID, "status", resp.StatusCode, "body", bodyText)
+		return nil, resp.StatusCode, nil
+	}
+	if resp.StatusCode >= 400 {
+		bodyText := truncate(strings.TrimSpace(string(bodyBytes)), 240)
+		slog.Warn("grok_subscription_probe_failed", "account_id", account.ID, "status", resp.StatusCode, "body", bodyText)
+		return nil, resp.StatusCode, infraerrors.Newf(mapUpstreamStatus(resp.StatusCode), "GROK_SUBSCRIPTION_UPSTREAM_ERROR", "subscription returned %d: %s", resp.StatusCode, bodyText)
+	}
+	summary, err := xai.ParseSubscriptionSummary(bodyBytes)
+	if err != nil {
+		return nil, resp.StatusCode, infraerrors.Newf(http.StatusBadGateway, "GROK_SUBSCRIPTION_PARSE_ERROR", "failed to parse subscription body: %v", err)
+	}
+	if summary != nil {
+		summary.StatusCode = resp.StatusCode
+	}
+	return summary, resp.StatusCode, nil
 }
 
 func isRetryableGrokBillingStatus(statusCode int) bool {

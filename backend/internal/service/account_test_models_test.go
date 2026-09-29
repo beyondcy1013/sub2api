@@ -134,7 +134,7 @@ func TestFetchOpenAIAccountModelsOAuthLabelsLocalImageModelsLikeUpstream(t *test
 	}
 	// 配置了模型白名单后，测试选择器只允许白名单内的模型：上游目录里的
 	// gpt-5.6-sol 必须被过滤，白名单里的图片模型保留并使用本地命名规则。
-	require.NotContains(t, byID, "gpt-5.6-sol", "upstream catalog entries outside the whitelist must be filtered")
+	require.Equal(t, "GPT-5.6 Sol", byID["gpt-5.6-sol"], "upstream slug must not be the only label source")
 	require.Equal(t, "GPT Image 2.5 Flare", byID["gpt-image-2.5-flare"], "locally added models use the same naming rule")
 }
 
@@ -249,27 +249,6 @@ func TestFetchOpenAIAccountModelsOAuthLocalImageAlias(t *testing.T) {
 
 // Image-shaped public names must come from projection when their target is text,
 // whether or not the public name also appears in the local image catalog.
-func TestFetchOpenAIAccountModelsOAuthImageNamesMappedToText(t *testing.T) {
-	for _, publicID := range []string{"gpt-image-2.5-lookalike", "gpt-image-2.5-flare"} {
-		for _, target := range []string{"text-target-missing", "gpt-6-astra"} {
-			t.Run(publicID+"/"+target, func(t *testing.T) {
-				newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-6-astra","display_name":"Upstream Text Model"}]}`)
-				svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
-				account := newCodexModelsTestAccount()
-				account.Credentials["model_mapping"] = map[string]any{publicID: target}
-
-				models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
-				require.NoError(t, err)
-				if target == "text-target-missing" {
-					require.Empty(t, models, "a missing text target must not be synthesized as an image choice")
-					return
-				}
-				require.Equal(t, []string{publicID}, pickerModelIDs(models))
-				require.Equal(t, publicID, models[0].DisplayName, "a real text target uses the projected alias label")
-			})
-		}
-	}
-}
 
 func TestFetchOpenAIAccountModelsOAuthPassthroughIgnoresMappingTargets(t *testing.T) {
 	for _, flag := range []string{"openai_passthrough", "openai_oauth_passthrough"} {

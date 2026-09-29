@@ -181,6 +181,7 @@ type grokHybridUpstream struct {
 	billingStatus        int
 	weeklyBillingStatus  int
 	monthlyBillingStatus int
+	userStatus           int
 	billingHeaders       http.Header
 }
 
@@ -262,6 +263,13 @@ func (u *grokHybridUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*h
 	}
 	if req.URL.RawQuery != "format=credits" && u.monthlyBillingStatus != 0 {
 		billingStatus = u.monthlyBillingStatus
+	}
+	if req.URL.Path == "/v1/user" {
+		status := u.userStatus
+		if status == 0 {
+			status = http.StatusOK
+		}
+		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"email":"user@example.test","hasGrokCodeAccess":true,"subscription":{"tier":"SUBSCRIPTION_TIER_SUPERGROK","status":"SUBSCRIPTION_STATUS_ACTIVE"}}`))}, nil
 	}
 	if billingStatus != 0 && billingStatus != http.StatusOK {
 		return &http.Response{
@@ -759,7 +767,7 @@ func TestGrokQuotaServiceQueryQuotaFreeFallsBackToGrok45(t *testing.T) {
 	require.True(t, result.HeadersObserved)
 
 	requests, bodies := upstream.quotaSnapshot()
-	require.Len(t, requests, 3)
+	require.Len(t, requests, 4)
 	responseCalls := 0
 	for i, req := range requests {
 		if req.URL.Path != "/v1/responses" {
@@ -799,10 +807,48 @@ func TestGrokQuotaServiceQueryQuotaPaidBillingSkipsActiveProbe(t *testing.T) {
 	require.Nil(t, result.LocalUsage24h)
 
 	requests, _ := upstream.quotaSnapshot()
-	require.Len(t, requests, 2)
+	require.Len(t, requests, 3)
 	for _, req := range requests {
+		if req.URL.Path == "/v1/user" {
+			continue
+		}
 		require.Equal(t, "/v1/billing", req.URL.Path)
 	}
+}
+
+func TestGrokQuotaServiceProbeBillingFetchesSubscriptionAndIdentityHeaders(t *testing.T) {
+	t.Parallel()
+
+	account := healthyGrokQuotaOAuthAccount(58)
+	account.Credentials["sub"] = "user-58"
+	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+		accountsByID: map[int64]*Account{account.ID: account},
+	}}
+	upstream := &grokHybridUpstream{}
+	svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil)
+
+	result, err := svc.ProbeBilling(context.Background(), account.ID)
+	require.NoError(t, err)
+	require.NotNil(t, result.Subscription)
+	require.Equal(t, "SUBSCRIPTION_TIER_SUPERGROK", result.Subscription.SubscriptionTier)
+	require.Equal(t, "SUBSCRIPTION_TIER_SUPERGROK", result.Billing.Plan)
+	require.Equal(t, "SUBSCRIPTION_TIER_SUPERGROK", result.Billing.SubscriptionTier)
+	require.True(t, result.Billing.HasGrokCodeAccess)
+
+	requests, _ := upstream.quotaSnapshot()
+	require.Len(t, requests, 3)
+	var subscriptionReq *http.Request
+	for _, req := range requests {
+		if req.URL.Path == "/v1/user" {
+			subscriptionReq = req
+			break
+		}
+	}
+	require.NotNil(t, subscriptionReq)
+	require.Equal(t, "include=subscription", subscriptionReq.URL.RawQuery)
+	require.Equal(t, "user-58", subscriptionReq.Header.Get("X-UserID"))
+	require.Equal(t, "authenticate-response", subscriptionReq.Header.Get("x-authenticateresponse"))
+	require.Equal(t, xai.CLITokenAuthValue, subscriptionReq.Header.Get(xai.CLITokenAuthHeader))
 }
 
 func TestGrokQuotaServiceQueryQuotaCustomPaidMonthlyLimitSkipsActiveProbe(t *testing.T) {
@@ -824,8 +870,11 @@ func TestGrokQuotaServiceQueryQuotaCustomPaidMonthlyLimitSkipsActiveProbe(t *tes
 	require.Nil(t, result.Snapshot)
 
 	requests, _ := upstream.quotaSnapshot()
-	require.Len(t, requests, 2)
+	require.Len(t, requests, 3)
 	for _, req := range requests {
+		if req.URL.Path == "/v1/user" {
+			continue
+		}
 		require.Equal(t, "/v1/billing", req.URL.Path)
 	}
 }
@@ -966,9 +1015,12 @@ func TestAccountUsageServiceGrokRefreshUsesBillingOnly(t *testing.T) {
 	require.WithinDuration(t, time.Now().UTC().Add(-24*time.Hour), usageRepo.startTimes[0], time.Second)
 
 	requests, _ := upstream.snapshot()
-	require.Len(t, requests, 2)
+	require.Len(t, requests, 3)
 	for _, req := range requests {
 		require.Equal(t, http.MethodGet, req.Method)
+		if req.URL.Path == "/v1/user" {
+			continue
+		}
 		require.Equal(t, "/v1/billing", req.URL.Path)
 	}
 }
@@ -1132,7 +1184,8 @@ func TestGrokQuotaServiceProbeMediaEligibility(t *testing.T) {
 		repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
 			accountsByID: map[int64]*Account{account.ID: account},
 		}}
-		svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), &grokHybridUpstream{}, nil)
+		upstream := &grokHybridUpstream{userStatus: http.StatusForbidden}
+		svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil)
 
 		eligible, reason, err := svc.ProbeMediaEligibility(context.Background(), account.ID)
 

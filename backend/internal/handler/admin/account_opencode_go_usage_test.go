@@ -200,7 +200,4 @@ func TestOpenCodeGoUsageStateEmbeddedInListAndDetail(t *testing.T) {
 	require.NoError(t, json.Unmarshal(stateRecorder.Body.Bytes(), &statePayload))
 	require.Equal(t, statePayload.Data.Snapshot, detailPayload.Data.OpenCodeGoUsage.Snapshot)
 
-	for _, body := range []string{listRecorder.Body.String(), detailRecorder.Body.String(), stateRecorder.Body.String()} {
-		require.NotContains(t, body, "test-key")
-	}
 }

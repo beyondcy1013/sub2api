@@ -41,6 +41,47 @@ func TestApplyCLIBillingHeaders(t *testing.T) {
 	require.Equal(t, "grok-pager/"+CLIClientVersion+" grok-shell/"+CLIClientVersion+" (macos; aarch64)", req.UserAgent())
 }
 
+func TestApplyCLISubscriptionHeadersAddsUserIdentity(t *testing.T) {
+	t.Parallel()
+	req, err := http.NewRequest(http.MethodGet, DefaultCLIBaseURL+"/user?include=subscription", nil)
+	require.NoError(t, err)
+
+	ApplyCLISubscriptionHeaders(req, " token ", " user-1 ")
+
+	require.Equal(t, "Bearer token", req.Header.Get("Authorization"))
+	require.Equal(t, "user-1", req.Header.Get("X-UserID"))
+	require.Equal(t, "authenticate-response", req.Header.Get("x-authenticateresponse"))
+	require.Equal(t, CLITokenAuthValue, req.Header.Get(CLITokenAuthHeader))
+}
+
+func TestBuildBillingSummaryCreditBagAndSubscription(t *testing.T) {
+	t.Parallel()
+	payload, err := ParseSubscriptionSummary([]byte(`{
+		"email":"user@example.test",
+		"hasGrokCodeAccess":true,
+		"subscription":{"tier":"SUBSCRIPTION_TIER_SUPERGROK","status":"SUBSCRIPTION_STATUS_ACTIVE"}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "user@example.test", payload.Email)
+	require.Equal(t, "SUBSCRIPTION_TIER_SUPERGROK", payload.SubscriptionTier)
+	require.Equal(t, "SUBSCRIPTION_STATUS_ACTIVE", payload.SubscriptionStatus)
+	require.True(t, payload.HasGrokCodeAccess)
+
+	billingPayload, err := ParseBillingPayload([]byte(`{
+		"config":{
+			"currentPeriod":{"type":"WEEKLY","start":"a","end":"b"},
+			"subscriptionTier":"GrokPro",
+			"weeklyCredits":{"total":{"val":100},"remaining":{"val":75}}
+		}
+	}`))
+	require.NoError(t, err)
+	summary := BuildBillingSummary(billingPayload.Config)
+	require.Equal(t, "GrokPro", summary.SubscriptionTier)
+	require.Equal(t, 25.0, *summary.WeeklyUsed)
+	require.Equal(t, 100.0, *summary.WeeklyTotal)
+	require.Equal(t, 75.0, *summary.WeeklyRemaining)
+}
+
 func TestBuildBillingSummaryWeeklyAndMonthly(t *testing.T) {
 	t.Parallel()
 

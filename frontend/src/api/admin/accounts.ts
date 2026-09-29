@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import { buildApiUrl } from '../url'
 import type { OpenAIReferralRefreshResult, OpenAIReferralSendResult } from '@/types/openaiReferrals'
 import type {
   Account,
@@ -1502,7 +1503,88 @@ export const accountsAPI = {
   updateOpenCodeGoUsageSettings,
   getOpenCodeGoUsage,
   setOpenCodeGoUsageAutoRefresh,
-  refreshOpenCodeGoUsage
+  refreshOpenCodeGoUsage,
+  streamManualCodexHarvest
 }
 
 export default accountsAPI
+
+// ── Codex Manual Harvest ────────────────────────────────────────────────────
+
+export interface ManualHarvestRequest {
+  collect_lanes?: number
+  models?: string[]
+  probe_interval_seconds: number
+  rate_limit_cooldown_seconds: number
+  max_attempts: number
+  node_switch_rule: string
+  stop_on_success: boolean
+  use_account_proxy?: boolean
+}
+
+export interface ManualHarvestProgress {
+  attempt?: number
+  max_attempts?: number
+  model?: string
+  node?: string
+  http_status?: number
+  length?: number
+  blocks?: number
+  expected_length?: number
+  expected_blocks?: number
+  result?: string
+  level?: string
+  message?: string
+  detail?: string
+  tickets_stored?: number
+  done?: boolean
+}
+
+export async function streamManualCodexHarvest(
+  accountId: number,
+  body: ManualHarvestRequest,
+  onProgress: (progress: ManualHarvestProgress) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    'X-Admin-UI-Request': '1'
+  }
+  const token = localStorage.getItem('auth_token')
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(buildApiUrl(`/admin/accounts/${accountId}/manual-harvest`), {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: JSON.stringify(body),
+    signal
+  })
+  if (res.status === 401) {
+    const error = new Error('HTTP 401') as Error & { status: number }
+    error.status = 401
+    throw error
+  }
+  if (!res.ok || !res.body) {
+    let detail = ''
+    try { detail = (await res.text()).slice(0, 200) } catch { detail = '' }
+    throw new Error(detail ? `HTTP ${res.status} - ${detail}` : `HTTP ${res.status}`)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() || ''
+    for (const frame of frames) {
+      if (!frame.startsWith('data: ')) continue
+      try { onProgress(JSON.parse(frame.slice(6)) as ManualHarvestProgress) } catch { /* ignore */ }
+    }
+  }
+  if (buffer.startsWith('data: ')) {
+    try { onProgress(JSON.parse(buffer.slice(6)) as ManualHarvestProgress) } catch { /* ignore */ }
+  }
+}
