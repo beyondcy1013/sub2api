@@ -82,6 +82,19 @@ func TestBuildBillingSummaryCreditBagAndSubscription(t *testing.T) {
 	require.Equal(t, 75.0, *summary.WeeklyRemaining)
 }
 
+func TestParseSubscriptionSummaryTopLevelCLIUserShape(t *testing.T) {
+	t.Parallel()
+	payload, err := ParseSubscriptionSummary([]byte(`{
+		"email":"user@example.test",
+		"hasGrokCodeAccess":true,
+		"subscriptionTier":"GrokPro"
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "user@example.test", payload.Email)
+	require.Equal(t, "GrokPro", payload.SubscriptionTier)
+	require.True(t, payload.HasGrokCodeAccess)
+}
+
 func TestBuildBillingSummaryWeeklyAndMonthly(t *testing.T) {
 	t.Parallel()
 

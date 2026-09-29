@@ -81,10 +81,13 @@ type BillingPayload struct {
 }
 
 type SubscriptionPayload struct {
-	Email             string           `json:"email,omitempty"`
-	HasGrokCodeAccess bool             `json:"hasGrokCodeAccess,omitempty"`
-	Subscription      map[string]any   `json:"subscription,omitempty"`
-	Subscriptions     []map[string]any `json:"subscriptions,omitempty"`
+	Email              string           `json:"email,omitempty"`
+	User               map[string]any   `json:"user,omitempty"`
+	HasGrokCodeAccess  bool             `json:"hasGrokCodeAccess,omitempty"`
+	SubscriptionTier   string           `json:"subscriptionTier,omitempty"`
+	SubscriptionStatus string           `json:"subscriptionStatus,omitempty"`
+	Subscription       map[string]any   `json:"subscription,omitempty"`
+	Subscriptions      []map[string]any `json:"subscriptions,omitempty"`
 }
 
 type SubscriptionSummary struct {
@@ -231,6 +234,9 @@ func ParseSubscriptionSummary(body []byte) (*SubscriptionSummary, error) {
 		return nil, err
 	}
 	subscription := payload.Subscription
+	if subscription == nil && payload.User != nil {
+		subscription = payload.User
+	}
 	if subscription == nil {
 		for _, item := range payload.Subscriptions {
 			if status, _ := item["status"].(string); strings.EqualFold(strings.TrimSpace(status), "SUBSCRIPTION_STATUS_ACTIVE") {
@@ -255,10 +261,19 @@ func ParseSubscriptionSummary(body []byte) (*SubscriptionSummary, error) {
 	}
 	return &SubscriptionSummary{
 		Email:              strings.TrimSpace(payload.Email),
-		SubscriptionTier:   getString("tier", "subscriptionTier", "subscription_tier"),
+		SubscriptionTier:   firstNonEmptyString(strings.TrimSpace(payload.SubscriptionTier), getString("tier", "subscriptionTier", "subscription_tier")),
 		SubscriptionStatus: getString("status", "subscriptionStatus", "subscription_status"),
 		HasGrokCodeAccess:  payload.HasGrokCodeAccess,
 	}, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // BuildBillingSummary normalizes a billing config into a UI-friendly summary.
@@ -507,9 +522,9 @@ func (s *BillingSummary) MergeSubscription(subscription *SubscriptionSummary) *B
 	if subscription.Email != "" && s.Plan == "" {
 		s.Plan = subscription.SubscriptionTier
 	}
-	if subscription.SubscriptionTier != "" {
-		s.SubscriptionTier = subscription.SubscriptionTier
-		s.Plan = subscription.SubscriptionTier
+	if tier := strings.TrimSpace(subscription.SubscriptionTier); tier != "" {
+		s.SubscriptionTier = tier
+		s.Plan = tier
 	}
 	if subscription.Email != "" {
 		s.Email = subscription.Email
