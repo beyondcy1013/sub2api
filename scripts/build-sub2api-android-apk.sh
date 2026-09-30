@@ -34,6 +34,22 @@ if ((version_code <= 0 || version_code > 2100000000)); then
     exit 1
 fi
 
+# The established application ID must keep its existing signing identity. Fail
+# before SDK/download setup when the release keystore or its password file is
+# missing; never generate a replacement key. apksigner reads the password via
+# file: indirection, so it is never materialized in this script.
+password_file="${TOOLCHAIN_DIR}/sub2api-signing-password"
+keystore="${TOOLCHAIN_DIR}/sub2api-release.jks"
+if [[ ! -s "${password_file}" ]]; then
+    echo "Missing Android signing password file: ${password_file}" >&2
+    exit 1
+fi
+if [[ ! -s "${keystore}" ]]; then
+    echo "Missing Android release keystore: ${keystore}" >&2
+    exit 1
+fi
+chmod 600 "${password_file}" "${keystore}"
+
 required_sdk_files=(
     "${SDK_ROOT}/platforms/android-35/android.jar"
     "${SDK_ROOT}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
@@ -65,7 +81,7 @@ fi
     --no-daemon \
     --stacktrace \
     -p "${ANDROID_DIR}" \
-    clean assembleRelease \
+    assembleRelease \
     "-Psub2apiVersion=${client_version}" \
     "-Psub2apiVersionCode=${version_code}"
 
@@ -74,26 +90,6 @@ if [[ ! -s "${unsigned_apk}" ]]; then
     echo "Android release APK was not produced: ${unsigned_apk}" >&2
     exit 1
 fi
-
-password_file="${TOOLCHAIN_DIR}/sub2api-signing-password"
-keystore="${TOOLCHAIN_DIR}/sub2api-release.jks"
-if [[ ! -s "${password_file}" ]]; then
-    umask 077
-    openssl rand -hex 24 >"${password_file}"
-fi
-password="$(<"${password_file}")"
-if [[ ! -s "${keystore}" ]]; then
-    keytool -genkeypair -noprompt \
-        -keystore "${keystore}" \
-        -storepass "${password}" \
-        -keypass "${password}" \
-        -alias sub2api \
-        -keyalg RSA \
-        -keysize 4096 \
-        -validity 10000 \
-        -dname "CN=Sub2API, OU=Sub2API, O=Sub2API, L=Shanghai, ST=Shanghai, C=CN"
-fi
-chmod 600 "${password_file}" "${keystore}"
 
 build_tools="${SDK_ROOT}/build-tools/${BUILD_TOOLS_VERSION}"
 aligned_apk="${TMP_DIR}/Sub2API-${client_version}-aligned.apk"
@@ -110,7 +106,7 @@ mkdir -p "${published_dir}"
     --v2-signing-enabled true \
     --out "${published_apk}" \
     "${aligned_apk}"
-"${build_tools}/apksigner" verify --verbose --print-certs "${published_apk}"
+"${build_tools}/apksigner" verify --verbose --print-certs --min-sdk-version 23 "${published_apk}"
 "${build_tools}/aapt" dump badging "${published_apk}" | sed -n '1p'
 
 printf 'APK_PATH=%s\n' "${published_apk}"
