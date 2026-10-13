@@ -1138,7 +1138,7 @@ func TestBuildChatStreamErrorSSE(t *testing.T) {
 }
 
 func TestGPT6RawChatRejectsReasoningToolCalls(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-luna"} {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -1151,7 +1151,7 @@ func TestGPT6RawChatRejectsReasoningToolCalls(t *testing.T) {
 }
 
 func TestGPT6ReasoningModeAndSamplingCompatibility(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-luna"} {
 		body := []byte(`{"model":"` + model + `","reasoning":{"mode":"pro","effort":"max"},"temperature":0.7,"top_p":0.9,"top_logprobs":2,"include":["reasoning.encrypted_content","message.output_text.logprobs"],"prompt_cache_options":{"ttl":"30m"}}`)
 		out, changed, err := normalizeOpenAIResponsesReasoningMode(body, "")
 		require.NoError(t, err)
@@ -1174,7 +1174,7 @@ func TestGPT6ReasoningModeAndSamplingCompatibility(t *testing.T) {
 }
 
 func TestGPT6RawChatNoneToolsAreForwarded(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-luna"} {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
 		body := []byte(`{"model":"` + model + `","reasoning_effort":"none","messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`)
@@ -1193,7 +1193,7 @@ func TestGPT6RawChatNoneToolsAreForwarded(t *testing.T) {
 }
 
 func TestGPT6UsageHTTPAndWSHaveSameCacheBreakdown(t *testing.T) {
-	response := []byte(`{"model":"gpt-6-sol","usage":{"input_tokens":1000,"output_tokens":10,"input_tokens_details":{"cached_tokens":200,"cache_write_tokens":300}}}`)
+	response := []byte(`{"model":"gpt-6.1-sol","usage":{"input_tokens":1000,"output_tokens":10,"input_tokens_details":{"cached_tokens":200,"cache_write_tokens":300}}}`)
 	httpUsage, ok := extractOpenAIUsageFromJSONBytes(response)
 	require.True(t, ok)
 	var wsUsage OpenAIUsage
@@ -1204,7 +1204,7 @@ func TestGPT6UsageHTTPAndWSHaveSameCacheBreakdown(t *testing.T) {
 
 func TestGPT6ReasoningModeUsesMappedUpstream(t *testing.T) {
 	body := []byte(`{"model":"public-model","reasoning":{"mode":"pro","effort":"max"},"temperature":0.5}`)
-	out, _, err := normalizeOpenAIResponsesReasoningMode(body, "gpt-6-sol")
+	out, _, err := normalizeOpenAIResponsesReasoningMode(body, "gpt-6.1-sol")
 	require.NoError(t, err)
 	require.Equal(t, "public-model", gjson.GetBytes(out, "model").String())
 	require.Equal(t, "pro", gjson.GetBytes(out, "reasoning.mode").String())
@@ -1213,7 +1213,7 @@ func TestGPT6ReasoningModeUsesMappedUpstream(t *testing.T) {
 }
 
 func TestGPT6MappedCompatibilityBridgesKeepReasoningAndTools(t *testing.T) {
-	for _, model := range []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6.1-sol", "gpt-6-luna"} {
 		for _, messages := range []bool{false, true} {
 			body := []byte(`{"model":"public","reasoning_effort":"max","temperature":0.7,"top_p":0.9,"prompt_cache_options":{"ttl":"30m"},"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"messages":[{"role":"user","content":"hello"}]}`)
 			if messages {
@@ -1259,7 +1259,7 @@ func TestGPT61SolRejectsDisabledReasoningBeforeForwarding(t *testing.T) {
 		`{"model":"gpt-6.1-sol-minimal"}`,
 	} {
 		require.Error(t, validateGPT61SolCompatRequest([]byte(body), "gpt-6.1-sol"))
-		require.NoError(t, validateGPT61SolCompatRequest([]byte(body), "gpt-6-sol"))
+		require.NoError(t, validateGPT61SolCompatRequest([]byte(body), "gpt-6-luna"))
 	}
 	for _, field := range []string{`"reasoning_effort":"none"`, `"reasoning_effort":"minimal"`, `"tools":[{"type":"function","function":{"name":"lookup"}}]`} {
 		body := []byte(`{"model":"public",` + field + `,"messages":[{"role":"user","content":"hello"}]}`)

@@ -469,7 +469,7 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[1]?.[1]?.extra?.unrelated).toBe('preserve')
   })
 
-  it.each([{ models: [] }, { models: ['gpt-6-astra', 'gpt-6-sol'] }])('restores and saves explicit BPS selection $models', async ({ models }) => {
+  it.each([{ models: [] }, { models: ['gpt-6-astra', 'gpt-6.1-sol'] }])('restores and saves explicit BPS selection $models', async ({ models }) => {
     const account = buildAccount()
     account.type = 'oauth'
     account.extra = { openai_excel_bps: true, openai_excel_bps_models: models }
