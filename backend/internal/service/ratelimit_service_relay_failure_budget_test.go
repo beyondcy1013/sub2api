@@ -230,6 +230,7 @@ func TestRateLimitServiceHandleUpstreamErrorRelayBudgetTripTemporarilyBlocksWith
 	require.Equal(t, account.ID, repo.lastTempID)
 	require.Equal(t, until, repo.lastTempUntil)
 	require.Contains(t, repo.lastReason, "3/10")
+	require.Contains(t, repo.lastReason, "last_error=temporary relay failure")
 	require.Equal(t, account.ID, blocker.accountID)
 	require.Equal(t, until, blocker.until)
 	require.Equal(t, "openai_relay_failure_budget", blocker.reason)

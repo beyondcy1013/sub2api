@@ -275,12 +275,12 @@ func isOpenAIRelayFailureBudgetHTTPFailure(statusCode int, responseBody []byte) 
 	return statusCode >= 500 && statusCode <= 599 && statusCode != 529
 }
 
-func (s *RateLimitService) recordOpenAIRelayFailure(ctx context.Context, account *Account, failureKind string) {
-	s.recordOpenAIRelayBudgetEvent(ctx, account, RelayFailureBudgetFailure, failureKind)
+func (s *RateLimitService) recordOpenAIRelayFailure(ctx context.Context, account *Account, failureKind, lastError string) {
+	s.recordOpenAIRelayBudgetEvent(ctx, account, RelayFailureBudgetFailure, failureKind, lastError)
 }
 
 func (s *RateLimitService) recordOpenAIRelaySuccess(ctx context.Context, account *Account) {
-	s.recordOpenAIRelayBudgetEvent(ctx, account, RelayFailureBudgetSuccess, "success")
+	s.recordOpenAIRelayBudgetEvent(ctx, account, RelayFailureBudgetSuccess, "success", "")
 }
 
 func (s *RateLimitService) recordOpenAIRelayBudgetEvent(
@@ -288,6 +288,7 @@ func (s *RateLimitService) recordOpenAIRelayBudgetEvent(
 	account *Account,
 	outcome RelayFailureBudgetOutcome,
 	failureKind string,
+	lastError string,
 ) {
 	if s == nil || s.relayFailureBudgetCache == nil || account == nil {
 		return
@@ -296,6 +297,7 @@ func (s *RateLimitService) recordOpenAIRelayBudgetEvent(
 	if !enabled {
 		return
 	}
+	lastError = truncateForLog([]byte(lastError), 512)
 
 	now := time.Now()
 	decision, err := s.relayFailureBudgetCache.RecordRelayFailureBudgetEvent(ctx, account.ID, now, outcome, policy)
@@ -311,6 +313,7 @@ func (s *RateLimitService) recordOpenAIRelayBudgetEvent(
 		"openai_relay_failure_budget_failure_recorded",
 		"account_id", account.ID,
 		"failure_kind", failureKind,
+		"last_error", lastError,
 		"window_requests", decision.WindowRequests,
 		"window_failures", decision.WindowFailures,
 		"consecutive_failures", decision.ConsecutiveFailures,
@@ -331,6 +334,9 @@ func (s *RateLimitService) recordOpenAIRelayBudgetEvent(
 		decision.ConsecutiveFailures,
 		policy.FailureThresholdPercent,
 	)
+	if lastError != "" {
+		reason += ", last_error=" + lastError
+	}
 	s.notifyAccountSchedulingBlocked(account, until, relayFailureBudgetRuntimeBlockReason)
 	if s.accountRepo != nil {
 		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {

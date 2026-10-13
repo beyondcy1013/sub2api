@@ -449,7 +449,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			(openai401Code == "" && strings.Contains(strings.ToLower(upstreamMsg), "authentication token has been invalidated"))
 		if !customErrorCodesEnabled && isOpenAICustomRelayAPIKey(authAccount) &&
 			relayInternalTokenInvalidated {
-			s.recordOpenAIRelayFailure(ctx, authAccount, "relay_internal_token_invalidated")
+			s.recordOpenAIRelayFailure(ctx, authAccount, "relay_internal_token_invalidated", upstreamMsg)
 			slog.Warn("openai_apikey_relay_internal_auth_error",
 				"account_id", authAccount.ID,
 				"upstream_code", openai401Code,
@@ -601,7 +601,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	}
 
 	if isOpenAIRelayFailureBudgetHTTPFailure(statusCode, responseBody) {
-		s.recordOpenAIRelayFailure(ctx, account, fmt.Sprintf("http_%d", statusCode))
+		failureKind := fmt.Sprintf("http_%d", statusCode)
+		lastError := upstreamMsg
+		if lastError == "" {
+			lastError = "upstream returned HTTP " + strconv.Itoa(statusCode)
+		}
+		s.recordOpenAIRelayFailure(ctx, account, failureKind, lastError)
 	}
 
 	return shouldDisable

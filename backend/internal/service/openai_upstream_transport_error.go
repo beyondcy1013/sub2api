@@ -163,7 +163,7 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	if classifyUpstreamTransportError(err).Persistent {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
 	} else if s != nil && s.rateLimitService != nil {
-		s.rateLimitService.recordOpenAIRelayFailure(ctx, account, "transport")
+		s.rateLimitService.recordOpenAIRelayFailure(ctx, account, "transport", safeErr)
 	}
 
 	return &UpstreamFailoverError{
