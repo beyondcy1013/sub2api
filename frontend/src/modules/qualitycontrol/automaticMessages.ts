@@ -1,6 +1,6 @@
 export const automaticDetectionMessages = {
  zh: {
-  title: '自动检测', connection: '状态检测与恢复', quality: '周期测智', billing: '费率探测', enabled: '启用', all: '所有账号', selected: '指定账号', scope: '账号范围',
+  title: '周期任务', connection: '状态检测与恢复', quality: '周期测智', billing: '费率探测', enabled: '启用', all: '所有账号', selected: '指定账号', scope: '账号范围',
   hint: '所有账号在每轮执行时动态匹配，包含后续新增账号；范围与目标状态同时生效。归档、回收站及过期账号不参与。',
   states: '目标状态（任一匹配）', active: '正常', inactive: '停用', error: '错误', paused: '暂停调度', rate_limited: '限流 / 临时阻断', downgraded: '疑似降智',
   includePaused: '纳入暂停调度账号（允许按策略自动恢复）', platforms: '平台（不选表示全部）', interval: '检测间隔（分钟）', model: '模型（留空使用账号本地模型目录）',
@@ -13,7 +13,7 @@ export const automaticDetectionMessages = {
   policyTab: '自动策略', scheduled: '独立定时计划', dirty: '有未保存修改；刷新仅更新运行结果。', billingRuntime: '费率运行情况', status: '状态', account: '账号', finished: '完成时间', notEnabled: '未启用'
  },
  en: {
-  title: 'Automatic detection', connection: 'Health detection and recovery', quality: 'Periodic quality tests', billing: 'Rate probes', enabled: 'Enabled', all: 'All accounts', selected: 'Selected accounts', scope: 'Account scope',
+  title: 'Periodic tasks', connection: 'Health detection and recovery', quality: 'Periodic quality tests', billing: 'Rate probes', enabled: 'Enabled', all: 'All accounts', selected: 'Selected accounts', scope: 'Account scope',
   hint: 'All accounts are matched each cycle, including newly added accounts. Scope and target states apply together. Archived, trashed and expired accounts are excluded.',
   states: 'Target states (match any)', active: 'Active', inactive: 'Inactive', error: 'Error', paused: 'Scheduling paused', rate_limited: 'Rate limited / temporarily blocked', downgraded: 'Suspected downgrade',
   includePaused: 'Include paused accounts (allow configured recovery)', platforms: 'Platforms (none selected means all)', interval: 'Interval (minutes)', model: 'Model (empty uses the local account model catalog)',
