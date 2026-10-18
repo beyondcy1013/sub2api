@@ -10,7 +10,7 @@ describe('AccountTableActions scheduling rules', () => {
       props: { loading: false, showFilters: false, recycled: false }
     })
 
-    const button = wrapper.get('button:nth-of-type(2)')
+    const button = wrapper.get('[data-test="account-scheduling-rules"]')
     expect(button.text()).toContain('admin.accounts.schedulingRules.title')
     await button.trigger('click')
 

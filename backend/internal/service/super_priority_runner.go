@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/autodetection"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/robfig/cron/v3"
 )
@@ -41,6 +42,7 @@ type SuperPriorityRunner struct {
 	accountRepo    AccountRepository
 	livenessRepo   schedulingLivenessPersistence
 	recoverer      successfulTestAccountRecoverer
+	policyConfig   func(context.Context) (autodetection.Config, error)
 
 	cron        *cron.Cron
 	scanEntryID cron.EntryID
@@ -192,7 +194,26 @@ func (r *SuperPriorityRunner) runOnceOnce(ctx context.Context, force bool, trigg
 			nextRunAt = candidate
 		}
 	}
+	var policies autodetection.Config
+	if r.policyConfig != nil && !force {
+		if value, err := r.policyConfig(ctx); err == nil {
+			policies = value
+		} else {
+			return refreshResult, err
+		}
+	}
 	for _, account := range accounts {
+		owned := false
+		for _, p := range policies.Policies {
+			if p.Enabled && autodetection.Eligible(p, automaticDetectionAccount(&account)) {
+				owned = true
+				break
+			}
+		}
+		if owned {
+			continue
+		}
+
 		if !schedulingLivenessProbeEligible(&account) {
 			continue
 		}

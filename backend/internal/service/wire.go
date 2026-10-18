@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/modules/autodetection"
 	"os"
 	"time"
 
@@ -264,6 +267,7 @@ func ProvideAccountTestService(
 	openAIGatewayService *OpenAIGatewayService,
 	settingService *SettingService,
 	pluginManager *PluginManager,
+	detectionRepo AccountDetectionRepository,
 ) *AccountTestService {
 	service := NewAccountTestService(
 		accountRepo,
@@ -275,6 +279,7 @@ func ProvideAccountTestService(
 		cfg,
 		tlsFPProfileService,
 	)
+	service.detectionRepo = detectionRepo
 	service.agentIdentityWS = openAIGatewayService
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
@@ -653,8 +658,10 @@ func ProvideGeminiCachedContentService(repo GeminiCachedContentRepository, compa
 func ProvideScheduledTestService(
 	planRepo ScheduledTestPlanRepository,
 	resultRepo ScheduledTestResultRepository,
+	accountRepo AccountRepository,
+	ruleRepo DegradationRuleRepository,
 ) *ScheduledTestService {
-	return NewScheduledTestService(planRepo, resultRepo)
+	return NewScheduledTestService(planRepo, resultRepo, accountRepo, ruleRepo)
 }
 
 // ProvideScheduledTestRunnerService creates and starts ScheduledTestRunnerService.
@@ -664,7 +671,10 @@ func ProvideScheduledTestRunnerService(
 	accountTestSvc *AccountTestService,
 	rateLimitSvc *RateLimitService,
 	cfg *config.Config,
+	settingRepo SettingRepository,
+	db *sql.DB,
 ) *ScheduledTestRunnerService {
+	scheduledSvc.automatic = newAutomaticDetection(settingRepo, scheduledSvc.accountRepo, accountTestSvc, rateLimitSvc, db)
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
 	svc.Start()
 	return svc
@@ -696,10 +706,34 @@ func ProvideSuperPriorityRunner(
 	accountTestSvc *AccountTestService,
 	accountRepo AccountRepository,
 	rateLimitSvc *RateLimitService,
+	settingRepo SettingRepository,
 ) *SuperPriorityRunner {
 	runner := NewSuperPriorityRunner(state, accountTestSvc, accountRepo, rateLimitSvc)
+	runner.policyConfig = func(ctx context.Context) (autodetection.Config, error) {
+		c := autodetection.Defaults()
+		raw, err := settingRepo.GetValue(ctx, autodetection.ConfigKey)
+		if errors.Is(err, ErrSettingNotFound) {
+			return c, nil
+		}
+		if err != nil {
+			return c, err
+		}
+		if raw != "" {
+			err = json.Unmarshal([]byte(raw), &c)
+		}
+		return c, err
+	}
 	runner.Start()
 	return runner
+}
+
+// ProvideCodexAuthFileSyncService creates and starts the Codex auth file synchronizer.
+func ProvideCodexAuthFileSyncService(
+	accountRepo AccountRepository,
+) *CodexAuthFileSyncService {
+	svc := NewCodexAuthFileSyncService(accountRepo)
+	svc.Start(context.Background())
+	return svc
 }
 
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
@@ -948,6 +982,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
+	ProvideCodexAuthFileSyncService,
 	ProvideUpstreamBillingProbeService,
 	ProvideOllamaCloudUsageService,
 	ProvideOpenCodeGoUsageService,

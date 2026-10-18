@@ -134,6 +134,10 @@
           </span>
         </label>
       </div>
+
+      <div class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-600">
+        <button type="button" data-testid="scheduling-rule-quality-settings" class="btn btn-secondary" @click="emit('detection')">{{ t('admin.accounts.detection.qualitySettings') }}</button>
+      </div>
     </div>
 
     <template #footer>
@@ -165,6 +169,7 @@ const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
   (event: 'close'): void
   (event: 'saved'): void
+  (event: 'detection'): void
   (event: 'refreshed', result: SchedulingRulesRefreshResult): void
   (event: 'refresh-error', error: unknown): void
   (event: 'error', error: unknown): void
@@ -352,6 +357,7 @@ const save = async () => {
       model_mismatch_on_error: modelMismatchOnError.value
     })
     await adminAPI.accounts.updateUpstreamBillingProbeSettings({
+      ...await adminAPI.accounts.getUpstreamBillingProbeSettings(),
       enabled: probeEnabled.value,
       interval_minutes: intervalMinutes.value,
       notify_on_change_only: notifyOnChangeOnly.value

@@ -12,6 +12,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +45,10 @@ const (
 	upstreamBillingProbeMaxPerCycle            = 20
 	upstreamBillingProbeConcurrency            = 4
 	upstreamBillingProbeMaxDelay               = 24 * time.Hour
+	// unsupported 账号的重探间隔倍数：上游不是 sub2api 中转就不会突然长出
+	// /v1/sub2api/billing，按常规 interval 重排只会持续占满每周期
+	// upstreamBillingProbeMaxPerCycle 个名额。
+	upstreamBillingProbeUnsupportedDelayFactor = 8
 	upstreamBillingProbeLeaderLockKey          = "upstream:billing:probe:leader"
 	upstreamBillingProbeLeaderLockTTL          = 2 * time.Minute
 )
@@ -79,9 +84,11 @@ const (
 
 // UpstreamBillingProbeSettings controls the periodic probe runner.
 type UpstreamBillingProbeSettings struct {
-	Enabled            bool `json:"enabled"`
-	IntervalMinutes    int  `json:"interval_minutes"`
-	NotifyOnChangeOnly bool `json:"notify_on_change_only"`
+	AccountScope       string  `json:"account_scope,omitempty"`
+	AccountIDs         []int64 `json:"account_ids,omitempty"`
+	Enabled            bool    `json:"enabled"`
+	IntervalMinutes    int     `json:"interval_minutes"`
+	NotifyOnChangeOnly bool    `json:"notify_on_change_only"`
 }
 
 // UpstreamBillingProbeSnapshot is persisted in accounts.extra. Data is kept as
@@ -192,6 +199,17 @@ func (s *SettingService) SetUpstreamBillingProbeSettings(ctx context.Context, se
 	}
 	if settings == nil {
 		return infraerrors.BadRequest("INVALID_UPSTREAM_BILLING_PROBE_SETTINGS", "settings cannot be nil")
+	}
+	if settings.AccountScope != "" && settings.AccountScope != "all" && settings.AccountScope != "selected" {
+		return infraerrors.BadRequest("INVALID_UPSTREAM_BILLING_PROBE_SCOPE", "account_scope must be all or selected")
+	}
+	if settings.Enabled && settings.AccountScope == "selected" && len(settings.AccountIDs) == 0 {
+		return infraerrors.BadRequest("INVALID_UPSTREAM_BILLING_PROBE_SCOPE", "select at least one account")
+	}
+	for _, id := range settings.AccountIDs {
+		if id <= 0 {
+			return infraerrors.BadRequest("INVALID_UPSTREAM_BILLING_PROBE_SCOPE", "account IDs must be positive")
+		}
 	}
 	if settings.IntervalMinutes < upstreamBillingProbeMinIntervalMinutes || settings.IntervalMinutes > upstreamBillingProbeMaxIntervalMinutes {
 		return infraerrors.BadRequest(
@@ -445,7 +463,7 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) (runErr error)
 	due := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if !isUpstreamBillingProbeAccount(&account) || !upstreamBillingProbeEnabled(&account) || !account.IsActive() {
+		if !isUpstreamBillingProbeAccount(&account) || !upstreamBillingPolicyIncludes(settings, &account) || !account.IsActive() {
 			continue
 		}
 		snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra)
@@ -498,6 +516,19 @@ func (s *UpstreamBillingProbeService) RunDue(ctx context.Context) (runErr error)
 }
 
 func (s *UpstreamBillingProbeService) listDueAccounts(ctx context.Context, now time.Time) ([]Account, error) {
+	settings, err := s.getSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if settings.AccountScope != "" {
+		if lister, ok := s.accountRepo.(interface {
+			ListDueScopedUpstreamBillingProbeAccounts(context.Context, time.Time, int, string, []int64) ([]Account, error)
+		}); ok {
+			return lister.ListDueScopedUpstreamBillingProbeAccounts(ctx, now, upstreamBillingProbeMaxPerCycle, settings.AccountScope, settings.AccountIDs)
+		}
+		return s.accountRepo.ListActive(ctx)
+	}
+
 	if lister, ok := s.accountRepo.(upstreamBillingProbeDueAccountLister); ok {
 		return lister.ListDueUpstreamBillingProbeAccounts(ctx, now, upstreamBillingProbeMaxPerCycle)
 	}
@@ -574,7 +605,11 @@ func (s *UpstreamBillingProbeService) probeAccountWithMode(ctx context.Context, 
 			return nil, ErrUpstreamBillingProbeAccountInvalid
 		}
 		if requireEnabled {
-			if !account.IsActive() || !upstreamBillingProbeEnabled(account) {
+			settings, settingsErr := s.getSettings(ctx)
+			if settingsErr != nil {
+				return nil, settingsErr
+			}
+			if !account.IsActive() || !upstreamBillingPolicyIncludes(settings, account) {
 				return nil, nil
 			}
 			if snapshot := decodeUpstreamBillingProbeSnapshot(account.Extra); snapshot != nil &&
@@ -914,13 +949,15 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 		failureCount = previous.FailureCount + 1
 	}
 	status := UpstreamBillingProbeStatusFailed
+	delay := nextProbeDelay(intervalMinutes, retryAfterDuration)
 	if reason == "unsupported" {
 		status = UpstreamBillingProbeStatusUnsupported
+		delay = unsupportedProbeDelay(intervalMinutes, retryAfterDuration)
 	}
 	snapshot := &UpstreamBillingProbeSnapshot{
 		Status:        status,
 		LastAttemptAt: now,
-		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, retryAfterDuration)),
+		NextProbeAt:   now.Add(delay),
 		FailureCount:  failureCount,
 		HTTPStatus:    statusCode,
 		LastError:     reason,
@@ -1438,4 +1475,20 @@ func safeProbeError(err error) string {
 		return ErrUpstreamBillingProbeUnavailable.Error()
 	}
 	return "probe_failed"
+}
+
+// An absent scope preserves the historical per-account opt-in. An explicit
+// policy scope dynamically includes all or only the selected eligible accounts.
+func upstreamBillingPolicyIncludes(settings *UpstreamBillingProbeSettings, account *Account) bool {
+	if account == nil || account.IsDeletedStaging() || account.Extra["recycled"] == true {
+		return false
+	}
+	switch settings.AccountScope {
+	case "all":
+		return true
+	case "selected":
+		return slices.Contains(settings.AccountIDs, account.ID)
+	default:
+		return upstreamBillingProbeEnabled(account)
+	}
 }

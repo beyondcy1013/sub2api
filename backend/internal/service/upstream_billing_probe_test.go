@@ -763,15 +763,15 @@ func TestUpstreamBillingProbeUnsupportedAndAccountToggle(t *testing.T) {
 	snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusUnsupported, snapshot.Status)
-	require.Equal(t, "unsupported", snapshot.LastError)
-	require.False(t, snapshot.NextProbeAt.Before(fixedNow.Add(24*time.Minute)))
-	require.False(t, snapshot.NextProbeAt.After(fixedNow.Add(36*time.Minute)))
+	// unsupported 走加长退避：默认 30 分钟 interval ⇒ (24~36) * 8 分钟。
+	require.False(t, snapshot.NextProbeAt.Before(fixedNow.Add(192*time.Minute)))
+	require.False(t, snapshot.NextProbeAt.After(fixedNow.Add(288*time.Minute)))
 
 	snapshot, err = svc.ProbeAccount(context.Background(), account.ID)
 	require.NoError(t, err)
 	require.Equal(t, 2, snapshot.FailureCount)
-	require.False(t, snapshot.NextProbeAt.Before(fixedNow.Add(24*time.Minute)))
-	require.False(t, snapshot.NextProbeAt.After(fixedNow.Add(36*time.Minute)))
+	require.False(t, snapshot.NextProbeAt.Before(fixedNow.Add(192*time.Minute)))
+	require.False(t, snapshot.NextProbeAt.After(fixedNow.Add(288*time.Minute)))
 
 	invalid := &Account{ID: 20, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	repo.accounts[invalid.ID] = invalid
@@ -1244,4 +1244,17 @@ func TestUpstreamBillingProbeLeaderLockCoversStaggeredInstancesInCadenceWindow(t
 	staggered.SetLeaderLock(cache, nil)
 	require.NoError(t, staggered.RunDue(context.Background()))
 	require.Equal(t, int64(1), upstream.calls.Load(), "a staggered instance must not start a second batch inside the cadence window")
+}
+
+func TestUpstreamBillingProbePolicyScope(t *testing.T) {
+	account := &Account{ID: 7, Status: StatusActive, Type: AccountTypeAPIKey, Extra: map[string]any{}}
+	require.False(t, upstreamBillingPolicyIncludes(&UpstreamBillingProbeSettings{}, account))
+	require.True(t, upstreamBillingPolicyIncludes(&UpstreamBillingProbeSettings{AccountScope: "all"}, account))
+	require.False(t, upstreamBillingPolicyIncludes(&UpstreamBillingProbeSettings{AccountScope: "selected", AccountIDs: []int64{3}}, account))
+	require.True(t, upstreamBillingPolicyIncludes(&UpstreamBillingProbeSettings{AccountScope: "selected", AccountIDs: []int64{7}}, account))
+	account.Extra["recycled"] = true
+	require.False(t, upstreamBillingPolicyIncludes(&UpstreamBillingProbeSettings{AccountScope: "all"}, account))
+	delete(account.Extra, "recycled")
+	account.Extra["deleted"] = true
+	require.False(t, upstreamBillingPolicyIncludes(&UpstreamBillingProbeSettings{AccountScope: "all"}, account))
 }

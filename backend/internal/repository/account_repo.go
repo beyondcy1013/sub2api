@@ -26,6 +26,7 @@ import (
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
+	"github.com/Wei-Shaw/sub2api/internal/modules/qualityevidence"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -71,6 +72,7 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"grok_billing_snapshot":          {},
 	"session_window_utilization":     {},
 	"balance":                        {},
+	"balance_updated_at":             {},
 	service.BalanceCheckTypeExtraKey: {},
 	service.AccountPinnedExtraKey:    {},
 }
@@ -1417,11 +1419,22 @@ func accountListOrder(params pagination.PaginationParams) []func(*entsql.Selecto
 	// back into the regular list.
 	pinnedFirst := func(s *entsql.Selector) {
 		extra := s.C(dbaccount.FieldExtra)
+		s.OrderExpr(entsql.Expr("CASE WHEN COALESCE(" + extra + " ->> '" + service.AccountFixedCodexExtraKey + "', 'false') = 'true' THEN 0 ELSE 1 END ASC"))
 		s.OrderExpr(entsql.Expr("CASE WHEN COALESCE(" + extra + " ->> '" + service.AccountPinnedExtraKey + "', 'false') = 'true' THEN 0 ELSE 1 END ASC"))
 		s.OrderExpr(entsql.Expr("NULLIF(" + extra + " ->> 'account_order_pinned_at', '')::numeric DESC NULLS LAST"))
 	}
 	sortBy := strings.ToLower(strings.TrimSpace(params.SortBy))
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderAsc)
+	if sortBy == "quality_status" {
+		direction := "ASC"
+		if sortOrder == pagination.SortOrderDesc {
+			direction = "DESC"
+		}
+		return []func(*entsql.Selector){pinnedFirst, func(s *entsql.Selector) {
+			s.OrderExpr(entsql.Expr(qualityevidence.AccountStatusSortExpression(s.C(dbaccount.FieldID)) + " " + direction + " NULLS LAST"))
+			s.OrderBy(entsql.Asc(s.C(dbaccount.FieldID)))
+		}}
+	}
 	if sortBy == "upstream_billing_rate" {
 		direction := "ASC"
 		tieOrder := entsql.Asc
@@ -4102,6 +4115,10 @@ func (r *accountRepository) FindByExtraField(ctx context.Context, key string, va
 // fail-open ordering pins the cycle to the lowest account IDs, starving the
 // rest of the pool.
 func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Context, now time.Time, limit int) ([]service.Account, error) {
+	return r.ListDueScopedUpstreamBillingProbeAccounts(ctx, now, limit, "", nil)
+}
+
+func (r *accountRepository) ListDueScopedUpstreamBillingProbeAccounts(ctx context.Context, now time.Time, limit int, scope string, accountIDs []int64) ([]service.Account, error) {
 	if limit <= 0 {
 		return []service.Account{}, nil
 	}
@@ -4120,7 +4137,9 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				AND COALESCE(extra -> 'deleted', 'false'::jsonb) <> 'true'::jsonb
 				AND status = 'active'
 				AND type = 'apikey'
-				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
+				AND COALESCE(extra -> 'recycled', 'false'::jsonb) <> 'true'::jsonb
+                AND (($3 = '' AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb)
+                  OR $3 = 'all' OR ($3 = 'selected' AND id = ANY($4::bigint[])))
 		), parsed AS MATERIALIZED (
 			SELECT
 				id,
@@ -4169,7 +4188,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 			CASE WHEN valid_next_probe_at THEN parsed_next_probe_at::timestamptz END ASC NULLS FIRST,
 			id ASC
 		LIMIT $2
-	`, now.UTC(), limit)
+	`, now.UTC(), limit, scope, pq.Array(accountIDs))
 	if err != nil {
 		return nil, err
 	}

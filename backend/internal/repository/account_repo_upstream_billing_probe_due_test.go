@@ -17,7 +17,7 @@ func TestAccountRepositoryListDueUpstreamBillingProbeAccountsBoundsQuery(t *test
 	now := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
 	var capturedSQL string
 	mock.ExpectQuery("WITH candidates AS").
-		WithArgs(now, 20).
+		WithArgs(now, 20, "", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil)
 
@@ -48,4 +48,23 @@ func TestAccountRepositoryListDueUpstreamBillingProbeAccountsRejectsNonPositiveL
 
 	require.NoError(t, err)
 	require.Empty(t, accounts)
+}
+
+func TestAccountRepositoryListDueScopedUpstreamBillingProbeAccounts(t *testing.T) {
+	for _, scope := range []string{"all", "selected"} {
+		t.Run(scope, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close()
+			now := time.Now().UTC()
+			mock.ExpectQuery("WITH candidates AS").WithArgs(now, 20, scope, "{3,7}").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+			var query string
+			repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &query}, nil)
+			_, err = repo.ListDueScopedUpstreamBillingProbeAccounts(context.Background(), now, 20, scope, []int64{3, 7})
+			require.NoError(t, err)
+			require.Contains(t, query, "id = ANY($4::bigint[])")
+			require.Contains(t, query, "'recycled'")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }

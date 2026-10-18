@@ -12,6 +12,16 @@
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
           />
+          <input
+            v-if="!showFilters"
+            data-test="compact-account-search"
+            type="search"
+            class="input h-9 min-h-[44px] min-w-0 flex-1 text-sm lg:hidden"
+            :value="params.search"
+            :placeholder="t('admin.accounts.bulkActions.filterPlaceholder')"
+            :aria-label="t('admin.accounts.bulkActions.filterPlaceholder')"
+            @input="handleBulkSearchQueryUpdate(($event.target as HTMLInputElement).value)"
+          />
           <AccountTableActions
             :loading="loading"
             :show-filters="showFilters"
@@ -24,23 +34,40 @@
             @create="openCreateAccountModal"
             @scheduling-rules="openSchedulingRulesModal"
             @pelican-test="handleTablePelicanTest"
+            @detection="openDetectionCenter()"
+            @automatic-detection="openAutomaticDetection()"
           >
             <template #before>
+              <button type="button" class="btn btn-secondary min-h-[44px]" :disabled="syncingCurrentCodex" @click="syncCurrentCodexAccount">
+                {{ syncingCurrentCodex ? '同步中…' : '同步当前 Codex 官方账号' }}
+              </button>
               <AccountSchedulingRuntimeSummary
                 ref="schedulingRuntimeSummaryRef"
-                :class="{ hidden: useAndroidTableLayout }"
+                :class="useAndroidTableLayout ? 'hidden' : 'hidden lg:flex'"
                 @upstream-billing-completed="handleUpstreamBillingRuntimeCompleted"
                 @liveness-run-completed="handleLivenessRuntimeCompleted"
               />
             </template>
             <template #afterCreate>
+              <button
+                type="button"
+                data-test="account-functions-trigger"
+                class="btn btn-secondary min-h-[44px] gap-1.5 px-3 lg:hidden"
+                :aria-expanded="functionsSheetOpen"
+                :title="t('admin.accounts.functions')"
+                @click="functionsSheetOpen = true"
+              >
+                <Icon name="menu" size="sm" />
+                <span>{{ t('admin.accounts.functions') }}</span>
+              </button>
               <AccountBulkActionsBar
                 v-if="useAndroidTableLayout"
                 bare
                 :selected-ids="selIds"
                 :quick-updating="quickBulkUpdating"
                 :refreshing-usage="refreshingUsage"
-                :testing-selected="testingSelected"
+                :refreshing-balance="refreshingBalance"
+
                 :show-delete="!deleted"
                 :show-permanent-delete="deleted"
                 :permanent-deleting="permanentDeleting"
@@ -57,7 +84,8 @@
                 @refresh-token="handleBulkRefreshToken"
                 @probe-upstream-billing="handleBulkProbeUpstreamBilling"
                 @refresh-usage="handleBulkRefreshUsage"
-                @test-and-mark="handleBatchTestAndMark"
+                @refresh-balance="handleBulkRefreshBalance"
+
                 @pelican-test="handleBulkPelicanTest"
                 @edit-selected="openBulkEditSelected"
                 @edit-filtered="openBulkEditFiltered"
@@ -67,20 +95,12 @@
                 @quick-set-group="handleQuickSetGroup"
                 @select-all-results="handleSelectAllResults"
                 @toggle-schedulable="handleBulkToggleSchedulable"
+                @clipboard-export="handleClipboardExport"
               />
             </template>
             <template #after>
-              <button
-                class="btn btn-secondary px-2 md:px-3"
-                :title="t('admin.scheduledTests.manageAll')"
-                @click="openGlobalSchedulePanel"
-              >
-                <Icon name="calendar" size="sm" />
-                <span class="hidden md:inline">{{ t('admin.scheduledTests.manageAll') }}</span>
-              </button>
-
               <!-- Auto Refresh Dropdown -->
-              <div class="relative" ref="autoRefreshDropdownRef">
+              <div class="relative hidden lg:block" ref="autoRefreshDropdownRef">
                 <button
                   @click="
                     showAutoRefreshDropdown = !showAutoRefreshDropdown;
@@ -125,7 +145,7 @@
               </div>
 
               <!-- More Tools Dropdown -->
-              <div class="relative" ref="accountToolsDropdownRef">
+              <div class="relative hidden lg:block" ref="accountToolsDropdownRef">
                 <button
                   ref="accountToolsTriggerRef"
                   @click="toggleAccountToolsDropdown"
@@ -174,6 +194,26 @@
                           <Icon name="trash" size="sm" />
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.accounts.enhancedImportClearButton') }}</span>
+                      </button>
+                      <button class="account-tools-menu-item" @click="openClipboardImport">
+                        <span class="account-tools-menu-icon bg-teal-50 text-teal-600 dark:bg-teal-900/30 dark:text-teal-300">
+                          <Icon name="clipboard" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.clipboardImport') }}</span>
+                      </button>
+                      <button class="account-tools-menu-item" @click="handleClipboardExport">
+                        <span class="account-tools-menu-icon bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300">
+                          <Icon name="clipboard" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">
+                          {{ selIds.length ? t('admin.accounts.clipboardExportSelected') : t('admin.accounts.clipboardExport') }}
+                        </span>
+                        <span
+                          v-if="selIds.length"
+                          class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+                        >
+                          {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
+                        </span>
                       </button>
                       <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
                         <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
@@ -261,7 +301,8 @@
           :selected-ids="selIds"
           :quick-updating="quickBulkUpdating"
           :refreshing-usage="refreshingUsage"
-          :testing-selected="testingSelected"
+          :refreshing-balance="refreshingBalance"
+
           :show-delete="!deleted"
           :show-permanent-delete="deleted"
           :permanent-deleting="permanentDeleting"
@@ -278,7 +319,8 @@
           @refresh-token="handleBulkRefreshToken"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
           @refresh-usage="handleBulkRefreshUsage"
-          @test-and-mark="handleBatchTestAndMark"
+          @refresh-balance="handleBulkRefreshBalance"
+
           @pelican-test="handleBulkPelicanTest"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
@@ -288,6 +330,7 @@
           @quick-set-group="handleQuickSetGroup"
           @select-all-results="handleSelectAllResults"
           @toggle-schedulable="handleBulkToggleSchedulable"
+          @clipboard-export="handleClipboardExport"
         />
         <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
@@ -354,6 +397,14 @@
                   {{ value }}
                 </span>
                 <span
+                  v-if="row.extra?.fixed_codex"
+                  data-test="account-fixed-codex-badge"
+                  class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 ml-1 select-none"
+                  :title="authFileStatusHint(row)"
+                >
+                  固定 · 官方
+                </span>
+                <span
                   v-if="shouldShowAccountDisplayEmail(row)"
                   data-test="account-display-email"
                   class="text-xs text-gray-500 dark:text-gray-400"
@@ -364,10 +415,18 @@
               </span>
             </div>
           </template>
-         <template #cell-notes="{ value }">
-           <span v-if="value" :title="value" class="whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
-           <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
-         </template>
+          <template #cell-notes="{ row, value }">
+            <span
+              v-if="row.extra?.fixed_codex && row.extra?.auth_file"
+              data-test="account-auth-file-status"
+              class="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400"
+              :title="authFileStatusHint(row)"
+            >
+              <span>{{ authFileStatusText(row) }}</span>
+            </span>
+            <span v-else-if="value" :title="value" class="whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+          </template>
           <template #cell-import_filename="{ row }">
             <span
               v-if="row.extra?.import_filename"
@@ -412,29 +471,16 @@
               <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
             </div>
           </template>
-          <template #cell-downgraded="{ row }">
-            <span
-              v-if="row.extra?.pelican_downgraded === true"
-              class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
-              :title="t('admin.accounts.pelicanDowngraded')"
-            >
-              <Icon name="exclamationTriangle" size="xs" />
-              <span>{{ t('admin.accounts.pelicanDowngraded') }}</span>
-            </span>
-            <span
-              v-else-if="row.extra?.pelican_downgraded === false"
-              class="inline-flex items-center gap-1 rounded bg-green-100 px-1.5 py-0.5 text-[11px] font-semibold text-green-700 dark:bg-green-950/40 dark:text-green-300"
-              :title="t('admin.accounts.pelicanPassed')"
-            >
-              <Icon name="checkCircle" size="xs" />
-              <span>{{ t('admin.accounts.pelicanNormal') }}</span>
-            </span>
-            <span v-else class="text-gray-400 dark:text-dark-500">-</span>
-          </template>
           <template #cell-schedulable="{ row }">
             <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable && row.quota_rate_limit ? 'bg-amber-500 hover:bg-amber-600' : row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable && row.quota_rate_limit ? t('admin.accounts.schedulableQuotaRateLimited', { window: row.quota_rate_limit.window }) : row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
+          </template>
+          <template #cell-downgraded="{ row }">
+            <AccountQualityToggle :account="row" :refresh-token="qualitySettingsRevision" />
+          </template>
+          <template #cell-quality_status="{ row }">
+            <AccountQualityStatus :summary="qualitySummaries[row.id]" :minutes="qualityRecentMinutes" :now="qualityStatusNow" :state="qualityStatusState" />
           </template>
           <template #cell-today_cost="{ row }">
             <AccountTodayCostCell :stats="todayStatsByAccountId[String(row.id)] ?? null" />
@@ -502,8 +548,34 @@
             <span v-else class="text-xs text-gray-400">-</span>
           </template>
           <template #cell-balance="{ row }">
-            <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
-              {{ row.extra?.balance != null ? `$${Number(row.extra.balance).toFixed(2)}` : '-' }}
+            <span class="inline-flex items-center gap-1">
+              <span class="font-mono text-sm text-gray-700 dark:text-gray-300">
+                {{ formatAccountBalanceCell(row) }}
+              </span>
+              <button
+                v-if="supportsAccountBalanceQuery(row)"
+                type="button"
+                data-test="refresh-balance"
+                class="inline-flex h-4 w-4 items-center justify-center text-gray-400 transition-colors hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-primary-300"
+                :disabled="balanceRefreshingIds.has(row.id)"
+                :title="t('admin.accounts.balanceQuery.action')"
+                @click.stop="handleRefreshAccountBalance(row)"
+              >
+                <svg
+                  class="h-3 w-3"
+                  :class="{ 'animate-spin': balanceRefreshingIds.has(row.id) }"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              </button>
             </span>
           </template>
           <template #cell-groups="{ row }">
@@ -523,6 +595,7 @@
               :manual-refresh-token="usageManualRefreshToken"
               :external-usage="usageWindowByAccountId[row.id] ?? null"
               @usage-loaded="handleUsageWindowLoaded(row.id, $event)"
+              @account-updated="patchAccountInList"
             />
           </template>
           <template #cell-proxy="{ row }">
@@ -627,7 +700,19 @@
             </div>
           </template>
           <template #cell-actions="{ row }">
-            <div class="flex min-w-max flex-nowrap items-center gap-1.5 whitespace-nowrap">
+            <button
+              v-if="compactRowActions"
+              type="button"
+              data-test="account-row-actions-trigger"
+              class="inline-flex h-6 w-14 min-w-[44px] items-center justify-center whitespace-nowrap rounded border border-gray-200 px-1 text-xs font-medium text-gray-700 dark:border-dark-600 dark:text-gray-200"
+              :aria-label="`${t('admin.accounts.columns.actions')}: ${row.name}`"
+              aria-haspopup="dialog"
+              :aria-expanded="menu.show && menu.acc?.id === row.id"
+              @click="openMenu(row, $event)"
+            >
+              {{ t('admin.accounts.columns.actions') }}
+            </button>
+            <div v-else class="flex min-w-max flex-nowrap items-center gap-1.5 whitespace-nowrap">
               <button
                 data-test="account-edit-action"
                 @click="handleEdit(row)"
@@ -640,11 +725,11 @@
               <button
                 data-test="account-test-action"
                 class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-emerald-200 px-2 text-xs font-medium leading-none text-emerald-700 transition-colors hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-900/20"
-                :title="t('admin.accounts.testConnection')"
-                :aria-label="t('admin.accounts.testConnection')"
+                :title="t('admin.accounts.accountTesting.action')"
+                :aria-label="t('admin.accounts.accountTesting.action')"
                 @click="handleTest(row)"
               >
-                {{ t('admin.accounts.testConnection') }}
+                {{ t('admin.accounts.accountTesting.action') }}
               </button>
               <button
                 v-if="row.platform === 'openai' && !row.parent_account_id && !deleted && !recycled"
@@ -655,15 +740,6 @@
                 @click="openHarvestModal(row)"
               >
                 打票
-              </button>
-              <button
-                data-test="account-pelican-action"
-                class="inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded border border-cyan-200 px-2 text-xs font-medium leading-none text-cyan-700 transition-colors hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-900/20"
-                :title="t('admin.accounts.pelicanAction')"
-                :aria-label="t('admin.accounts.pelicanAction')"
-                @click="handleSinglePelicanTest(row)"
-              >
-                {{ t('admin.accounts.pelicanAction') }}
               </button>
               <button
                 v-if="row.platform === 'openai' && row.type === 'oauth' && !row.parent_account_id"
@@ -705,7 +781,7 @@
                   {{ t('admin.accounts.restore') }}
                 </button>
               </template>
-              <template v-else>
+              <template v-else-if="!row.extra?.fixed_codex">
                 <button
                   data-test="account-recycle-action"
                   @click="handleRecycle(row)"
@@ -735,13 +811,15 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="handleAccountsCreated" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" />
-    <AccountPelicanModal :show="showPelicanModal" :accounts="pelicanTestAccounts" :all-accounts="accounts" @close="closePelicanModal" @updated="handlePelicanAccountUpdated" @running-change="handlePelicanRunningChange" />
+    <AccountDetectionCenter :show="showDetectionCenter" :initial-tab="detectionInitialTab" @close="showDetectionCenter=false" @test="launchDetectionTest" @settings-saved="qualitySettingsRevision++" />
+    <AutomaticDetectionDialog :show="showAutomaticDetection" :accounts="accounts" :accounts-loading="loading" :initial-mode="automaticDetectionMode" :initial-account-id="scheduleAcc?.id" :model-options="scheduleModelOptions" @close="showAutomaticDetection=false" @saved="qualitySettingsRevision++" />
+    <AccountTestModal :show="showTest" :accounts="pelicanTestAccounts" :all-accounts="accounts" :initial-mode="initialTestMode" @close="closeTestModal" @test-succeeded="handleTestSucceeded" @test-failed="handleTestFailed" @updated="handlePelicanAccountUpdated" @running-change="handlePelicanRunningChange" />
     <CodexHarvestModal v-model:visible="showHarvestModal" :account-id="harvestAccountId" />
     <SchedulingRulesModal
       :show="showSchedulingRules"
       @close="closeSchedulingRulesModal"
       @saved="handleSchedulingRulesSaved"
+      @detection="closeSchedulingRulesModal(); openAutomaticDetection('request')"
       @refreshed="handleSchedulingRulesRefreshed"
       @refresh-error="handleSchedulingRulesRefreshError"
       @error="handleSchedulingRulesError"
@@ -760,11 +838,10 @@
     <StickySessionReassignModal :show="showStickySessions" :account="stickySessionsAcc" @close="closeStickySessionsModal" @reassigned="handleStickySessionsReassigned" />
     <ScheduledAccountActionModal :show="showScheduledAction" :account="scheduledActionAcc" :initial-action="scheduledActionType" @close="closeScheduledActionModal" @saved="enterAutoRefreshSilentWindow" />
     <AccountBalanceQueryModal :show="showBalanceQuery" :account="balanceQueryAcc" @close="closeBalanceQueryModal" @updated="handleBalanceQueryUpdated" />
-    <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @pin="handlePin" @unpin="handleUnpin" @stats="handleViewStats" @schedule="handleSchedule" @pelican-test="handleSinglePelicanTest" @toggle-state-protection="handleToggleStateProtection" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
+<AccountActionMenu @restore-codex="restoreCodexLogin" :show="menu.show" :account="menu.acc" :position="menu.pos" :mobile="compactRowActions" :recycled="recycled" :deleted="deleted" :state-protection-busy="stateProtectionBusy" @close="menu.show = false" @edit="handleEdit" @test="handleTest" @harvest="openHarvestModal" @recycle="handleRecycle" @restore="handleRestore" @restore-deleted="handleRestoreDeleted" @pin="handlePin" @unpin="handleUnpin" @stats="handleViewStats" @schedule="handleSchedule" @toggle-state-protection="handleToggleStateProtection" @duplicate="handleDuplicateAccount" @query-balance="handleBalanceQuery" @sticky-sessions="handleStickySessions" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @scheduled-action="handleScheduledAction" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" @delete="handleDelete" @permanent-delete="handlePermanentDelete" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="handleAccountsCreated" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
-    <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
+    <EnhancedImportDataModal :show="showEnhancedImportData" :operation="enhancedImportOperation" :initial-source="enhancedImportSource" @close="showEnhancedImportData = false" @imported="handleEnhancedDataImported" />
     <BulkEditAccountModal
       :show="showBulkEdit"
       :account-ids="selIds"
@@ -783,6 +860,23 @@
     <ConfirmDialog :show="showTestRecoveryDialog" :title="t('admin.accounts.testRecoveryTitle')" :message="t('admin.accounts.testRecoveryMessage', { name: testRecoveryAcc?.name })" :confirm-text="t('admin.accounts.recoverState')" :cancel-text="t('common.cancel')" @confirm="confirmTestRecovery" @cancel="cancelTestRecovery" />
     <ConfirmDialog :show="showTestFailedDialog" :title="t('admin.accounts.testFailedTitle')" :message="t('admin.accounts.testFailedMessage', { name: testFailedAcc?.name })" :confirm-text="t('admin.accounts.markAsFailed')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmTestFailed" @cancel="cancelTestFailed" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
+      <div class="space-y-3 mb-3">
+        <p class="text-sm">范围：{{ selIds.length ? `已选 ${selIds.length} 个账号` : '当前筛选的全部账号' }}</p>
+        <label class="block text-sm">格式
+          <select v-model="interchangeExportFormat" class="input w-full">
+            <option value="sub2api">Sub2API 账号 JSON（默认）</option>
+            <option value="webclx">webClx 预设 JSON</option>
+            <option value="cpa">CPA 原生凭证 / API Key 配置</option>
+          </select>
+        </label>
+        <label class="block text-sm">导出位置
+          <select v-model="interchangeExportDestination" class="input w-full">
+            <option value="file">下载文件（CPA 多账号为 ZIP）</option>
+            <option value="clipboard">复制到剪贴板</option>
+          </select>
+        </label>
+        <p class="text-xs">CPA 不包含终端配置和完整调度策略；webClx 不支持的账号会明确拒绝导出。Sub2API 格式保留原生账号与代理。</p>
+      </div>
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
         <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
@@ -791,12 +885,278 @@
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
+    <MobileActionSheet v-model="functionsSheetOpen" :title="t('admin.accounts.functions')">
+      <div class="space-y-5" data-test="account-functions-sheet">
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.functionsView') }}</div>
+          <div class="mt-2 grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              data-test="functions-view-normal"
+              class="mobile-sheet-choice"
+              :class="{ 'mobile-sheet-choice-active': !recycled && !deleted }"
+              @click="applyListViewMode('normal')"
+            >
+              {{ t('admin.accounts.viewNormal') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-view-recycled"
+              class="mobile-sheet-choice"
+              :class="{ 'mobile-sheet-choice-active': recycled }"
+              @click="applyListViewMode('recycled')"
+            >
+              {{ t('admin.accounts.viewRecycled') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-view-deleted"
+              class="mobile-sheet-choice"
+              :class="{ 'mobile-sheet-choice-active': deleted }"
+              @click="applyListViewMode('deleted')"
+            >
+              {{ t('admin.accounts.viewDeleted') }}
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.functionsAccountActions') }}</div>
+          <div class="mt-2 space-y-1.5">
+            <button
+              type="button"
+              data-test="functions-scheduling-rules"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openSchedulingRulesModal)"
+            >
+              {{ t('admin.accounts.schedulingRules.title') }}
+            </button>
+            <button type="button" data-test="functions-account-detection" class="mobile-sheet-action" @click="runFunctionsAction(() => openDetectionCenter())">{{ t('admin.accounts.detection.title') }}</button>
+            <button type="button" data-test="functions-automatic-detection" class="mobile-sheet-action" @click="runFunctionsAction(() => openAutomaticDetection())">{{ t('automaticDetection.title') }}</button>
+            <button
+              type="button"
+              data-test="functions-pelican-test"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(() => { void handleTablePelicanTest() })"
+            >
+              {{ t('admin.accounts.accountTesting.title') }}
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.autoRefresh') }}</div>
+          <div class="mt-2 space-y-2">
+            <button
+              type="button"
+              data-test="functions-auto-refresh-toggle"
+              class="mobile-sheet-action"
+              @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
+            >
+              <span class="flex-1 text-left">{{ t('admin.accounts.enableAutoRefresh') }}</span>
+              <Icon v-if="autoRefreshEnabled" name="check" size="sm" class="text-primary-500" />
+            </button>
+            <div class="grid grid-cols-4 gap-2">
+              <button
+                v-for="sec in autoRefreshIntervals"
+                :key="sec"
+                type="button"
+                data-test="functions-auto-refresh-interval"
+                class="mobile-sheet-choice"
+                :class="{ 'mobile-sheet-choice-active': autoRefreshIntervalSeconds === sec }"
+                @click="setAutoRefreshInterval(sec)"
+              >
+                {{ autoRefreshIntervalLabel(sec) }}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.functionsSelectionActions') }}</div>
+          <div class="mt-2 space-y-1.5">
+            <button
+              type="button"
+              data-test="functions-select-page"
+              class="mobile-sheet-action"
+              @click="selectPage"
+            >
+              {{ t('admin.accounts.bulkActions.selectCurrentPage') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-select-all-results"
+              class="mobile-sheet-action"
+              :disabled="selectingAllResults || allResultsSelected"
+              @click="handleSelectAllResults"
+            >
+              {{
+                selectingAllResults
+                  ? t('admin.accounts.bulkActions.selectingAll')
+                  : t('admin.accounts.bulkActions.selectAllResults', { count: pagination.total })
+              }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-refresh-usage"
+              class="mobile-sheet-action"
+              :disabled="refreshingUsage"
+              @click="runFunctionsAction(() => { void handleBulkRefreshUsage() })"
+            >
+              {{ refreshingUsage ? t('admin.accounts.bulkActions.refreshingUsage') : t('admin.accounts.bulkActions.refreshUsage') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-edit-filtered"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(() => { void openBulkEditFiltered() })"
+            >
+              {{ t('admin.accounts.bulkEdit.submit') }}
+            </button>
+            <button
+              v-if="functionsStickyTarget"
+              type="button"
+              data-test="functions-sticky-reassign"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(() => { void openStickyReassignForSelection() })"
+            >
+              {{ t('admin.accounts.stickySessions.action') }}
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.dataActions') }}</div>
+          <div class="mt-2 space-y-1.5">
+            <button
+              type="button"
+              data-test="functions-sync-crs"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openSyncFromCrs)"
+            >
+              {{ t('admin.accounts.syncFromCrs') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-import"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openImportData)"
+            >
+              {{ t('admin.accounts.dataImport') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-enhanced-import"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openEnhancedImportData)"
+            >
+              {{ t('admin.accounts.enhancedImport') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-enhanced-import-clear"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openEnhancedImportClear)"
+            >
+              {{ t('admin.accounts.enhancedImportClearButton') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-clipboard-import"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openClipboardImport)"
+            >
+              {{ t('admin.accounts.clipboardImport') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-clipboard-export"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(handleClipboardExport)"
+            >
+              <span class="flex-1 text-left">
+                {{ selIds.length ? t('admin.accounts.clipboardExportSelected') : t('admin.accounts.clipboardExport') }}
+              </span>
+              <span
+                v-if="selIds.length"
+                class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+              >
+                {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-test="functions-export"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openExportDataDialogFromMenu)"
+            >
+              <span class="flex-1 text-left">
+                {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
+              </span>
+              <span
+                v-if="selIds.length"
+                class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+              >
+                {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.toolActions') }}</div>
+          <div class="mt-2 space-y-1.5">
+            <button
+              type="button"
+              data-test="functions-error-passthrough"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openErrorPassthrough)"
+            >
+              {{ t('admin.errorPassthrough.title') }}
+            </button>
+            <button
+              type="button"
+              data-test="functions-tls-fingerprint"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openTLSFingerprintProfiles)"
+            >
+              {{ t('admin.tlsFingerprintProfiles.title') }}
+            </button>
+            <button
+              v-if="balanceCheckEnabled"
+              type="button"
+              data-test="functions-balance-settings"
+              class="mobile-sheet-action"
+              @click="runFunctionsAction(openBalanceCheckSettings)"
+            >
+              余额检测设置
+            </button>
+          </div>
+        </section>
+
+        <section>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.viewColumns') }}</div>
+          <div class="mt-2 space-y-1.5">
+            <button
+              v-for="col in toggleableColumns"
+              :key="col.key"
+              type="button"
+              class="mobile-sheet-action"
+              @click="toggleColumn(col.key)"
+            >
+              <span class="flex-1 truncate text-left">{{ col.label }}</span>
+              <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+            </button>
+          </div>
+        </section>
+      </div>
+    </MobileActionSheet>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
-import { useIntervalFn } from '@vueuse/core'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { useIntervalFn, useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
@@ -813,6 +1173,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import MobileActionSheet from '@/components/common/MobileActionSheet.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountSchedulingRuntimeSummary from '@/components/admin/account/AccountSchedulingRuntimeSummary.vue'
@@ -821,16 +1182,21 @@ import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActions
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import EnhancedImportDataModal from '@/components/admin/account/EnhancedImportDataModal.vue'
+import { copyTextWithFallback } from '@/utils/clipboardPresets'
+import '@/modules/account-interchange/core.js'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
-import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
-import AccountPelicanModal from '@/components/admin/account/AccountPelicanModal.vue'
+import AccountQualityToggle from '@/modules/qualitycontrol/AccountQualityToggle.vue'
+import AccountQualityStatus from '@/modules/qualitycontrol/AccountQualityStatus.vue'
+import { useQualityStatus } from '@/modules/qualitycontrol/useQualityStatus'
+import AccountDetectionCenter from '@/components/admin/account/AccountDetectionCenter.vue'
+import AutomaticDetectionDialog from '@/modules/qualitycontrol/AutomaticDetectionDialog.vue'
+import AccountTestModal from '@/components/admin/account/AccountPelicanModal.vue'
 import SchedulingRulesModal from '@/components/account/SchedulingRulesModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import StickySessionReassignModal from '@/components/admin/account/StickySessionReassignModal.vue'
 import ScheduledAccountActionModal from '@/components/admin/account/ScheduledAccountActionModal.vue'
 import CodexHarvestModal from '@/components/account/CodexHarvestModal.vue'
 import AccountBalanceQueryModal from '@/components/admin/account/AccountBalanceQueryModal.vue'
-import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import type { ScheduledAccountActionType } from '@/api/admin/accounts'
 import type { SchedulingRulesRefreshResult } from '@/api/admin/superPriority'
@@ -854,6 +1220,11 @@ import { formatCompactNumber, formatCurrency, formatDateTime, formatNumber, form
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { formatUsageWindowReset, formatUsageWindowUtilization } from '@/utils/usageWindowDisplay'
 import { refreshAccountUsageInBatches } from '@/utils/batchAccountUsageRefresh'
+import {
+  applyAccountBalanceQueryResult,
+  formatAccountBalanceCell,
+  supportsAccountBalanceQuery
+} from '@/utils/accountBalance'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { isSub2ApiAndroidClient } from '@/utils/device'
@@ -865,6 +1236,10 @@ const appStore = useAppStore()
 const balanceCheckEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.balanceCheck))
 const authStore = useAuthStore()
 const useAndroidTableLayout = isSub2ApiAndroidClient()
+// Below lg every client (including the Android WebView) collapses the dense
+// row-action cluster into a single labeled trigger that opens the shared
+// AccountActionMenu through MobileActionSheet.
+const compactRowActions = useMediaQuery('(max-width: 1023px)')
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
@@ -979,29 +1354,72 @@ const toggleDeleted = () => {
 	;(params as any).recycled = ''
 	reload()
 }
+
+// Narrow (<lg) "Functions" bottom sheet state
+const functionsSheetOpen = ref(false)
+
+// Close the sheet and let the DOM flush before launching downstream dialogs so
+// the sheet's focus restoration cannot steal focus from the newly opened dialog.
+const runFunctionsAction = async (action: () => void) => {
+  functionsSheetOpen.value = false
+  await nextTick()
+  action()
+}
+
+type AccountListViewMode = 'normal' | 'recycled' | 'deleted'
+const applyListViewMode = (mode: AccountListViewMode) => {
+  const targetRecycled = mode === 'recycled'
+  const targetDeleted = mode === 'deleted'
+  if (recycled.value === targetRecycled && deleted.value === targetDeleted) return
+  recycled.value = targetRecycled
+  deleted.value = targetDeleted
+  ;(params as any).recycled = targetRecycled ? '1' : ''
+  ;(params as any).deleted = targetDeleted ? '1' : ''
+  reload()
+}
 const showEdit = ref(false)
 const showSync = ref(false)
 const showImportData = ref(false)
 const showEnhancedImportData = ref(false)
 const enhancedImportOperation = ref<'import' | 'clear'>('import')
+const enhancedImportSource = ref<'file' | 'text'>('file')
 const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
+const interchangeExportFormat = ref<'sub2api' | 'webclx' | 'cpa'>('sub2api')
+const interchangeExportDestination = ref<'file' | 'clipboard'>('file')
 const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const quickBulkUpdating = ref<'proxy' | 'group' | null>(null)
 const refreshingUsage = ref(false)
-const testingSelected = ref(false)
+const refreshingBalance = ref(false)
+const balanceRefreshingIds = reactive(new Set<number>())
 const permanentDeleting = ref(false)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
-const showPelicanModal = ref(false)
+const initialTestMode = ref<'default' | 'pelican'>('default')
 const pelicanTestAccounts = ref<Account[]>([])
 const pelicanTestRunning = ref(false)
 const showTestRecoveryDialog = ref(false)
 const showTestFailedDialog = ref(false)
+const qualitySettingsRevision = ref(0)
+const showDetectionCenter = ref(false)
+const showAutomaticDetection = ref(false)
+const automaticDetectionMode = ref<'policies'|'request'|'scheduled'|'rules'>('policies')
+const detectionInitialTab = ref<'manual'|'records'>('records')
+const openDetectionCenter = (tab: typeof detectionInitialTab.value = 'records') => { detectionInitialTab.value=tab; showDetectionCenter.value=true }
+const openAutomaticDetection = (mode: 'policies'|'request'|'scheduled'|'rules' = 'policies') => {
+  if (mode !== 'scheduled') { scheduleAcc.value = null; scheduleModelOptions.value = [] }
+  automaticDetectionMode.value = mode; showAutomaticDetection.value = true
+}
+const launchDetectionTest = (selected: Account[]) => {
+  showDetectionCenter.value = false
+  initialTestMode.value = 'default'
+  pelicanTestAccounts.value = selected
+  showTest.value = true
+}
 const showSchedulingRules = ref(false)
 const showStats = ref(false)
 const showStickySessions = ref(false)
@@ -1010,6 +1428,32 @@ const showBalanceQuery = ref(false)
 const showHarvestModal = ref(false)
 const harvestAccountId = ref(0)
 const showErrorPassthrough = ref(false)
+const syncingCurrentCodex = ref(false)
+async function restoreCodexLogin(account: AccountListItem) {
+  if (!window.confirm(`将“${account.name}”恢复为官方 Codex 登录？当前配置会备份并覆盖，新开的 Codex 会话生效。`)) return
+  try {
+    await adminAPI.accounts.restoreCurrentCodex(account.id)
+    appStore.showSuccess('已恢复官方 Codex 登录，请新开 Codex 会话')
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, '恢复失败'))
+  }
+}
+async function syncCurrentCodexAccount() {
+  syncingCurrentCodex.value = true
+  try {
+    const result = await adminAPI.accounts.syncCurrentCodex()
+    if (result.failed) {
+      appStore.showError(result.errors?.[0]?.message || '同步失败')
+    } else {
+      appStore.showSuccess('Codex 官方账号已同步，保持停用且不参与调度')
+    }
+    await refreshAccountsIncrementally()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, '同步失败'))
+  } finally {
+    syncingCurrentCodex.value = false
+  }
+}
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
@@ -1018,7 +1462,6 @@ const permanentDeletingAcc = ref<Account | null>(null)
 const showPermanentDeleteDialog = ref(false)
 const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
-const testingAcc = ref<Account | null>(null)
 const testRecoveryAcc = ref<Account | null>(null)
 const testFailedAcc = ref<Account | null>(null)
 const testFailedErrorMessage = ref('')
@@ -1027,12 +1470,13 @@ const stickySessionsAcc = ref<Account | null>(null)
 const scheduledActionAcc = ref<Account | null>(null)
 const balanceQueryAcc = ref<Account | null>(null)
 const scheduledActionType = ref<ScheduledAccountActionType>('pause')
-const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const stateProtectionBusy = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number,left:number}|null}>({ show: false, acc: null, pos: null })
+// Orientation/view transitions must not leave a stale action menu open.
+watch([compactRowActions, recycled, deleted], () => { menu.show = false })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
@@ -1079,6 +1523,7 @@ type AccountSortState = {
   sort_order: AccountSortOrder
 }
 const ACCOUNT_SORTABLE_KEYS = new Set([
+  'quality_status',
   'id',
   'name',
   'status',
@@ -1368,6 +1813,11 @@ const loadSavedColumns = () => {
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
+      if (!localStorage.getItem('account-downgraded-column-restored')) {
+        hiddenColumns.delete('downgraded')
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem('account-downgraded-column-restored', '1')
+      }
       // Older saved column layouts may have scheduler_score visible; migrate them to the new safe default once.
       if (localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY) !== HIDDEN_COLUMNS_CURRENT_VERSION) {
         hiddenColumns.add('scheduler_score')
@@ -1514,6 +1964,8 @@ const {
   }
 })
 
+const { summaries: qualitySummaries, minutes: qualityRecentMinutes, now: qualityStatusNow, state: qualityStatusState } = useQualityStatus(accounts, qualitySettingsRevision)
+
 // OAuth-authorized accounts (oauth / setup-token) always render above API-key style
 // accounts (apikey / upstream / bedrock / service_account); the outermost partition
 // outranks pins and the temporary newly-created ordering, while each group keeps
@@ -1521,10 +1973,55 @@ const {
 const isOAuthStyleAccount = (account: Pick<AccountListItem, 'type'>): boolean =>
   account.type === 'oauth' || account.type === 'setup-token'
 
+const isFixedCodexAccount = (account: Pick<AccountListItem, 'extra'>): boolean =>
+  Boolean(account.extra?.fixed_codex)
+
 const withOAuthStyleAccountsFirst = <T extends Pick<AccountListItem, 'type'>>(rows: T[]): T[] => [
   ...rows.filter(row => isOAuthStyleAccount(row)),
   ...rows.filter(row => !isOAuthStyleAccount(row))
 ]
+
+const withFixedCodexAccountFirst = <T extends Pick<AccountListItem, 'extra'>>(rows: T[]): T[] => [
+  ...rows.filter(row => isFixedCodexAccount(row)),
+  ...rows.filter(row => !isFixedCodexAccount(row))
+]
+
+const AUTH_FILE_STATE_LABELS: Record<string, string> = {
+  unknown: '未知状态',
+  missing: '未找到账号文件',
+  not_oauth: '第三方 API（非官方 OAuth）',
+  oauth_same: '官方 OAuth（已同步）',
+  oauth_updated: '官方 OAuth（已更新）',
+  oauth_pending: '官方 OAuth（待同步）',
+}
+
+const authFileStatusText = (account: AccountListItem): string => {
+  const authFile = account.extra?.auth_file as { state?: string; email?: string } | undefined
+  const state = authFile?.state ?? 'unknown'
+  const label = AUTH_FILE_STATE_LABELS[state] ?? state
+  return authFile?.email ? `${label} · ${authFile.email}` : label
+}
+
+const authFileStatusHint = (account: AccountListItem): string => {
+  const authFile = account.extra?.auth_file as {
+    state?: string
+    email?: string
+    plan_type?: string
+    expires_at?: number
+    checked_at?: number
+    file_path?: string
+  } | undefined
+  if (!authFile) return 'Codex 官方账号'
+  const parts: string[] = ['Codex 官方账号']
+  if (authFile.file_path) parts.push(`路径: ${authFile.file_path}`)
+  if (authFile.email) parts.push(`邮箱: ${authFile.email}`)
+  if (authFile.plan_type) parts.push(`套餐: ${authFile.plan_type}`)
+  if (authFile.checked_at) {
+    const timeStr = new Date(authFile.checked_at * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+    parts.push(`检查时间: ${timeStr}`)
+  }
+  return parts.join('\n')
+}
 
 const sortedAccounts = computed(() => {
   const currentSort = usageWindowSort.value
@@ -1549,7 +2046,9 @@ const sortedAccounts = computed(() => {
   const unpinnedRows = baseRows.filter(account => !account.extra?.pinned)
   const orderedRows = [...pinnedRows, ...unpinnedRows]
 
-  if (recentlyCreatedAccounts.value.length === 0) return withOAuthStyleAccountsFirst(orderedRows)
+  if (recentlyCreatedAccounts.value.length === 0) {
+    return withFixedCodexAccountFirst(withOAuthStyleAccountsFirst(orderedRows))
+  }
 
   const recentlyCreatedIds = new Set(recentlyCreatedAccounts.value.map(account => account.id))
   const mergedRows = [
@@ -1557,10 +2056,10 @@ const sortedAccounts = computed(() => {
     ...orderedRows.filter(account => !recentlyCreatedIds.has(account.id))
   ]
   // Keep persistent pins ahead of the temporary newly-created ordering too.
-  return withOAuthStyleAccountsFirst([
+  return withFixedCodexAccountFirst(withOAuthStyleAccountsFirst([
     ...mergedRows.filter(account => Boolean(account.extra?.pinned)),
     ...mergedRows.filter(account => !account.extra?.pinned)
-  ]).slice(0, pagination.page_size)
+  ])).slice(0, pagination.page_size)
 })
 
 const {
@@ -1824,13 +2323,11 @@ const isAnyModalOpen = computed(() => {
     showDeleteDialog.value ||
     showReAuth.value ||
     showTest.value ||
-    showPelicanModal.value ||
     showSchedulingRate.value ||
     showStats.value ||
     showStickySessions.value ||
     showScheduledAction.value ||
     showBalanceQuery.value ||
-    showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
   )
@@ -2000,6 +2497,7 @@ const openEnhancedImportData = () => {
   closeAccountToolsDropdown()
   beginAccountAdditionTracking()
   enhancedImportOperation.value = 'import'
+  enhancedImportSource.value = 'file'
   showEnhancedImportData.value = true
 }
 
@@ -2263,12 +2761,13 @@ const accountStickyLeftColumnKeys = useAndroidTableLayout
 const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false, width: '36px' },
-    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, width: '220px' },
+    { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false, width: compactRowActions.value ? '72px' : '220px', fixedWidth: compactRowActions.value },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true, width: '212px' },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true, width: '80px' },
-    { key: 'downgraded', label: t('admin.accounts.columns.downgraded'), sortable: false, width: '72px' },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
+    { key: 'downgraded', label: t('admin.accounts.columns.downgraded'), sortable: false, width: '110px' },
+    { key: 'quality_status', label: t('admin.accounts.columns.qualityStatus'), sortable: true, width: '110px' },
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
@@ -2342,6 +2841,11 @@ const handleEdit = async (a: AccountListItem) => {
 }
 const openMenu = (a: Account, e: MouseEvent) => {
   menu.acc = a
+  if (compactRowActions.value) {
+    menu.pos = null
+    menu.show = true
+    return
+  }
   const target = e.currentTarget as HTMLElement
   if (target) {
     const rect = target.getBoundingClientRect()
@@ -2470,31 +2974,6 @@ const handleBulkResetStatus = async () => {
   } catch (error) {
     console.error('Failed to bulk reset status:', error)
     appStore.showError(String(error))
-  }
-}
-const handleBatchTestAndMark = async () => {
-  const accountIds = [...selIds.value]
-  if (accountIds.length === 0 || testingSelected.value) return
-
-  testingSelected.value = true
-  try {
-    const result = await adminAPI.accounts.batchTestAndMark(accountIds)
-    if (result.failed > 0) {
-      appStore.showError(t('admin.accounts.bulkActions.testAndMarkPartial', {
-        success: result.success,
-        failed: result.failed,
-        marked: result.marked
-      }))
-    } else {
-      appStore.showSuccess(t('admin.accounts.bulkActions.testAndMarkSuccess', { count: result.success }))
-    }
-    clearSelection()
-    await reload()
-  } catch (error) {
-    console.error('Failed to batch test and mark accounts:', error)
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.bulkActions.testAndMarkFailed')))
-  } finally {
-    testingSelected.value = false
   }
 }
 const handleBulkRefreshToken = async () => {
@@ -2752,6 +3231,72 @@ const handleBulkRefreshUsage = async () => {
     appStore.showError(extractApiErrorMessage(error, t('common.error')))
   } finally {
     refreshingUsage.value = false
+  }
+}
+
+const handleRefreshAccountBalance = async (account: Account) => {
+  if (!supportsAccountBalanceQuery(account) || balanceRefreshingIds.has(account.id)) return
+  balanceRefreshingIds.add(account.id)
+  try {
+    const result = await adminAPI.accounts.queryAccountBalance(account.id)
+    if (!result.success) {
+      appStore.showError(t('admin.accounts.balanceQuery.notDetected'))
+      return
+    }
+    patchAccountInList(applyAccountBalanceQueryResult(account, result))
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.balanceQuery.failed')))
+  } finally {
+    balanceRefreshingIds.delete(account.id)
+  }
+}
+
+const handleBulkRefreshBalance = async () => {
+  if (refreshingBalance.value) return
+  refreshingBalance.value = true
+  try {
+    const targets = (await collectBulkUsageRefreshTargets()).filter(supportsAccountBalanceQuery)
+    if (targets.length === 0) {
+      appStore.showInfo(t('admin.accounts.bulkActions.refreshBalanceNoEligible'))
+      return
+    }
+
+    const result = await refreshAccountUsageInBatches(
+      targets.map(account => account.id),
+      async accountId => {
+        balanceRefreshingIds.add(accountId)
+        try {
+          const queryResult = await adminAPI.accounts.queryAccountBalance(accountId)
+          if (!queryResult.success) {
+            throw new Error(t('admin.accounts.balanceQuery.notDetected'))
+          }
+          const account = accounts.value.find(item => item.id === accountId)
+          if (account) {
+            patchAccountInList(applyAccountBalanceQueryResult(account, queryResult))
+          }
+          return queryResult
+        } finally {
+          balanceRefreshingIds.delete(accountId)
+        }
+      }
+    )
+
+    if (result.failed.length > 0) {
+      appStore.showError(t('admin.accounts.bulkActions.refreshBalancePartial', {
+        success: result.successful.length,
+        failed: result.failed.length
+      }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.bulkActions.refreshBalanceSuccess', {
+        count: result.successful.length
+      }))
+    }
+  } catch (error) {
+    console.error('Failed to refresh account balances in bulk:', error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+  } finally {
+    refreshingBalance.value = false
   }
 }
 
@@ -3104,6 +3649,7 @@ const formatExportTimestamp = () => {
 }
 const openExportDataDialog = () => {
   includeProxyOnExport.value = true
+  interchangeExportDestination.value = 'file'
   showExportDataDialog.value = true
 }
 const handleExportData = async () => {
@@ -3118,15 +3664,29 @@ const handleExportData = async () => {
             filters: buildAccountQueryFilters()
           }
     ))
-    const timestamp = formatExportTimestamp()
-    const filename = `sub2api-account-${timestamp}.json`
-    const blob = new Blob([JSON.stringify(dataPayload, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    link.click()
-    URL.revokeObjectURL(url)
+    const core = globalThis.AccountInterchange
+    const parsed = core.parse(dataPayload)
+    let files: InterchangeFile[]
+    if (interchangeExportFormat.value === 'cpa') {
+      const result = core.cpa(parsed)
+      if (result.issues.length) throw new Error(result.issues.join('；'))
+      if (!window.confirm(result.warnings.join('\n') + '\n继续导出？')) return
+      files = result.files
+    } else {
+      const payload = interchangeExportFormat.value === 'webclx' ? core.webclx(parsed) : dataPayload
+      files = [{ name: `${interchangeExportFormat.value}-accounts-${formatExportTimestamp()}.json`, text: JSON.stringify(payload, null, 2) }]
+    }
+    if (interchangeExportDestination.value === 'clipboard') {
+      if (files.length !== 1) throw new Error('CPA 多账号请使用下载 ZIP，不能复制为非原生数组。')
+      if (!await copyTextWithFallback(files[0].text)) throw new Error('复制失败，请使用下载文件。')
+    } else {
+      const blob = files.length === 1 ? new Blob([files[0].text], {type:'application/json'}) : core.zip(files)
+      const url = URL.createObjectURL(blob), link = document.createElement('a')
+      link.href = url
+      link.download = files.length === 1 ? files[0].name : `cpa-accounts-${formatExportTimestamp()}.zip`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
     // spark 影子账号被后端排除出备份(其凭据透传母账号、调度配置不可经凭据型导入重建);
     // 跳过非零时明确提示用户,避免「下载成功但少了账号」的静默丢失。
     if (dataPayload.skipped_shadows && dataPayload.skipped_shadows > 0) {
@@ -3151,8 +3711,20 @@ const handleExportData = async () => {
     showExportDataDialog.value = false
   }
 }
+
+const openClipboardImport = () => {
+  enhancedImportOperation.value = 'import'
+  enhancedImportSource.value = 'text'
+  showEnhancedImportData.value = true
+}
+
+const handleClipboardExport = () => {
+  includeProxyOnExport.value = true
+  interchangeExportDestination.value = 'clipboard'
+  showExportDataDialog.value = true
+}
 const accountExportStepUp = useStepUp()
-const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
+const closeTestModal = () => { showTest.value = false }
 const openSchedulingRulesModal = () => { showSchedulingRules.value = true }
 const closeSchedulingRulesModal = () => { showSchedulingRules.value = false }
 const handleSchedulingRulesSaved = () => {
@@ -3198,18 +3770,14 @@ const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = nul
 const handleTest = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)
   if (!account) return
-  testingAcc.value = account
+  initialTestMode.value = 'default'
+  pelicanTestAccounts.value = [account]
   showTest.value = true
 }
 const openHarvestModal = (a: AccountListItem) => {
   harvestAccountId.value = a.id
   showHarvestModal.value = true
 }
-const closePelicanModal = () => {
-  showPelicanModal.value = false
-  pelicanTestAccounts.value = []
-}
-
 const handlePelicanRunningChange = (running: boolean) => {
   pelicanTestRunning.value = running
 }
@@ -3225,13 +3793,6 @@ const handlePelicanAccountUpdated = (payload: { id: number; downgraded: boolean 
     }
   })
   enterAutoRefreshSilentWindow()
-}
-
-const handleSinglePelicanTest = async (a: AccountListItem | Account) => {
-  const account = await loadAccountDetails(a)
-  if (!account) return
-  pelicanTestAccounts.value = [account]
-  showPelicanModal.value = true
 }
 
 const handleToggleStateProtection = async (input: AccountListItem | Account) => {
@@ -3299,22 +3860,19 @@ const syncStateProtectionFlags = async () => {
   }
 }
 const handleBulkPelicanTest = async () => {
+  initialTestMode.value = 'default'
   const selected = accounts.value.filter(a => selIds.value.includes(a.id))
   if (selected.length === 0) return
   const fullAccounts = (await Promise.all(selected.map(a => loadAccountDetails(a)))).filter((a): a is Account => a != null)
   pelicanTestAccounts.value = fullAccounts
-  showPelicanModal.value = true
+  showTest.value = true
 }
 const handleTablePelicanTest = async () => {
-  if (selIds.value.length > 0) {
-    await handleBulkPelicanTest()
-  } else if (accounts.value.length > 0) {
-    const first = await loadAccountDetails(accounts.value[0])
-    pelicanTestAccounts.value = first ? [first] : []
-    showPelicanModal.value = true
-  } else {
+  initialTestMode.value = 'default'
+  if (selIds.value.length > 0) await handleBulkPelicanTest()
+  else {
     pelicanTestAccounts.value = []
-    showPelicanModal.value = true
+    showTest.value = true
   }
 }
 const refreshUpstreamBillingAfterSuccessfulTest = async (account: Account) => {
@@ -3407,6 +3965,23 @@ const handleViewStats = async (a: AccountListItem) => {
   showStats.value = true
 }
 const handleStickySessions = (a: Account) => { stickySessionsAcc.value = a; showStickySessions.value = true }
+const functionsStickyTarget = computed<AccountListItem | null>(() => {
+  if (selIds.value.length !== 1) return null
+  if (!isFeatureFlagEnabled(FeatureFlags.stickySessionReassignment)) return null
+  const account = accounts.value.find(item => item.id === selIds.value[0])
+  if (!account) return null
+  if (account.platform !== 'openai') return null
+  if (account.extra?.deleted === true) return null
+  if (account.status !== 'active' || account.schedulable !== true) return null
+  return account
+})
+const openStickyReassignForSelection = async () => {
+  const target = functionsStickyTarget.value
+  if (!target) return
+  const account = await loadAccountDetails(target)
+  if (!account) return
+  handleStickySessions(account)
+}
 const handleScheduledAction = (a: Account, action: ScheduledAccountActionType) => {
   scheduledActionAcc.value = a
   scheduledActionType.value = action
@@ -3435,19 +4010,13 @@ const handleStickySessionsReassigned = () => {
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a
   scheduleModelOptions.value = []
-  showSchedulePanel.value = true
+  openAutomaticDetection('scheduled')
   try {
-    const models = await adminAPI.accounts.getAvailableModels(a.id)
+    const models = await adminAPI.accounts.getAvailableModels(a.id, { local: true })
     scheduleModelOptions.value = models.map((m: ClaudeModel) => ({ value: m.id, label: m.display_name || m.id }))
   } catch {
     scheduleModelOptions.value = []
   }
-}
-const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
-const openGlobalSchedulePanel = () => {
-  scheduleAcc.value = null
-  scheduleModelOptions.value = []
-  showSchedulePanel.value = true
 }
 const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
 const duplicatingAccountIDs = new Set<number>()
@@ -3564,7 +4133,14 @@ const confirmCreateSparkShadow = async () => {
     appStore.showError(error?.response?.data?.message || t('admin.accounts.createSparkShadowFailed'))
   }
 }
-const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
+const handleDelete = (a: Account) => {
+  if (a.extra?.fixed_codex) {
+    appStore.showError('固定官方账号受保护不可删除')
+    return
+  }
+  deletingAcc.value = a
+  showDeleteDialog.value = true
+}
 const confirmDelete = async () => {
   if (!deletingAcc.value) return
   try {
@@ -3577,7 +4153,14 @@ const confirmDelete = async () => {
   }
 }
 
-const handlePermanentDelete = (a: Account) => { permanentDeletingAcc.value = a; showPermanentDeleteDialog.value = true }
+const handlePermanentDelete = (a: Account) => {
+  if (a.extra?.fixed_codex) {
+    appStore.showError('固定官方账号受保护不可删除')
+    return
+  }
+  permanentDeletingAcc.value = a
+  showPermanentDeleteDialog.value = true
+}
 const confirmPermanentDelete = async () => {
   if (!permanentDeletingAcc.value) return
   try {
@@ -3593,6 +4176,10 @@ const confirmPermanentDelete = async () => {
 }
 
 const handleRecycle = async (a: Account) => {
+  if (a.extra?.fixed_codex) {
+    appStore.showError('固定官方账号受保护不可删除')
+    return
+  }
   try {
     await adminAPI.accounts.recycle(a.id)
     reload()
@@ -3701,7 +4288,7 @@ const proxyExpiryText = (p: AccountProxy): string => {
 // 表格滚动时关闭行操作菜单，并让顶部工具菜单继续贴紧触发按钮。
 const handleScroll = (event: Event) => {
   if (event.target instanceof Element && event.target.closest('.action-menu-content')) return
-  menu.show = false
+  if (!compactRowActions.value) menu.show = false
   if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
 }
 

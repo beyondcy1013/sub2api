@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import SchedulingRulesModal from '../SchedulingRulesModal.vue'
 
 const api = vi.hoisted(() => ({
@@ -8,6 +8,8 @@ const api = vi.hoisted(() => ({
   updateSuperPriority: vi.fn(),
   getProbeSettings: vi.fn(),
   updateProbeSettings: vi.fn(),
+  getQualityProbeSettings: vi.fn(),
+  updateQualityProbeSettings: vi.fn(),
   refreshSchedulingRules: vi.fn()
 }))
 
@@ -25,13 +27,37 @@ vi.mock('@/api/admin', () => ({
       update: api.updateSuperPriority,
       refresh: api.refreshSchedulingRules
     },
-    accounts: { getUpstreamBillingProbeSettings: api.getProbeSettings, updateUpstreamBillingProbeSettings: api.updateProbeSettings }
+    degradationRules: {list: vi.fn().mockResolvedValue([])},
+    accounts: {
+      list: vi.fn().mockResolvedValue({items:[{id:10,name:"A",platform:"openai"},{id:20,name:"B",platform:"openai"}],total:2}),
+      getUpstreamBillingProbeSettings: api.getProbeSettings,
+      updateUpstreamBillingProbeSettings: api.updateProbeSettings,
+      getRequestQualityProbeSettings: api.getQualityProbeSettings,
+      updateRequestQualityProbeSettings: api.updateQualityProbeSettings
+    }
   }
 }))
 
 const flush = async () => await Promise.resolve()
 
 describe('SchedulingRulesModal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.getQualityProbeSettings.mockResolvedValue({
+      enabled: false,
+      models: ['gpt-5.1', 'gpt-5.2'],
+      recent_minutes: 10,
+      account_scope: 'error_or_downgraded',
+      account_ids: []
+    })
+    api.updateQualityProbeSettings.mockResolvedValue({
+      enabled: false,
+      models: ['gpt-5.1', 'gpt-5.2'],
+      recent_minutes: 10,
+      account_scope: 'error_or_downgraded',
+      account_ids: []
+    })
+  })
   it('shows algorithm help beside the dialog title and reveals it on hover', async () => {
     const wrapper = mount(SchedulingRulesModal, {
       attachTo: document.body,
@@ -160,6 +186,21 @@ describe('SchedulingRulesModal', () => {
     expect(runtime.text()).toContain('admin.accounts.schedulingRules.runtimeLastResult')
     expect(wrapper.find('[data-testid="scheduling-rule-liveness-include-unschedulable"]').exists()).toBe(false)
 
+    wrapper.unmount()
+  })
+
+  it('opens the authoritative quality settings without overwriting them when saving scheduling rules', async () => {
+    const wrapper = mount(SchedulingRulesModal, {
+      props: { show: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="scheduling-rule-quality-probe-enabled"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="scheduling-rule-quality-settings"]').trigger('click')
+    expect(wrapper.emitted('detection')).toHaveLength(1)
+    await wrapper.get('[data-testid="scheduling-rule-save"]').trigger('click')
+    await flushPromises()
+    expect(api.updateQualityProbeSettings).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

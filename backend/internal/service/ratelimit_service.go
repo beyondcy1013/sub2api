@@ -1321,6 +1321,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 					return
 				}
+				s.markOpenAICodexWindowExhausted(ctx, account, resetTime, responseBody)
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
 				return
 			}
@@ -1830,7 +1831,130 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 		slog.Warn("openai_codex_snapshot_persist_failed", "account_id", account.ID, "error", err)
 		return
 	}
+	mergeAccountExtra(account, updates)
 	notifyOpenAIAutoReset(account.ID)
+}
+
+// codex429WindowResetMatchTolerance 是 429 resets_at 与已存储窗口边界的匹配容差。
+// 存储的 codex_*_reset_at 由旧快照的 reset_after_seconds 推算，与上游真实边界
+// 只差秒级采样偏差；15 分钟足以区分 5h 与 7d 两个窗口。
+const codex429WindowResetMatchTolerance = 15 * time.Minute
+
+// markOpenAICodexWindowExhausted 处理仅由响应体给出 resets_at 的 OpenAI 429。
+// 经插件/WS 通道的响应可能没有 x-codex-* 头（或头里仍是非耗尽值），此时 codex
+// 快照停留在限流前的旧百分比，用量窗口会错误显示"充足"。这里把触发限流的窗口
+// 直接标记为 100% 并把 reset 对齐到上游给出的 resets_at；窗口滚动过期后由
+// buildCodexUsageProgressFromExtra/openAIQuotaWindowReset 自动归零，无需额外清理。
+func (s *RateLimitService) markOpenAICodexWindowExhausted(ctx context.Context, account *Account, resetAt time.Time, responseBody []byte) {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return
+	}
+	// 仅适用于 Codex 用量窗口口径的账号；spark 影子的 codex_* 由 QueryUsage 独占维护。
+	if !isOpenAIOAuthAccount(account) || account.IsShadow() {
+		return
+	}
+	now := time.Now()
+	if !resetAt.After(now) {
+		return
+	}
+	window := resolveCodexExhaustedWindow(account.Extra, resetAt, openAI429ErrorType(responseBody), now)
+	if window == "" {
+		return
+	}
+	updates := map[string]any{
+		"codex_" + window + "_used_percent":        100.0,
+		"codex_" + window + "_reset_at":            resetAt.Format(time.RFC3339),
+		"codex_" + window + "_reset_after_seconds": int(resetAt.Sub(now).Seconds()),
+		"codex_usage_updated_at":                   now.Format(time.RFC3339),
+	}
+	windowMinutesKey := "codex_" + window + "_window_minutes"
+	if _, ok := account.Extra[windowMinutesKey]; !ok {
+		if window == "5h" {
+			updates[windowMinutesKey] = 300
+		} else {
+			updates[windowMinutesKey] = 10080
+		}
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+		slog.Warn("openai_codex_429_window_mark_failed", "account_id", account.ID, "window", window, "error", err)
+		return
+	}
+	mergeAccountExtra(account, updates)
+	slog.Info("openai_codex_429_window_exhausted", "account_id", account.ID, "window", window, "reset_at", resetAt)
+}
+
+// resolveCodexExhaustedWindow 判定 429 resets_at 归属哪个 Codex 用量窗口。
+// 优先与已存储的窗口边界匹配；都不匹配时，usage_limit_reached（配额窗口耗尽）
+// 按重置距离归入 5h（当前 5h 窗口内）或 7d。rate_limit_exceeded 等分钟级突发
+// 限流不做窗口归属猜测，避免把短冷却误写成窗口耗尽。
+func resolveCodexExhaustedWindow(extra map[string]any, resetAt time.Time, errType string, now time.Time) string {
+	d5h := codexResetMatchDistance(resetAt, codexWindowResetAtFromExtra(extra, "5h"), now)
+	d7d := codexResetMatchDistance(resetAt, codexWindowResetAtFromExtra(extra, "7d"), now)
+	if d5h <= codex429WindowResetMatchTolerance && d5h <= d7d {
+		return "5h"
+	}
+	if d7d <= codex429WindowResetMatchTolerance {
+		return "7d"
+	}
+	if errType != "usage_limit_reached" {
+		return ""
+	}
+	if resetAt.Sub(now) <= 5*time.Hour+codex429WindowResetMatchTolerance {
+		return "5h"
+	}
+	return "7d"
+}
+
+// codexWindowResetAtFromExtra 取已存储的 codex 窗口边界：优先 codex_*_reset_at
+// 绝对时间，缺失时用 reset_after_seconds + codex_usage_updated_at 推算（与
+// buildCodexUsageProgressFromExtra 同口径）。
+func codexWindowResetAtFromExtra(extra map[string]any, window string) *time.Time {
+	if len(extra) == 0 {
+		return nil
+	}
+	if raw, ok := extra["codex_"+window+"_reset_at"]; ok {
+		if t, err := parseTime(fmt.Sprint(raw)); err == nil {
+			return &t
+		}
+	}
+	resetAfter := parseExtraInt(extra["codex_"+window+"_reset_after_seconds"])
+	if resetAfter <= 0 {
+		return nil
+	}
+	base := time.Now()
+	if updatedAtRaw, ok := extra["codex_usage_updated_at"]; ok {
+		if updatedAt, err := parseTime(fmt.Sprint(updatedAtRaw)); err == nil {
+			base = updatedAt
+		}
+	}
+	t := base.Add(time.Duration(resetAfter) * time.Second)
+	return &t
+}
+
+// codexResetMatchDistance 返回 resets_at 与已存储窗口边界的时间差；窗口边界缺失
+// 或已过期（属于上一个窗口周期，不可作为当前限流归属依据）时返回极大值。
+func codexResetMatchDistance(resetAt time.Time, windowReset *time.Time, now time.Time) time.Duration {
+	if windowReset == nil || !windowReset.After(now) {
+		return time.Duration(1<<63 - 1)
+	}
+	d := resetAt.Sub(*windowReset)
+	if d < 0 {
+		d = -d
+	}
+	return d
+}
+
+func openAI429ErrorType(body []byte) string {
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	errObj, ok := parsed["error"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	errType, _ := errObj["type"].(string)
+	return strings.TrimSpace(errType)
 }
 
 // parseOpenAIRateLimitResetTime 解析 OpenAI 兼容格式的 429 响应，返回重置时间的 Unix 时间戳
@@ -2572,6 +2696,9 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		return false
 	}
 	if !account.ShouldHandleErrorCode(statusCode) {
+		return false
+	}
+	if account.IsCline() && statusCode == http.StatusBadRequest {
 		return false
 	}
 	var cooldown time.Duration

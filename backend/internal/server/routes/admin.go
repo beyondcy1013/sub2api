@@ -112,6 +112,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		registerDegradationRuleRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -294,6 +295,7 @@ func registerDashboardRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		dashboard.POST("/users-usage", h.Admin.Dashboard.GetBatchUsersUsage)
 		dashboard.POST("/api-keys-usage", h.Admin.Dashboard.GetBatchAPIKeysUsage)
 		dashboard.GET("/user-breakdown", h.Admin.Dashboard.GetUserBreakdown)
+		dashboard.GET("/account-breakdown", h.Admin.Dashboard.GetAccountBreakdown)
 		dashboard.POST("/aggregation/backfill", h.Admin.Dashboard.BackfillAggregation)
 	}
 }
@@ -363,6 +365,12 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)
 		accounts.PUT("/upstream-billing-probe/settings", h.Admin.Account.UpdateUpstreamBillingProbeSettings)
 		accounts.POST("/upstream-billing-probe/batch", h.Admin.Account.ProbeUpstreamBillingBatch)
+		accounts.GET("/automatic-detection", h.Admin.ScheduledTest.GetAutomaticDetection)
+		accounts.PUT("/automatic-detection", h.Admin.ScheduledTest.UpdateAutomaticDetection)
+		accounts.GET("/detection-records", h.Admin.Account.ListDetectionRecords)
+		accounts.POST("/:id/quality-test", h.Admin.Account.RunQualityRules)
+		accounts.GET("/request-quality-probe/settings", h.Admin.Account.GetRequestQualityProbeSettings)
+		accounts.PUT("/request-quality-probe/settings", h.Admin.Account.UpdateRequestQualityProbeSettings)
 		accounts.GET("/trash", h.Admin.Account.ListTrash)
 		accounts.GET("/ollama-cloud-usage/settings", h.Admin.Account.GetOllamaCloudUsageSettings)
 		accounts.PUT("/ollama-cloud-usage/settings", h.Admin.Account.UpdateOllamaCloudUsageSettings)
@@ -378,6 +386,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/duplicate", h.Admin.Account.Duplicate)
 		accounts.POST("/check-mixed-channel", h.Admin.Account.CheckMixedChannel)
 		accounts.POST("/import/codex-session", h.Admin.Account.ImportCodexSession)
+		accounts.POST("/sync-current-codex", h.Admin.Account.SyncCurrentCodex)
+		accounts.POST("/:id/restore-current-codex", h.Admin.Account.RestoreCurrentCodex)
 		accounts.POST("/sync/crs", h.Admin.Account.SyncFromCRS)
 		accounts.POST("/sync/crs/preview", h.Admin.Account.PreviewFromCRS)
 		accounts.PUT("/:id", h.Admin.Account.Update)
@@ -774,6 +784,16 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
+}
+
+func registerDegradationRuleRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	rules := admin.Group("/degradation-rules")
+	{
+		rules.GET("", h.Admin.DegradationRule.List)
+		rules.POST("", h.Admin.DegradationRule.Create)
+		rules.PUT("/:id", h.Admin.DegradationRule.Update)
+		rules.DELETE("/:id", h.Admin.DegradationRule.Delete)
+	}
 }
 
 func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

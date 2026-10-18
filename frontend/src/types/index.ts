@@ -2,12 +2,26 @@
  * Core Type Definitions for Sub2API Frontend
  */
 
+import type { QualityEvidenceRecord } from '@/modules/qualityevidence/types'
+
 // ==================== Common Types ====================
 
 export interface SelectOption {
   value: string | number | boolean | null
   label: string
   [key: string]: any // Support extra properties for custom templates
+}
+
+/**
+ * Model option accepted by the shared account-detection model pickers.
+ * It is deliberately wider than SelectOption so account model catalogs
+ * (which may carry a boolean `value`) can be passed straight through.
+ */
+export interface DetectionModelOption {
+  id?: string
+  display_name?: string
+  value?: string | number | boolean | null
+  label?: string
 }
 
 export interface BasePaginationResponse<T> {
@@ -235,6 +249,8 @@ export interface PublicSettings {
   aliyun_captcha_prefix?: string
   aliyun_captcha_region?: string
   site_name: string
+  instance_name?: string
+  instance_color?: string
   site_logo: string
   site_subtitle: string
   api_base_url: string
@@ -1117,9 +1133,25 @@ export interface UpstreamBillingProbeSnapshot {
 }
 
 export interface UpstreamBillingProbeSettings {
+  account_scope?: 'all' | 'selected'
+  account_ids?: number[]
   enabled: boolean
   interval_minutes: number
   notify_on_change_only?: boolean
+}
+
+export interface RequestQualityProbeSettings {
+  status_recent_minutes?: number
+  account_overrides?: Record<string, boolean>
+  model_scope?: 'selected' | 'all'
+  rule_ids?: number[]
+  allow_business_success?: boolean
+  timeout_seconds?: number
+  enabled: boolean
+  models: string[]
+  recent_minutes: number
+  account_scope: 'all' | 'error_or_downgraded' | 'selected'
+  account_ids: number[]
 }
 
 export interface UpstreamBillingProbeResult {
@@ -1942,6 +1974,13 @@ export interface UsageLog {
 
   created_at: string
 
+  status?: string
+  status_code?: number | null
+  error_id?: number | null
+  error_message?: string | null
+  error_type?: string | null
+  error_phase?: string | null
+
   user?: User
   api_key?: ApiKey
   group?: Group
@@ -1954,6 +1993,7 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  quality_evidence?: import('@/modules/qualityevidence/types').QualityEvidence | null
   upstream_model?: string | null
   upstream_reasoning_effort?: string | null
   upstream_response_model?: string | null
@@ -2175,6 +2215,21 @@ export interface UserBreakdownItem {
   account_cost: number
 }
 
+export interface AccountBreakdownItem {
+  account_id: number
+  account_name: string
+  platform: string
+  type: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_tokens: number
+  total_tokens: number
+  cost: number
+  actual_cost: number
+  account_cost: number
+}
+
 export interface UserUsageTrendPoint {
   date: string
   user_id: number
@@ -2356,6 +2411,7 @@ export interface UsageQueryParams {
   timezone?: string
   sort_by?: string
   sort_order?: 'asc' | 'desc'
+  status?: string
 }
 
 // ==================== Account Usage Statistics ====================
@@ -2580,6 +2636,40 @@ export interface TotpLogin2FARequest {
 
 // ==================== Scheduled Test Types ====================
 
+export type ScheduledTestMode = 'default' | 'pelican'
+
+export type ScheduledTestRuleStrategy = 'all' | 'random' | 'sequential'
+
+export type ScheduledTestDowngradeAction = 'mark' | 'pause'
+
+export type DegradationEvaluator = 'numeric_answer' | 'contains_keywords' | 'refusal_only' | 'html_document'
+
+export interface DegradationParams {
+  probe_evaluator?: 'auto' | 'html' | 'numeric' | 'reply'
+  expected_answer?: number
+  keywords?: string[]
+  keyword_match?: string
+}
+
+export interface DegradationRule {
+  id: number
+  name: string
+  enabled: boolean
+  evaluator: DegradationEvaluator
+  prompt: string
+  params: DegradationParams
+  created_at: string
+  updated_at: string
+}
+
+export interface RuleOutcome {
+  rule_id: number
+  rule_name: string
+  evaluator: string
+  passed: boolean
+  reason?: string
+}
+
 export interface ScheduledTestPlan {
   id: number
   account_id: number
@@ -2589,6 +2679,14 @@ export interface ScheduledTestPlan {
   max_results: number
   auto_recover: boolean
   auto_recover_schedulable: boolean
+  mode: ScheduledTestMode
+  auto_pause_on_downgrade: boolean
+  rule_ids: number[]
+  rule_strategy: ScheduledTestRuleStrategy
+  downgrade_action: ScheduledTestDowngradeAction
+  downgrade_threshold: number
+  consecutive_downgrades: number
+  last_rule_index: number
   last_run_at: string | null
   next_run_at: string | null
   created_at: string
@@ -2603,6 +2701,10 @@ export interface ScheduledTestResult {
   status: string
   response_text: string
   error_message: string
+  downgraded: boolean
+  downgrade_reason: string
+  response_model: string
+  rule_results?: RuleOutcome[] | null
   latency_ms: number
   started_at: string
   finished_at: string
@@ -2617,6 +2719,12 @@ export interface CreateScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
   auto_recover_schedulable?: boolean
+  mode?: ScheduledTestMode
+  auto_pause_on_downgrade?: boolean
+  rule_ids?: number[]
+  rule_strategy?: ScheduledTestRuleStrategy
+  downgrade_action?: ScheduledTestDowngradeAction
+  downgrade_threshold?: number
 }
 
 export interface UpdateScheduledTestPlanRequest {
@@ -2626,6 +2734,12 @@ export interface UpdateScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
   auto_recover_schedulable?: boolean
+  mode?: ScheduledTestMode
+  auto_pause_on_downgrade?: boolean
+  rule_ids?: number[]
+  rule_strategy?: ScheduledTestRuleStrategy
+  downgrade_action?: ScheduledTestDowngradeAction
+  downgrade_threshold?: number
 }
 
 export interface BatchScheduledTestPlanRequest {
@@ -2636,6 +2750,12 @@ export interface BatchScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
   auto_recover_schedulable?: boolean
+  mode?: ScheduledTestMode
+  auto_pause_on_downgrade?: boolean
+  rule_ids?: number[]
+  rule_strategy?: ScheduledTestRuleStrategy
+  downgrade_action?: ScheduledTestDowngradeAction
+  downgrade_threshold?: number
 }
 
 export interface BatchScheduledTestPlanResponse {
@@ -2654,3 +2774,24 @@ export type {
   PlatformQuotaWindow,
   PlatformQuotasResponse,
 } from '@/api/admin/users'
+
+export interface AccountDetectionRecord {
+  id: number
+  account_id: number
+  account_name: string
+  model_id: string
+  source: 'manual' | 'scheduled' | 'request'
+  mode: string
+  rule_fingerprint: string
+  result: ScheduledTestResult
+  finished_at: string
+}
+
+export interface AccountQualitySummary extends QualityEvidenceRecord {
+ account_id: number
+ model_id: string
+ source: 'manual' | 'scheduled' | 'request'
+ reason: string
+ response_summary: string
+ questions: { name: string; prompt: string; passed: boolean; reason: string }[]
+}
