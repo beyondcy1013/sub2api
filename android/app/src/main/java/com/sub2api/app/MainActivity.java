@@ -185,11 +185,10 @@ public final class MainActivity extends Activity {
 
     private void registerDownloadCompleteReceiver() {
         IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(downloadCompleteReceiver, filter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(downloadCompleteReceiver, filter);
-        }
+        // DownloadManager broadcasts originate from another system UID.
+        androidx.core.content.ContextCompat.registerReceiver(
+                this, downloadCompleteReceiver, filter,
+                androidx.core.content.ContextCompat.RECEIVER_EXPORTED);
         downloadReceiverRegistered = true;
     }
 
