@@ -41,6 +41,7 @@ public final class SettingsActivity extends Activity {
         AppPreferences.applyTheme(this);
         super.onCreate(savedInstanceState);
         setContentView(createScreen());
+        WindowInsetsLayout.install(this, findViewById(android.R.id.content), null);
         showTab(activeTab);
     }
 

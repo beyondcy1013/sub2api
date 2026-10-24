@@ -10,7 +10,7 @@ GRADLE_VERSION="${ANDROID_GRADLE_VERSION:-8.14.3}"
 GRADLE_MIRROR="${ANDROID_GRADLE_MIRROR:-https://mirrors.cloud.tencent.com/gradle}"
 GRADLE_ARCHIVE="${TOOLCHAIN_DIR}/gradle-${GRADLE_VERSION}-bin.zip"
 GRADLE_HOME="${TOOLCHAIN_DIR}/gradle-${GRADLE_VERSION}"
-WEBCLX_TOOLCHAIN="/home/codes/webClx/.android-toolchain"
+WEBCLX_TOOLCHAIN="/home/codes/tools/webClx/.android-toolchain"
 TMP_DIR="${ROOT_DIR}/android/.tmp"
 
 mkdir -p "${TOOLCHAIN_DIR}" "${TMP_DIR}"
@@ -82,6 +82,7 @@ fi
     --stacktrace \
     -p "${ANDROID_DIR}" \
     assembleRelease \
+    lintRelease \
     "-Psub2apiVersion=${client_version}" \
     "-Psub2apiVersionCode=${version_code}"
 

@@ -165,6 +165,7 @@ public final class MainActivity extends Activity {
         root.addView(refreshButton, refreshParams);
 
         setContentView(root);
+        WindowInsetsLayout.install(this, root, null);
         registerDownloadCompleteReceiver();
         configureWebView();
         beginSourceResolution();
