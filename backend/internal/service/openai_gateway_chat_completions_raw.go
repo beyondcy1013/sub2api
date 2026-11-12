@@ -36,6 +36,14 @@ var openaiCCRawAllowedHeaders = map[string]bool{
 	"user-agent":      true,
 }
 
+const accountExtraGPT61SolChatTools = "gpt_61_sol_chat_tools"
+
+// accountAllowsGPT61SolChatTools marks an explicitly opted-in Chat upstream
+// that accepts function tools for GPT-6.1 Sol.
+func accountAllowsGPT61SolChatTools(account *Account) bool {
+	return account != nil && getExtraBool(account.Extra, accountExtraGPT61SolChatTools)
+}
+
 // forwardAsRawChatCompletions 直转客户端的 Chat Completions 请求到上游
 // `{base_url}/v1/chat/completions`，**不**做 CC↔Responses 协议转换。
 //
@@ -95,13 +103,15 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 		// anchored to the client's stable conversation prefix.
 		grokCacheIdentity = resolveGrokCacheIdentity(c, body, "", upstreamModel)
 	}
-	if openai.IsGPT61SolModelSpelling(upstreamModel) && (len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) {
-		err := fmt.Errorf("gpt-6.1-sol requires Responses for tool calls; this account only supports Chat Completions")
+	if openai.IsGPT61SolModelSpelling(upstreamModel) && !accountAllowsGPT61SolChatTools(account) &&
+		(len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) {
+		err := fmt.Errorf("gpt-6.1-sol requires Responses for tool calls; %s only supports Chat Completions", accountErrorIdentifier(account))
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
-	if openai.IsGPT6SolOrLunaModelSpelling(upstreamModel) && (len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) && gjson.GetBytes(body, "reasoning_effort").String() != "none" {
-		err := fmt.Errorf("%s requires Responses for tool calls with reasoning; this account only supports Chat Completions. Use reasoning_effort=none or a Responses-capable account", upstreamModel)
+	if openai.IsGPT6SolOrLunaModelSpelling(upstreamModel) && !accountAllowsGPT61SolChatTools(account) &&
+		(len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) && gjson.GetBytes(body, "reasoning_effort").String() != "none" {
+		err := fmt.Errorf("%s requires Responses for tool calls with reasoning; %s only supports Chat Completions. Use reasoning_effort=none or a Responses-capable account", upstreamModel, accountErrorIdentifier(account))
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}

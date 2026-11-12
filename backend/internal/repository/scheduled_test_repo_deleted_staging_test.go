@@ -19,10 +19,14 @@ func TestScheduledTestPlanListAllJoinsActiveAccountAndExcludesDeletedStaging(t *
 	now := nextRun.Add(-time.Hour)
 	rows := sqlmock.NewRows([]string{
 		"id", "account_id", "model_id", "cron_expression", "enabled", "max_results",
-		"auto_recover", "auto_recover_schedulable", "last_run_at", "next_run_at",
+		"auto_recover", "auto_recover_schedulable", "mode", "auto_pause_on_downgrade",
+		"rule_ids", "rule_strategy", "downgrade_action", "downgrade_threshold",
+		"consecutive_downgrades", "last_rule_index",
+		"last_run_at", "next_run_at",
 		"created_at", "updated_at", "name", "platform",
 	}).AddRow(
-		1, 2, "gpt-5.4", "0 4 * * *", true, 50, true, false,
+		1, 2, "gpt-5.4", "0 4 * * *", true, 50, true, false, "default", false,
+		"{}", "all", "mark", 1, 0, 0,
 		nil, nextRun, now, now, "daily probe", "openai",
 	)
 	mock.ExpectQuery(regexp.QuoteMeta(`FROM scheduled_test_plans AS plan`)).
@@ -49,7 +53,10 @@ func TestScheduledTestPlanListDueExcludesDeletedStagingAccounts(t *testing.T) {
 		WithArgs(now).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "account_id", "model_id", "cron_expression", "enabled", "max_results",
-			"auto_recover", "auto_recover_schedulable", "last_run_at", "next_run_at", "created_at", "updated_at",
+			"auto_recover", "auto_recover_schedulable", "mode", "auto_pause_on_downgrade",
+			"rule_ids", "rule_strategy", "downgrade_action", "downgrade_threshold",
+			"consecutive_downgrades", "last_rule_index",
+			"last_run_at", "next_run_at", "created_at", "updated_at",
 		}))
 
 	repo := &scheduledTestPlanRepository{db: db}

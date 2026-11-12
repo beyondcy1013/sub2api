@@ -4,15 +4,22 @@ set -euo pipefail
 EXPECTED_OLD_SHA=""
 EXPECTED_MAIN_PID=""
 EXPECTED_FREE_PID=""
-ARTIFACT="/home/codes/third_party/sub2api/backend/bin/sub2api-unified.new"
+ARTIFACT="/home/codes/ai/sub2api/backend/bin/sub2api-unified.new"
 MAIN_SERVICE="sub2api.service"
 MAIN_BINARY="/home/codes/third_party/bin/sub2api/sub2api"
 FREE_SERVICE="sub2freeApi.service"
 FREE_BINARY="/home/codes/third_party/bin/sub2freeApi/sub2freeApi"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-# Both services install the same unified artifact bytes, so retain one shared
-# rollback copy to honor the repository-wide one-backup policy.
-MAIN_BACKUP="${MAIN_BINARY}.bak.${TIMESTAMP}"
+# Collision-resistant release identity shared by this run's per-service rollback
+# backups and its archive directory.
+RELEASE_ID="${TIMESTAMP}-$$"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/lib/unified-release-backups.sh
+source "$ROOT_DIR/scripts/lib/unified-release-backups.sh"
+# Each service keeps its own independent rollback backup; prior backups are
+# archived (never deleted) under this root before a new backup is created.
+ARCHIVE_ROOT="/home/codes/third_party/upgrade-backups"
 
 report_error() {
   local status="$?"
@@ -20,6 +27,8 @@ report_error() {
   exit "$status"
 }
 trap report_error ERR
+
+bash "$ROOT_DIR/scripts/install-codex-account-bridge.sh"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -88,23 +97,25 @@ verify_service() {
   local scheduler_prefix="${8:-}"
   local pid disk_sha running_sha
 
-  systemctl is-active --quiet "$service"
-  wait_for_http "$port"
-  ss -ltnp | grep -E ":${port}[[:space:]]" >/dev/null
+  # Called under `if ! ...` where errexit is disabled: every check must return
+  # explicitly or a failure would fall through to the success printf.
+  systemctl is-active --quiet "$service" || return 1
+  wait_for_http "$port" || return 1
+  ss -ltnp | grep -E ":${port}[[:space:]]" >/dev/null || return 1
 
-  pid="$(systemctl show -p MainPID --value "$service")"
-  test "$pid" -gt 0
-  disk_sha="$(sha_of "$binary")"
-  running_sha="$(sha_of "/proc/$pid/exe")"
-  test "$disk_sha" = "$ARTIFACT_SHA"
-  test "$running_sha" = "$ARTIFACT_SHA"
-  test "$(process_env_value "$pid" DEPLOYMENT_PROFILE)" = "$profile"
-  test "$(process_env_value "$pid" DATABASE_DBNAME)" = "$database"
-  test "$(process_env_value "$pid" REDIS_DB)" = "$redis_db"
-  test "$(process_env_value "$pid" SERVER_PORT)" = "$port"
-  test "$(process_env_value "$pid" DATA_DIR)" = "$data_dir"
+  pid="$(systemctl show -p MainPID --value "$service")" || return 1
+  test "$pid" -gt 0 || return 1
+  disk_sha="$(sha_of "$binary")" || return 1
+  running_sha="$(sha_of "/proc/$pid/exe")" || return 1
+  test "$disk_sha" = "$ARTIFACT_SHA" || return 1
+  test "$running_sha" = "$ARTIFACT_SHA" || return 1
+  test "$(process_env_value "$pid" DEPLOYMENT_PROFILE)" = "$profile" || return 1
+  test "$(process_env_value "$pid" DATABASE_DBNAME)" = "$database" || return 1
+  test "$(process_env_value "$pid" REDIS_DB)" = "$redis_db" || return 1
+  test "$(process_env_value "$pid" SERVER_PORT)" = "$port" || return 1
+  test "$(process_env_value "$pid" DATA_DIR)" = "$data_dir" || return 1
   if [ -n "$scheduler_prefix" ]; then
-    test "$(process_env_value "$pid" REDIS_SCHEDULER_KEY_PREFIX)" = "$scheduler_prefix"
+    test "$(process_env_value "$pid" REDIS_SCHEDULER_KEY_PREFIX)" = "$scheduler_prefix" || return 1
   fi
 
   printf 'OK service=%s pid=%s port=%s profile=%s database=%s redis_db=%s sha=%s\n' \
@@ -145,7 +156,7 @@ verify_final_sha_matrix() {
 install_binary() {
   local binary="$1"
   local swap="${binary}.new.$$"
-  install -o root -g root -m 0755 "$ARTIFACT" "$swap"
+  install -o root -g root -m 0755 "$ARTIFACT" "$swap" || return 1
   mv -f -- "$swap" "$binary"
 }
 
@@ -154,10 +165,17 @@ rollback_service() {
   local binary="$2"
   local backup="$3"
   local swap="${binary}.rollback.$$"
+  local restored_pid
   echo "ERROR: rolling back $service" >&2
-  install -o root -g root -m 0755 "$backup" "$swap"
-  mv -f -- "$swap" "$binary"
-  systemctl restart "$service"
+  install -o root -g root -m 0755 "$backup" "$swap" || return 1
+  mv -f -- "$swap" "$binary" || return 1
+  systemctl restart "$service" || return 1
+  # Confirm the restored service is actually active and running the old bytes.
+  systemctl is-active --quiet "$service" || return 1
+  restored_pid="$(systemctl show -p MainPID --value "$service")" || return 1
+  [[ "$restored_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  test "$(sha_of "$binary")" = "$EXPECTED_OLD_SHA" || return 1
+  test "$(sha_of "/proc/$restored_pid/exe")" = "$EXPECTED_OLD_SHA" || return 1
 }
 
 deploy_service() {
@@ -170,21 +188,16 @@ deploy_service() {
   local data_dir="$7"
   local scheduler_prefix="${8:-}"
   local expected_pid="$9"
-  local backup
-  if [ "$binary" = "$FREE_BINARY" ] && [ -s "$MAIN_BACKUP" ]; then
-    backup="$MAIN_BACKUP"
-  else
-    backup="${binary}.bak.${TIMESTAMP}"
-  fi
+  local backup="${binary}.bak.${RELEASE_ID}"
   local current_pid
 
   current_pid="$(systemctl show -p MainPID --value "$service")"
   test "$current_pid" = "$expected_pid"
   test "$(sha_of "$binary")" = "$EXPECTED_OLD_SHA"
   test "$(sha_of "/proc/$current_pid/exe")" = "$EXPECTED_OLD_SHA"
-  cp -a -- "$binary" "$backup"
-  install_binary "$binary"
-  if ! systemctl restart "$service" || \
+  prepare_release_backup "$binary" "$ARCHIVE_ROOT" "$RELEASE_ID" "$EXPECTED_OLD_SHA"
+  if ! install_binary "$binary" || \
+     ! systemctl restart "$service" || \
      ! verify_service "$service" "$binary" "$port" "$profile" "$database" "$redis_db" "$data_dir" "$scheduler_prefix"; then
     rollback_service "$service" "$binary" "$backup"
     return 1
@@ -203,15 +216,17 @@ if [ "$ARTIFACT_SHA" = "$EXPECTED_OLD_SHA" ]; then
   test "$FREE_PID" = "$EXPECTED_FREE_PID"
   verify_service \
     "$MAIN_SERVICE" "$MAIN_BINARY" 18381 main sub2api 0 \
-    /home/codes/third_party/sub2api/deploy/data ''
+    /home/codes/ai/sub2api/deploy/data ''
   verify_service \
     "$FREE_SERVICE" "$FREE_BINARY" 18382 free sub2freeApi 1 \
-    /home/codes/third_party/sub2freeApi/deploy/data sub2freeApi
+    /home/codes/ai/sub2freeApi/deploy/data sub2freeApi
   verify_final_sha_matrix
   echo "Artifact is already installed and verified; no restart required."
   exit 0
 fi
 
+test "$MAIN_PID" = "$EXPECTED_MAIN_PID"
+test "$FREE_PID" = "$EXPECTED_FREE_PID"
 test "$(sha_of "$MAIN_BINARY")" = "$EXPECTED_OLD_SHA"
 test "$(sha_of "$FREE_BINARY")" = "$EXPECTED_OLD_SHA"
 test "$(sha_of "/proc/$MAIN_PID/exe")" = "$EXPECTED_OLD_SHA"
@@ -219,38 +234,22 @@ test "$(sha_of "/proc/$FREE_PID/exe")" = "$EXPECTED_OLD_SHA"
 
 deploy_service \
   "$MAIN_SERVICE" "$MAIN_BINARY" 18381 main sub2api 0 \
-  /home/codes/third_party/sub2api/deploy/data '' "$EXPECTED_MAIN_PID"
+  /home/codes/ai/sub2api/deploy/data '' "$EXPECTED_MAIN_PID"
 deploy_service \
   "$FREE_SERVICE" "$FREE_BINARY" 18382 free sub2freeApi 1 \
-  /home/codes/third_party/sub2freeApi/deploy/data sub2freeApi "$EXPECTED_FREE_PID"
+  /home/codes/ai/sub2freeApi/deploy/data sub2freeApi "$EXPECTED_FREE_PID"
 
 verify_final_sha_matrix
 
-# Remove every stale rollback and keep exactly one newest backup in each bin directory.
-converge_backups() {
-  local bin_dir backup_count removed_count backup_file
-  for bin_dir in "$(dirname "$MAIN_BINARY")" "$(dirname "$FREE_BINARY")"; do
-    backup_count=0
-    removed_count=0
-    while IFS= read -r backup_file; do
-      backup_count=$((backup_count + 1))
-      if [ "$backup_count" -gt 1 ]; then
-        rm -f -- "$backup_file"
-        removed_count=$((removed_count + 1))
-      fi
-    done < <(find "$bin_dir" -maxdepth 1 -type f \( \
-      -name "$(basename "$MAIN_BINARY").bak.*" -o \
-      -name "$(basename "$MAIN_BINARY").backup*" -o \
-      -name "$(basename "$MAIN_BINARY").bak-*" -o \
-      -name "$(basename "$FREE_BINARY").bak.*" -o \
-      -name "$(basename "$FREE_BINARY").backup*" -o \
-      -name "$(basename "$FREE_BINARY").bak-*" \
-    \) -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
-    printf 'OK backup_dir=%s retained=%d removed=%d\n' \
-      "$bin_dir" "$backup_count" "$removed_count"
-  done
-}
-
-converge_backups
+# Each service must end with exactly one independent rollback backup holding the
+# pre-deploy bytes; prior backups were archived by prepare_release_backup.
+MAIN_ROLLBACK="${MAIN_BINARY}.bak.${RELEASE_ID}"
+FREE_ROLLBACK="${FREE_BINARY}.bak.${RELEASE_ID}"
+test -s "$MAIN_ROLLBACK"
+test -s "$FREE_ROLLBACK"
+test "$(sha_of "$MAIN_ROLLBACK")" = "$EXPECTED_OLD_SHA"
+test "$(sha_of "$FREE_ROLLBACK")" = "$EXPECTED_OLD_SHA"
+printf 'OK rollback_backups main=%s free=%s sha=%s\n' \
+  "$MAIN_ROLLBACK" "$FREE_ROLLBACK" "$EXPECTED_OLD_SHA"
 
 echo "Deployment completed"

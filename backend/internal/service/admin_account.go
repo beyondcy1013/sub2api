@@ -457,6 +457,10 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:      StatusActive,
 		Schedulable: true,
 	}
+	if input.ManagementOnly {
+		account.Status = "inactive"
+		account.Schedulable = false
+	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
 			return nil, ErrUpstreamBillingProbeAccountInvalid
@@ -547,6 +551,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	// Never persist ephemeral SSO/password secrets after OAuth conversion.
 	input.Credentials = SanitizeStoredCredentials(input.Platform, input.Credentials)
+	if err := s.validateAccountModelsNotGloballyExcluded(ctx, input.Credentials); err != nil {
+		return nil, err
+	}
 
 	account, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
@@ -699,6 +706,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
+		if err := s.validateAccountModelsNotGloballyExcluded(ctx, account.Credentials); err != nil {
+			return nil, err
+		}
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
@@ -966,6 +976,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if input.Status != "" {
+		s.accountRequests.setSchedulable(account.ID, account.Schedulable && account.Status == StatusActive)
+	}
+
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
@@ -1100,6 +1114,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// 影子账号绝不持有凭据:批量更新携带凭据时,目标中不得含影子(外审 G5,与单账号
 	// UpdateAccount 守卫对齐)。覆盖显式 IDs 与 filter 解析出的 IDs(此处 AccountIDs 已解析完成)。
 	if len(input.Credentials) > 0 {
+		if err := s.validateAccountModelsNotGloballyExcluded(ctx, input.Credentials); err != nil {
+			return nil, err
+		}
 		for _, acc := range cachedTargets {
 			if acc != nil && acc.IsCredentialShadow() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_NO_CREDENTIALS",
@@ -1237,6 +1254,18 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil, err
 	}
 
+	if input.Schedulable != nil || input.Status != "" {
+		for _, id := range input.AccountIDs {
+			if input.Status != "" && input.Status != StatusActive {
+				s.accountRequests.setSchedulable(id, false)
+			} else if input.Schedulable != nil {
+				s.accountRequests.setSchedulable(id, *input.Schedulable)
+			} else if updated, err := s.accountRepo.GetByID(ctx, id); err == nil {
+				s.accountRequests.setSchedulable(id, updated.Schedulable && updated.Status == StatusActive)
+			}
+		}
+	}
+
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号
 	if repoUpdates.ProxyID != nil {
 		var effectiveProxyID *int64
@@ -1351,6 +1380,11 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err == nil && account != nil && account.IsFixedCodex() {
+		return fmt.Errorf("fixed codex account is protected and cannot be deleted")
+	}
+
 	// Move linked spark shadows into the same recoverable deleted-staging state
 	// before the parent so no live child retains a hidden credential parent.
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
@@ -1369,6 +1403,10 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 }
 
 func (s *adminServiceImpl) RecycleAccount(ctx context.Context, id int64) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err == nil && account != nil && account.IsFixedCodex() {
+		return fmt.Errorf("fixed codex account is protected and cannot be recycled")
+	}
 	return s.accountRepo.RecycleAccount(ctx, id)
 }
 
@@ -1398,6 +1436,10 @@ func (s *adminServiceImpl) RestoreFromTrash(ctx context.Context, id int64) error
 }
 
 func (s *adminServiceImpl) PermanentDeleteAccount(ctx context.Context, id int64) error {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err == nil && account != nil && account.IsFixedCodex() {
+		return fmt.Errorf("fixed codex account is protected and cannot be deleted")
+	}
 	return s.accountRepo.PermanentDelete(ctx, id)
 }
 
@@ -1440,6 +1482,7 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, 
 	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
 		return nil, err
 	}
+	s.accountRequests.setSchedulable(id, schedulable)
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1910,4 +1953,71 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account 
 	}
 	applyAntigravityPrivacyMode(account, mode)
 	return mode
+}
+
+// validateAccountModelsNotGloballyExcluded 检查凭据中配置的模型映射或白名单是否包含已被全局排除的模型。
+func (s *adminServiceImpl) validateAccountModelsNotGloballyExcluded(ctx context.Context, creds map[string]any) error {
+	if s == nil || s.settingService == nil || len(creds) == 0 {
+		return nil
+	}
+	patterns, err := s.settingService.GetGlobalModelExcludePatterns(ctx)
+	if err != nil || len(patterns) == 0 {
+		return nil
+	}
+
+	// 1. 检查 model_mapping
+	if rawMapping, ok := creds["model_mapping"]; ok && rawMapping != nil {
+		switch m := rawMapping.(type) {
+		case map[string]any:
+			for src, dst := range m {
+				if IsModelGloballyExcluded(patterns, src) {
+					return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
+						"模型 %q 已被全局排除规则屏蔽，禁止添加", src)
+				}
+				if dstStr, ok := dst.(string); ok && dstStr != "" {
+					if IsModelGloballyExcluded(patterns, dstStr) {
+						return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
+							"上游模型 %q 已被全局排除规则屏蔽，禁止添加", dstStr)
+					}
+				}
+			}
+		case map[string]string:
+			for src, dst := range m {
+				if IsModelGloballyExcluded(patterns, src) {
+					return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
+						"模型 %q 已被全局排除规则屏蔽，禁止添加", src)
+				}
+				if dst != "" && IsModelGloballyExcluded(patterns, dst) {
+					return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
+						"上游模型 %q 已被全局排除规则屏蔽，禁止添加", dst)
+				}
+			}
+		}
+	}
+
+	// 2. 检查 models 或 model_whitelist
+	for _, key := range []string{"models", "model_whitelist"} {
+		if rawList, ok := creds[key]; ok && rawList != nil {
+			switch list := rawList.(type) {
+			case []string:
+				for _, m := range list {
+					if IsModelGloballyExcluded(patterns, m) {
+						return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
+							"模型 %q 已被全局排除规则屏蔽，禁止添加", m)
+					}
+				}
+			case []any:
+				for _, item := range list {
+					if m, ok := item.(string); ok && m != "" {
+						if IsModelGloballyExcluded(patterns, m) {
+							return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
+								"模型 %q 已被全局排除规则屏蔽，禁止添加", m)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }

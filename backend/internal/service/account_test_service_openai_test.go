@@ -165,7 +165,7 @@ func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
 	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
 }
 
-func TestAccountTestService_OpenAIUsesAccountModelWhenRequestedModelIsNotListed(t *testing.T) {
+func TestAccountTestService_OpenAIPreservesRequestedModelWhenNotListed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
@@ -197,7 +197,7 @@ func TestAccountTestService_OpenAIUsesAccountModelWhenRequestedModelIsNotListed(
 	require.Len(t, upstream.requests, 1)
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
-	require.Equal(t, "gpt-5.6-terra", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
 }
 
 func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
@@ -583,7 +583,7 @@ func TestAccountTestService_Claude403DoesNotSetAccountError(t *testing.T) {
 	}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 
-	err := svc.testClaudeAccountConnection(ctx, account, "claude-sonnet-4-5")
+	err := svc.testClaudeAccountConnection(ctx, account, "claude-sonnet-4-5", "", "", AccountTestOptions{})
 
 	require.Error(t, err)
 	require.Zero(t, repo.setErrorID)

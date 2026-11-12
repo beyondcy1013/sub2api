@@ -19,6 +19,15 @@ vi.mock('@/stores/app', () => ({
   })
 }))
 
+vi.mock('@/stores/adminSettings', () => ({
+  useAdminSettingsStore: () => ({
+    loaded: true,
+    fetch: vi.fn().mockResolvedValue(undefined),
+    globalModelExcludePatterns: [],
+    isModelGloballyExcluded: () => false
+  })
+}))
+
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {

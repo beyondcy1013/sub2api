@@ -49,7 +49,47 @@
         </template>
 
         <template #cell-account="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || '-' }}</span>
+          <div class="text-sm">
+            <button
+              v-if="row.account?.id || row.account_id"
+              type="button"
+              data-testid="account-filter-btn"
+              class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              @click="$emit('accountClick', row.account?.id || row.account_id, row.account?.name)"
+              :title="t('admin.usage.clickToFilterAccount')"
+            >
+              {{ row.account?.name || (row.account?.id ? '#' + row.account.id : (row.account_id ? '#' + row.account_id : '-')) }}
+            </button>
+            <span v-else class="text-gray-400 dark:text-gray-500">-</span>
+          </div>
+        </template>
+
+        <template #cell-status="{ row }">
+          <div class="flex items-center gap-1.5">
+            <span
+              class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
+              :class="isRowError(row) ? statusCodeBadgeClass(row.status_code || 500) : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'"
+            >
+              {{ row.status_code || (isRowError(row) ? 500 : 200) }} {{ isRowError(row) ? t('usage.statusFailed') : t('usage.statusSuccess') }}
+            </span>
+            <button
+              v-if="row.error_id"
+              type="button"
+              data-testid="error-detail-btn"
+              class="inline-flex items-center text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 underline"
+              :title="t('admin.ops.errorLog.details')"
+              @click="$emit('errorClick', row.error_id)"
+            >
+              {{ t('admin.ops.errorLog.details') }}
+            </button>
+          </div>
+          <div
+            v-if="isRowError(row) && row.error_message"
+            class="mt-0.5 max-w-[240px] truncate text-xs text-rose-600 dark:text-rose-400"
+            :title="row.error_message"
+          >
+            {{ row.error_message }}
+          </div>
         </template>
 
         <template #cell-model="{ row }">
@@ -146,8 +186,12 @@
         </template>
 
         <template #cell-tokens="{ row }">
+          <!-- 失败请求且无 token 记录 -->
+          <span v-if="isRowError(row) && !row.input_tokens && !row.output_tokens" class="text-sm text-gray-400 dark:text-gray-500">
+            -
+          </span>
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
-          <div v-if="isImageUsage(row)" class="flex items-center gap-1.5">
+          <div v-else-if="isImageUsage(row)" class="flex items-center gap-1.5">
             <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
@@ -206,7 +250,10 @@
         </template>
 
         <template #cell-cost="{ row }">
-          <div class="text-sm">
+          <span v-if="isRowError(row) && (!row.actual_cost || row.actual_cost === 0)" class="text-sm text-gray-400 dark:text-gray-500">
+            -
+          </span>
+          <div v-else class="text-sm">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <span
@@ -587,11 +634,12 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
-import type { AdminUsageLog } from '@/types'
+import { statusCodeBadgeClass } from '@/utils/errorBadges'
+import type { AdminUsageLog, UsageLog } from '@/types'
 import type { Column } from '@/components/common/types'
 
 interface Props {
-  data: AdminUsageLog[]
+  data: (AdminUsageLog | UsageLog)[]
   loading?: boolean
   columns: Column[]
   serverSideSort?: boolean
@@ -614,11 +662,17 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
+  accountClick: [accountID: number, name?: string]
   sort: [key: string, order: 'asc' | 'desc']
   ipGeoBatchFailed: []
+  errorClick: [errorID: number]
 }>()
 const { t } = useI18n()
 const appStore = useAppStore()
+
+const isRowError = (row: UsageLog | AdminUsageLog): boolean => {
+  return row.status === 'error' || (row.status_code != null && row.status_code >= 400)
+}
 const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint

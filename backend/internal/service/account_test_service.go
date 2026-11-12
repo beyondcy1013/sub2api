@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,12 +59,14 @@ func isBackgroundAccountTest(ctx context.Context) bool {
 
 func accountTestModelID(account *Account, requestedModelID string) string {
 	requestedModelID = strings.TrimSpace(requestedModelID)
-	if account == nil {
+	// An explicit selection is the test target, even when it is absent from
+	// the account whitelist. Let the upstream report why it cannot serve it.
+	if requestedModelID != "" || account == nil {
 		return requestedModelID
 	}
 
 	mapping := stringMappingFromRaw(account.Credentials["model_mapping"])
-	if len(mapping) == 0 || (requestedModelID != "" && account.IsModelSupported(requestedModelID)) {
+	if len(mapping) == 0 {
 		return requestedModelID
 	}
 
@@ -136,6 +139,8 @@ type AccountTestOptions struct {
 	ImageDataURL    string
 	AudioDataURL    string
 	ReasoningEffort string
+	Evaluator       string
+	ExpectedAnswer  *int
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -204,6 +209,7 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
+	detectionRepo             AccountDetectionRepository
 	accountRepo               AccountRepository
 	geminiTokenProvider       *GeminiTokenProvider
 	claudeTokenProvider       *ClaudeTokenProvider
@@ -229,6 +235,13 @@ func (s *AccountTestService) SetSettingService(settingService *SettingService) {
 	if s != nil {
 		s.settingService = settingService
 	}
+}
+
+func (s *AccountTestService) SettingService() *SettingService {
+	if s == nil {
+		return nil
+	}
+	return s.settingService
 }
 
 func (s *AccountTestService) SetPluginManager(pluginManager *PluginManager) {
@@ -446,12 +459,49 @@ func createTestPayload(modelID string) (map[string]any, error) {
 
 // TestAccountConnection tests an account's connection by sending a test request
 // All account types use full Claude Code client characteristics, only auth header differs
+
+// createClaudeTestPayloadWithPrompt creates a Claude Messages API payload with a custom prompt
+func createClaudeTestPayloadWithPrompt(modelID string, prompt string) (map[string]any, error) {
+	sessionID, err := generateSessionString()
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"model": modelID,
+		"messages": []map[string]any{
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"metadata": map[string]string{
+			"user_id": sessionID,
+		},
+		"max_tokens":  16384,
+		"temperature": 1,
+		"stream":      true,
+	}, nil
+}
+
 // modelID is optional - if empty, defaults to claude.DefaultTestModel
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	initAccountTestLogger(c, accountID, modelID, mode)
 	ctx := c.Request.Context()
+	if !isBackgroundAccountTest(ctx) && s.detectionRepo != nil {
+		capture := &manualDetectionCapture{model: modelID, result: ScheduledTestResult{Status: "failed", StartedAt: time.Now()}}
+		c.Set(manualDetectionCaptureKey, capture)
+		defer func() {
+			capture.result.FinishedAt = time.Now()
+			capture.result.LatencyMs = time.Since(capture.result.StartedAt).Milliseconds()
+			if capture.completed && capture.result.ErrorMessage == "" {
+				capture.result.Status = "success"
+			}
+			s.recordDetection(ctx, accountID, capture.model, normalizeAccountTestMode(mode), "", &capture.result)
+		}()
+	}
 	testOpts := firstAccountTestOptions(opts)
 
 	// Get account
@@ -522,7 +572,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testTypeSafeAccountConnection(c, account, prompt)
 	}
 
-	return s.testClaudeAccountConnection(c, account, modelID)
+	return s.testClaudeAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode), testOpts)
 }
 
 // testModelRoutedAccountConnection probes the native endpoint for the selected
@@ -599,7 +649,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
-func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string, testOpts AccountTestOptions) error {
 	ctx := c.Request.Context()
 
 	// Determine the model to use
@@ -657,10 +707,30 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Create Claude Code style payload (same for all account types)
-	payload, err := createTestPayload(testModelID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create test payload")
+	// Create test payload based on mode
+	var payload map[string]any
+	var err error
+
+	if mode == AccountTestModePelican || mode == AccountTestModeCandy || mode == AccountTestModeRule {
+		testPrompt := strings.TrimSpace(prompt)
+		if testPrompt == "" {
+			if mode == AccountTestModePelican || mode == AccountTestModeCandy {
+				testPrompt = DefaultPelicanPrompt
+			} else {
+				testPrompt = "hi"
+			}
+		}
+		// Create Anthropic Messages API payload with custom prompt
+		payload, err = createClaudeTestPayloadWithPrompt(testModelID, testPrompt)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create test payload")
+		}
+	} else {
+		// Create default Claude Code style payload
+		payload, err = createTestPayload(testModelID)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create test payload")
+		}
 	}
 	payloadBytes, _ := json.Marshal(payload)
 
@@ -715,7 +785,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	}
 
 	// Process SSE stream
-	return s.processClaudeStream(c, resp.Body)
+	if mode == AccountTestModePelican {
+		testOpts.Evaluator = resolveDirectProbeEvaluator(prompt, testOpts.Evaluator)
+	}
+	return s.processClaudeStreamWithMode(c, resp.Body, mode, testModelID, testOpts)
 }
 
 func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {
@@ -911,7 +984,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
 	// Pelican compares the same explicitly selected model across accounts;
 	// applying per-account aliases would silently change the comparison target.
-	if mode != AccountTestModePelican {
+	// Candy/rule probes follow the same rule so the probe is asked of the
+	// same model on every account.
+	if mode != AccountTestModePelican && mode != AccountTestModeCandy && mode != AccountTestModeRule {
 		testModelID = account.GetMappedModel(testModelID)
 	}
 	if mode == AccountTestModeCompact {
@@ -999,7 +1074,25 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			pelicanPrompt = DefaultPelicanPrompt
 		}
 		testOpts := firstAccountTestOptions(opts)
-		payload = createOpenAIPelicanProbePayload(upstreamTestModelID, isOAuth, pelicanPrompt, credentialAccount.ID, testOpts.ReasoningEffort)
+		if resolveDirectProbeEvaluator(pelicanPrompt, testOpts.Evaluator) == "html" {
+			payload = createOpenAIPelicanProbePayload(upstreamTestModelID, isOAuth, pelicanPrompt, credentialAccount.ID, testOpts.ReasoningEffort)
+		} else {
+			payload = createOpenAIRuleProbePayload(upstreamTestModelID, isOAuth, pelicanPrompt, credentialAccount.ID, testOpts.ReasoningEffort)
+		}
+	} else if mode == AccountTestModeCandy {
+		candyPrompt := strings.TrimSpace(prompt)
+		if candyPrompt == "" {
+			candyPrompt = DefaultCandyPrompt
+		}
+		testOpts := firstAccountTestOptions(opts)
+		payload = createOpenAIPelicanProbePayload(upstreamTestModelID, isOAuth, candyPrompt, credentialAccount.ID, testOpts.ReasoningEffort)
+	} else if mode == AccountTestModeRule {
+		rulePrompt := strings.TrimSpace(prompt)
+		if rulePrompt == "" {
+			rulePrompt = "hi"
+		}
+		testOpts := firstAccountTestOptions(opts)
+		payload = createOpenAIRuleProbePayload(upstreamTestModelID, isOAuth, rulePrompt, credentialAccount.ID, testOpts.ReasoningEffort)
 	} else {
 		payload = createOpenAITestPayload(upstreamTestModelID, isOAuth)
 	}
@@ -1101,7 +1194,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// Process SSE stream
-	return s.processOpenAIStreamWithMode(c, resp.Body, mode, testModelID)
+	testOpts := firstAccountTestOptions(opts)
+	if mode == AccountTestModePelican {
+		testOpts.Evaluator = resolveDirectProbeEvaluator(prompt, testOpts.Evaluator)
+	}
+	return s.processOpenAIStreamWithMode(c, resp.Body, mode, testModelID, testOpts)
 }
 
 func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
@@ -2640,7 +2737,7 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		if strings.HasPrefix(modelID, "gemini-") {
 			return s.testGeminiAccountConnection(c, account, modelID, prompt)
 		}
-		return s.testClaudeAccountConnection(c, account, modelID)
+		return s.testClaudeAccountConnection(c, account, modelID, prompt, "", AccountTestOptions{})
 	}
 	return s.testAntigravityAccountConnection(c, account, modelID, prompt)
 }
@@ -3000,54 +3097,82 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
+	return s.processClaudeStreamWithMode(c, body, AccountTestModeDefault, "", AccountTestOptions{})
+}
+
+func (s *AccountTestService) processClaudeStreamWithMode(c *gin.Context, body io.Reader, mode, requestedModel string, opts AccountTestOptions) error {
 	reader := bufio.NewReader(body)
+	var reply strings.Builder
+	var responseModel, stopReason string
+	seenMessageStop := false
+	complete := func() error {
+		if stopReason == "max_tokens" {
+			return s.sendErrorAndEnd(c, "Claude 输出达到 max_tokens 上限，响应被截断；能力未判定")
+		}
+		if stopReason != "end_turn" && stopReason != "stop_sequence" && !(stopReason == "" && seenMessageStop) {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Claude 响应未正常完成（stop_reason=%q）；能力未判定", stopReason))
+		}
+		if mode == AccountTestModePelican {
+			result := evaluateDirectProbeResult(opts, requestedModel, responseModel, reply.String(), "")
+			s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
+			s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
+			return nil
+		}
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return nil
+	}
 
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
-			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
-		}
-
+		line, readErr := reader.ReadString('\n')
+		// ReadString can return a final SSE data line together with EOF.
 		line = strings.TrimSpace(line)
-		if line == "" || !sseDataPrefix.MatchString(line) {
-			continue
-		}
-
-		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
-		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			continue
-		}
-
-		eventType, _ := data["type"].(string)
-
-		switch eventType {
-		case "content_block_delta":
-			if delta, ok := data["delta"].(map[string]any); ok {
-				if text, ok := delta["text"].(string); ok {
-					s.sendEvent(c, TestEvent{Type: "content", Text: text})
+		if sseDataPrefix.MatchString(line) {
+			jsonStr := sseDataPrefix.ReplaceAllString(line, "")
+			if jsonStr == "[DONE]" {
+				return complete()
+			}
+			var data map[string]any
+			if json.Unmarshal([]byte(jsonStr), &data) == nil {
+				switch data["type"] {
+				case "message_start":
+					if message, ok := data["message"].(map[string]any); ok {
+						responseModel, _ = message["model"].(string)
+					}
+				case "content_block_delta":
+					if delta, ok := data["delta"].(map[string]any); ok {
+						if text, ok := delta["text"].(string); ok {
+							reply.WriteString(text)
+							s.sendEvent(c, TestEvent{Type: "content", Text: text})
+						}
+					}
+				case "message_delta":
+					if delta, ok := data["delta"].(map[string]any); ok {
+						if reason, ok := delta["stop_reason"].(string); ok {
+							stopReason = reason
+						}
+					}
+				case "message_stop":
+					seenMessageStop = true
+					return complete()
+				case "error":
+					errorMsg := "Unknown Claude stream error"
+					if errData, ok := data["error"].(map[string]any); ok {
+						if msg, ok := errData["message"].(string); ok {
+							errorMsg = msg
+						}
+					}
+					return s.sendErrorAndEnd(c, errorMsg)
 				}
 			}
-		case "message_stop":
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		case "error":
-			errorMsg := "Unknown error"
-			if errData, ok := data["error"].(map[string]any); ok {
-				if msg, ok := errData["message"].(string); ok {
-					errorMsg = msg
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				if stopReason != "" {
+					return complete()
 				}
+				return s.sendErrorAndEnd(c, "Claude 流在完成事件之前结束；响应可能被截断，能力未判定")
 			}
-			return s.sendErrorAndEnd(c, errorMsg)
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", readErr.Error()))
 		}
 	}
 }
@@ -3134,7 +3259,7 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 }
 
 // processOpenAIStreamWithMode processes the SSE stream with mode-specific evaluation (e.g. Pelican)
-func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io.Reader, mode string, requestedModel string) error {
+func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io.Reader, mode string, requestedModel string, opts ...AccountTestOptions) error {
 	reader := bufio.NewReader(body)
 	seenCompleted := false
 	var replyBuilder strings.Builder
@@ -3147,7 +3272,7 @@ func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io
 			if err == io.EOF {
 				if seenCompleted {
 					if mode == AccountTestModePelican {
-						result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
+						result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
 						s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
 						s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
 						return nil
@@ -3156,7 +3281,7 @@ func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io
 					return nil
 				}
 				if mode == AccountTestModePelican {
-					result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), "Stream ended before response.completed")
+					result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), "Stream ended before response.completed")
 					result.Downgraded = true
 					result.Reason = "响应未完整结束（疑似降智或中断）"
 					s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: false})
@@ -3176,7 +3301,7 @@ func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io
 		if jsonStr == "[DONE]" {
 			if seenCompleted {
 				if mode == AccountTestModePelican {
-					result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
+					result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
 					s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
 					s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
 					return nil
@@ -3185,7 +3310,7 @@ func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io
 				return nil
 			}
 			if mode == AccountTestModePelican {
-				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), "Stream ended before response.completed")
+				result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), "Stream ended before response.completed")
 				result.Downgraded = true
 				result.Reason = "响应未完整结束（疑似降智或中断）"
 				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: false})
@@ -3225,7 +3350,7 @@ func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io
 				}
 			}
 			if mode == AccountTestModePelican {
-				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
+				result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), refusalBuilder.String())
 				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Model: responseModel, Data: result, Success: !result.Downgraded})
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: !result.Downgraded, Model: responseModel, Data: result})
 				return nil
@@ -3242,24 +3367,53 @@ func (s *AccountTestService) processOpenAIStreamWithMode(c *gin.Context, body io
 				}
 			}
 			if mode == AccountTestModePelican {
-				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), errorMsg)
+				result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), errorMsg)
 				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Error: errorMsg, Model: responseModel, Data: result, Success: false})
 			}
 			return s.sendErrorAndEnd(c, errorMsg)
 		case "error":
-			errorMsg := "Unknown error"
-			if errData, ok := data["error"].(map[string]any); ok {
-				if msg, ok := errData["message"].(string); ok {
-					errorMsg = msg
-				}
-			}
+			errorMsg := responsesStreamErrorMessage(data)
 			if mode == AccountTestModePelican {
-				result := EvaluatePelicanResult(requestedModel, responseModel, replyBuilder.String(), errorMsg)
+				result := evaluateDirectProbeResult(firstAccountTestOptions(opts), requestedModel, responseModel, replyBuilder.String(), errorMsg)
 				s.sendEvent(c, TestEvent{Type: "pelican_result", Text: result.Reason, Error: errorMsg, Model: responseModel, Data: result, Success: false})
 			}
 			return s.sendErrorAndEnd(c, errorMsg)
 		}
 	}
+}
+
+// responsesStreamErrorMessage extracts a human-readable message from an OpenAI
+// Responses streaming error event. The official event payload is flat
+// ({"type":"error","code":...,"message":...,"request_id":...}); some relays
+// nest it as {"error":{"message":...}} instead, so both shapes are supported.
+// A present code / request_id is appended for upstream diagnostics instead of
+// collapsing the failure into a bare "Unknown error".
+func responsesStreamErrorMessage(data map[string]any) string {
+	errorMsg := ""
+	if msg, ok := data["message"].(string); ok && msg != "" {
+		errorMsg = msg
+	}
+	if errorMsg == "" {
+		if errData, ok := data["error"].(map[string]any); ok {
+			if msg, ok := errData["message"].(string); ok && msg != "" {
+				errorMsg = msg
+			}
+		}
+	}
+	if errorMsg == "" {
+		errorMsg = "Unknown error"
+	}
+	var details []string
+	if code, _ := data["code"].(string); code != "" {
+		details = append(details, "code: "+code)
+	}
+	if requestID, _ := data["request_id"].(string); requestID != "" {
+		details = append(details, "request_id: "+requestID)
+	}
+	if len(details) > 0 {
+		return fmt.Sprintf("%s (%s)", errorMsg, strings.Join(details, ", "))
+	}
+	return errorMsg
 }
 
 // testOpenAIImageAPIKey tests OpenAI image generation using an API Key account.
@@ -3518,6 +3672,11 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 			}
 		}
 	}
+	if raw, exists := c.Get(manualDetectionCaptureKey); exists {
+		if capture, ok := raw.(*manualDetectionCapture); ok {
+			s.captureDetectionEvent(capture, event)
+		}
+	}
 	eventJSON, _ := json.Marshal(event)
 	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", eventJSON); err != nil {
 		log.Printf("failed to write SSE event: %v", err)
@@ -3538,6 +3697,13 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	return s.RunTestBackgroundWithMode(ctx, accountID, modelID, AccountTestModeDefault)
+}
+
+// RunTestBackgroundWithMode executes an account test with an explicit test mode
+// (e.g. AccountTestModePelican for scheduled 降智检测) using the same in-memory
+// capture path as RunTestBackground.
+func (s *AccountTestService) RunTestBackgroundWithMode(ctx context.Context, accountID int64, modelID, mode string) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 
 	w := httptest.NewRecorder()
@@ -3546,11 +3712,11 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 	ginCtx.Request = (&http.Request{}).WithContext(backgroundCtx)
 	ginCtx.Set(accountTestBackgroundKey, true)
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", mode)
 
 	finishedAt := time.Now()
 	body := w.Body.String()
-	responseText, errMsg := parseTestSSEOutput(body)
+	responseText, errMsg, pelican := parseTestSSEOutput(body)
 
 	status := "success"
 	if testErr != nil || errMsg != "" {
@@ -3560,18 +3726,246 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		}
 	}
 
-	return &ScheduledTestResult{
+	result := &ScheduledTestResult{
 		Status:       status,
 		ResponseText: responseText,
 		ErrorMessage: errMsg,
 		LatencyMs:    finishedAt.Sub(startedAt).Milliseconds(),
 		StartedAt:    startedAt,
 		FinishedAt:   finishedAt,
-	}, nil
+	}
+	if pelican != nil {
+		result.Downgraded = pelican.Downgraded
+		result.DowngradeReason = pelican.Reason
+		result.ResponseModel = pelican.ResponseModel
+	}
+	// Scheduled pelican runs add a second-stage numeric capability probe
+	// (candy-bag worst case) for objective multi-signal evidence. Prompt and
+	// expected answer come from admin settings so operators can recalibrate
+	// without redeploying. Only runs after a completed pelican stream so a
+	// transport failure is not double-counted; probe-execution failures never
+	// mark the account downgraded by themselves.
+	if mode == AccountTestModePelican && status == "success" {
+		probeSettings, probeErr := s.pelicanProbeSettings(ctx)
+		if probeErr == nil && probeSettings.CandyEnabled {
+			if candyReply, candyErr := s.runCandyCapabilityProbe(ctx, accountID, modelID, probeSettings.CandyPrompt); candyErr == nil {
+				if _, correct := EvaluateCandyResult(candyReply, probeSettings.CandyExpectedAnswer); !correct {
+					result.Downgraded = true
+					note := "数学探针未答对 " + strconv.Itoa(probeSettings.CandyExpectedAnswer)
+					if result.DowngradeReason == "" {
+						result.DowngradeReason = note
+					} else {
+						result.DowngradeReason += "；" + note
+					}
+				}
+			}
+		}
+	}
+	s.recordDetection(ctx, accountID, modelID, mode, "", result)
+	return result, nil
+}
+
+// pelicanProbeSettings resolves the downgrade-probe settings with defaults
+// when the settings service is unavailable.
+func (s *AccountTestService) pelicanProbeSettings(ctx context.Context) (PelicanProbeSettings, error) {
+	if s == nil || s.settingService == nil {
+		return DefaultPelicanProbeSettings(), nil
+	}
+	return s.settingService.GetPelicanProbeSettings(ctx)
+}
+
+// RunDegradationProbeRules executes each selected degradation rule as one
+// upstream request and merges the per-rule verdicts. Used by the scheduler;
+// the manual connection test keeps its own single-probe paths.
+func (s *AccountTestService) RunDegradationProbeRules(ctx context.Context, accountID int64, modelID string, rules []*DegradationRule) (*ScheduledTestResult, error) {
+	startedAt := time.Now()
+
+	var outcomes []RuleOutcome
+	var combinedTexts []string
+	var responseModel string
+	downgraded := false
+	var executionErrors []string
+	validRules := 0
+	var reasons []string
+
+	for _, rule := range rules {
+		if ctx.Err() != nil {
+			executionErrors = append(executionErrors, ctx.Err().Error())
+			break
+		}
+		switch rule.Evaluator {
+		case DegradationEvaluatorNumeric, DegradationEvaluatorHTML, DegradationEvaluatorKeywords, DegradationEvaluatorRefusal:
+		default:
+			continue
+		}
+		validRules++
+		probe := s.runProbeRule(ctx, accountID, modelID, rule)
+		if probe.responseModel != "" && responseModel == "" {
+			responseModel = probe.responseModel
+		}
+		if probe.reply != "" {
+			combinedTexts = append(combinedTexts, probe.reply)
+		}
+		outcome := RuleOutcome{RuleID: rule.ID, RuleName: rule.Name, Evaluator: rule.Evaluator}
+		if probe.err != nil {
+			outcome.Reason = "探测请求失败"
+			if probe.errMsg != "" {
+				outcome.Reason += ": " + probe.errMsg
+			}
+			executionErrors = append(executionErrors, rule.Name+": "+outcome.Reason)
+		} else if probe.pelicanVerdict != nil && rule.Evaluator == DegradationEvaluatorHTML {
+			// The pelican SSE path already evaluated HTML completeness,
+			// refusals and low-tier model substitution against the upstream's
+			// claimed response model — reuse that authoritative verdict.
+			if *probe.pelicanVerdict {
+				outcome.Reason = probe.pelicanReason
+			} else {
+				outcome.Passed = true
+			}
+		} else {
+			passed, reason, _ := EvaluateDegradationRule(rule, probe.reply, probe.refusal, modelID, probe.responseModel)
+			outcome.Passed = passed
+			outcome.Reason = reason
+		}
+		if !outcome.Passed && probe.err == nil {
+			downgraded = true
+			reasons = append(reasons, rule.Name+":"+outcome.Reason)
+		}
+		outcomes = append(outcomes, outcome)
+	}
+
+	finishedAt := time.Now()
+	result := &ScheduledTestResult{
+		Status:        "success",
+		ResponseText:  strings.Join(combinedTexts, "\n"),
+		Downgraded:    downgraded,
+		ResponseModel: responseModel,
+		LatencyMs:     finishedAt.Sub(startedAt).Milliseconds(),
+		StartedAt:     startedAt,
+		FinishedAt:    finishedAt,
+	}
+	if len(executionErrors) > 0 {
+		result.Status = "failed"
+		result.ErrorMessage = strings.Join(executionErrors, "；")
+	}
+	if validRules == 0 && len(executionErrors) == 0 {
+		result.Status = "skipped"
+	}
+	if downgraded {
+		result.DowngradeReason = strings.Join(reasons, "；")
+	}
+	if raw, err := json.Marshal(outcomes); err == nil {
+		result.RuleResults = raw
+	}
+	s.recordDetection(ctx, accountID, modelID, "pelican", DegradationRulesFingerprint(rules), result)
+	return result, nil
+}
+
+type probeRuleResult struct {
+	reply          string
+	refusal        string
+	errMsg         string
+	responseModel  string
+	pelicanVerdict *bool
+	pelicanReason  string
+	err            error
+}
+
+// runProbeRule issues one upstream probe request for a rule. HTML rules ride
+// the pelican SSE path (which emits the pelican_result verdict); all other
+// evaluators use the neutral rule_probe path and are judged on the reply text.
+func (s *AccountTestService) runProbeRule(ctx context.Context, accountID int64, modelID string, rule *DegradationRule) probeRuleResult {
+	out := probeRuleResult{}
+	mode := AccountTestModeRule
+	if rule.Evaluator == DegradationEvaluatorHTML {
+		mode = AccountTestModePelican
+	}
+
+	w := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(w)
+	backgroundCtx := context.WithValue(ctx, backgroundAccountTestContextKey{}, true)
+	ginCtx.Request = (&http.Request{}).WithContext(backgroundCtx)
+
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, rule.Prompt, mode)
+
+	var texts []string
+	var refusalParts []string
+	completed := false
+	for _, line := range strings.Split(w.Body.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		jsonStr := strings.TrimPrefix(line, "data: ")
+		var event TestEvent
+		if err := json.Unmarshal([]byte(jsonStr), &event); err != nil {
+			continue
+		}
+		if event.Model != "" {
+			out.responseModel = event.Model
+		}
+		switch event.Type {
+		case "content":
+			if event.Text != "" {
+				texts = append(texts, event.Text)
+			}
+		case "pelican_result":
+			verdict := false
+			if data, ok := event.Data.(map[string]any); ok {
+				if v, ok := data["downgraded"].(bool); ok {
+					verdict = v
+				}
+				if model, ok := data["response_model"].(string); ok && model != "" {
+					out.responseModel = model
+				}
+				if reason, ok := data["reason"].(string); ok && reason != "" {
+					out.pelicanReason = reason
+				}
+			}
+			out.pelicanVerdict = &verdict
+		case "test_complete":
+			completed = event.Success
+		case "error":
+			if event.Error != "" {
+				out.errMsg = event.Error
+			}
+		}
+	}
+	out.reply = strings.Join(texts, "")
+	out.refusal = strings.Join(refusalParts, "；")
+	if out.errMsg != "" {
+		out.err = fmt.Errorf("%s", out.errMsg)
+		return out
+	}
+	if !completed && testErr == nil {
+		testErr = errors.New("test stream ended before completion")
+	}
+	out.err = testErr
+	return out
+}
+
+// runCandyCapabilityProbe executes the standalone numeric capability probe
+// in-memory and returns the raw reply text for evaluation.
+func (s *AccountTestService) runCandyCapabilityProbe(ctx context.Context, accountID int64, modelID, prompt string) (string, error) {
+	w := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(w)
+	backgroundCtx := context.WithValue(ctx, backgroundAccountTestContextKey{}, true)
+	ginCtx.Request = (&http.Request{}).WithContext(backgroundCtx)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeCandy)
+	responseText, errMsg, _ := parseTestSSEOutput(w.Body.String())
+	if errMsg != "" {
+		return responseText, fmt.Errorf("%s", errMsg)
+	}
+	if testErr != nil {
+		return responseText, testErr
+	}
+	return responseText, nil
 }
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.
-func parseTestSSEOutput(body string) (responseText, errMsg string) {
+// The third return value carries the pelican downgrade verdict when the stream
+// emitted a pelican_result event (nil otherwise).
+func parseTestSSEOutput(body string) (responseText, errMsg string, pelican *PelicanResult) {
 	var texts []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
@@ -3590,8 +3984,27 @@ func parseTestSSEOutput(body string) (responseText, errMsg string) {
 			}
 		case "error":
 			errMsg = event.Error
+		case "pelican_result":
+			pelican = pelicanResultFromEvent(event)
 		}
 	}
 	responseText = strings.Join(texts, "")
 	return
+}
+
+// pelicanResultFromEvent round-trips the pelican verdict carried in a
+// pelican_result TestEvent back into a PelicanResult struct.
+func pelicanResultFromEvent(event TestEvent) *PelicanResult {
+	if raw, err := json.Marshal(event.Data); err == nil {
+		var parsed PelicanResult
+		if err := json.Unmarshal(raw, &parsed); err == nil && (parsed.Downgraded || parsed.Reason != "" || parsed.ResponseModel != "") {
+			return &parsed
+		}
+	}
+	// Fallback: reconstruct from the flat event fields.
+	return &PelicanResult{
+		Downgraded:    !event.Success,
+		Reason:        event.Text,
+		ResponseModel: event.Model,
+	}
 }

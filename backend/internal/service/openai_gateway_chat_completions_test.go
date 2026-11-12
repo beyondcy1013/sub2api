@@ -1875,3 +1875,63 @@ func TestGPT61SolOnlyChatFallbackRejectsToolsAndDisabledReasoning(t *testing.T) 
 		}
 	}
 }
+
+func TestGPT61SolWorkBuddyRelayKeepsChatTools(t *testing.T) {
+	accountAllows := &Account{
+		ID:    1,
+		Extra: map[string]any{accountExtraGPT61SolChatTools: true},
+	}
+	require.True(t, accountAllowsGPT61SolChatTools(accountAllows))
+
+	body := []byte(`{"model":"gpt-6.1-sol","input":"hi","tools":[{"type":"custom","name":"exec"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
+
+	// Parsing/conversion reaches a tool-capable relay instead of returning the
+	// generic GPT-6.1 Sol Chat-only rejection.
+	_, err := (&OpenAIGatewayService{cfg: &config.Config{}}).forwardResponsesViaRawChatCompletions(
+		context.Background(), c, accountAllows, body,
+	)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "requires Responses for tool calls")
+}
+
+func TestGPT61SolRelayChatToolsReachChatUpstream(t *testing.T) {
+	upstreamBody := []byte(`{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"gpt-6.1-sol","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	account := &Account{
+		ID:          101,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"base_url":      "http://upstream.example",
+			"api_key":       "sk-test",
+			"model_mapping": map[string]any{"public": "gpt-6.1-sol"},
+		},
+		Extra: map[string]any{accountExtraGPT61SolChatTools: true},
+	}
+	body := []byte(`{"model":"public","input":"hi","stream":false,"tools":[{"type":"custom","name":"exec"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
+
+	recorder := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}}, httpUpstream: recorder}
+	_, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "http://upstream.example/v1/chat/completions", recorder.lastReq.URL.String())
+	require.Equal(t, "gpt-6.1-sol", gjson.GetBytes(recorder.lastBody, "model").String())
+	require.Equal(t, "function", gjson.GetBytes(recorder.lastBody, "tools.0.type").String())
+	require.Equal(t, "exec", gjson.GetBytes(recorder.lastBody, "tools.0.function.name").String())
+	require.JSONEq(t,
+		`{"type":"object","properties":{"input":{"type":"string","description":"The raw input for this tool, passed through verbatim."}},"required":["input"]}`,
+		gjson.GetBytes(recorder.lastBody, "tools.0.function.parameters").Raw,
+	)
+	require.Contains(t, rec.Body.String(), `"model":"public"`)
+}

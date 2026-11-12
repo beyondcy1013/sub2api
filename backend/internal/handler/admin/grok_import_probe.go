@@ -212,6 +212,7 @@ func ProvideAccountHandler(
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	grokQuotaService *service.GrokQuotaService,
 	stickySessionAdminStore service.StickySessionAdminStore,
+	codexAuthFileSync *service.CodexAuthFileSyncService,
 ) *AccountHandler {
 	handler := NewAccountHandler(
 		adminService,
@@ -231,6 +232,7 @@ func ProvideAccountHandler(
 	)
 	handler.grokImportProber = grokQuotaService
 	handler.stickySessionAdminStore = stickySessionAdminStore
+	handler.codexAuthFileSync = codexAuthFileSync
 	handler.cfg = cfg
 	return handler
 }

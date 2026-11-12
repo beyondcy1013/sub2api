@@ -3,10 +3,21 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
+
+// nullableJSONB maps a nil RawMessage to SQL NULL so empty rule results store
+// as NULL instead of the jsonb literal 'null'.
+func nullableJSONB(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return []byte(raw)
+}
 
 // --- Plan Repository ---
 
@@ -20,16 +31,17 @@ func NewScheduledTestPlanRepository(db *sql.DB) service.ScheduledTestPlanReposit
 
 func (r *scheduledTestPlanRepository) Create(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, next_run_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, last_run_at, next_run_at, created_at, updated_at
-	`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.AutoRecoverSchedulable, plan.NextRunAt)
+		INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, mode, auto_pause_on_downgrade, rule_ids, rule_strategy, downgrade_action, downgrade_threshold, next_run_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, mode, auto_pause_on_downgrade, rule_ids, rule_strategy, downgrade_action, downgrade_threshold, consecutive_downgrades, last_rule_index, last_run_at, next_run_at, created_at, updated_at
+	`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.AutoRecoverSchedulable, plan.Mode, plan.AutoPauseOnDowngrade,
+		pq.Array(plan.RuleIDs), plan.RuleStrategy, plan.DowngradeAction, plan.DowngradeThreshold, plan.NextRunAt)
 	return scanPlan(row)
 }
 
 func (r *scheduledTestPlanRepository) GetByID(ctx context.Context, id int64) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, last_run_at, next_run_at, created_at, updated_at
+		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, mode, auto_pause_on_downgrade, rule_ids, rule_strategy, downgrade_action, downgrade_threshold, consecutive_downgrades, last_rule_index, last_run_at, next_run_at, created_at, updated_at
 		FROM scheduled_test_plans WHERE id = $1
 	`, id)
 	return scanPlan(row)
@@ -37,7 +49,7 @@ func (r *scheduledTestPlanRepository) GetByID(ctx context.Context, id int64) (*s
 
 func (r *scheduledTestPlanRepository) ListByAccountID(ctx context.Context, accountID int64) ([]*service.ScheduledTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, last_run_at, next_run_at, created_at, updated_at
+		SELECT id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, mode, auto_pause_on_downgrade, rule_ids, rule_strategy, downgrade_action, downgrade_threshold, consecutive_downgrades, last_rule_index, last_run_at, next_run_at, created_at, updated_at
 		FROM scheduled_test_plans WHERE account_id = $1
 		ORDER BY created_at DESC
 	`, accountID)
@@ -52,6 +64,9 @@ func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT plan.id, plan.account_id, plan.model_id, plan.cron_expression, plan.enabled,
 			plan.max_results, plan.auto_recover, plan.auto_recover_schedulable,
+			plan.mode, plan.auto_pause_on_downgrade,
+			plan.rule_ids, plan.rule_strategy, plan.downgrade_action, plan.downgrade_threshold,
+			plan.consecutive_downgrades, plan.last_rule_index,
 			plan.last_run_at, plan.next_run_at, plan.created_at, plan.updated_at
 		FROM scheduled_test_plans AS plan
 		JOIN accounts AS account ON account.id = plan.account_id
@@ -71,6 +86,9 @@ func (r *scheduledTestPlanRepository) ListAll(ctx context.Context) ([]*service.S
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT plan.id, plan.account_id, plan.model_id, plan.cron_expression, plan.enabled,
 			plan.max_results, plan.auto_recover, plan.auto_recover_schedulable,
+			plan.mode, plan.auto_pause_on_downgrade,
+			plan.rule_ids, plan.rule_strategy, plan.downgrade_action, plan.downgrade_threshold,
+			plan.consecutive_downgrades, plan.last_rule_index,
 			plan.last_run_at, plan.next_run_at, plan.created_at, plan.updated_at,
 			account.name, account.platform
 		FROM scheduled_test_plans AS plan
@@ -106,10 +124,12 @@ func (r *scheduledTestPlanRepository) DeleteByAccountAndCron(ctx context.Context
 func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE scheduled_test_plans
-		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5, auto_recover = $6, auto_recover_schedulable = $7, next_run_at = $8, updated_at = NOW()
+		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5, auto_recover = $6, auto_recover_schedulable = $7, mode = $8, auto_pause_on_downgrade = $9,
+		    rule_ids = $10, rule_strategy = $11, downgrade_action = $12, downgrade_threshold = $13, next_run_at = $14, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, last_run_at, next_run_at, created_at, updated_at
-	`, plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.AutoRecoverSchedulable, plan.NextRunAt)
+		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, auto_recover_schedulable, mode, auto_pause_on_downgrade, rule_ids, rule_strategy, downgrade_action, downgrade_threshold, consecutive_downgrades, last_rule_index, last_run_at, next_run_at, created_at, updated_at
+	`, plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.AutoRecoverSchedulable, plan.Mode, plan.AutoPauseOnDowngrade,
+		pq.Array(plan.RuleIDs), plan.RuleStrategy, plan.DowngradeAction, plan.DowngradeThreshold, plan.NextRunAt)
 	return scanPlan(row)
 }
 
@@ -125,6 +145,31 @@ func (r *scheduledTestPlanRepository) UpdateAfterRun(ctx context.Context, id int
 	return err
 }
 
+func (r *scheduledTestPlanRepository) BumpConsecutiveDowngrades(ctx context.Context, id int64) (int, error) {
+	var count int
+	if err := r.db.QueryRowContext(ctx, `
+		UPDATE scheduled_test_plans SET consecutive_downgrades = consecutive_downgrades + 1, updated_at = NOW() WHERE id = $1
+		RETURNING consecutive_downgrades
+	`, id).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *scheduledTestPlanRepository) ResetConsecutiveDowngrades(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE scheduled_test_plans SET consecutive_downgrades = 0, updated_at = NOW() WHERE id = $1
+	`, id)
+	return err
+}
+
+func (r *scheduledTestPlanRepository) BumpLastRuleIndex(ctx context.Context, id int64, selected int) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE scheduled_test_plans SET last_rule_index = $2, updated_at = NOW() WHERE id = $1
+	`, id, selected)
+	return err
+}
+
 // --- Result Repository ---
 
 type scheduledTestResultRepository struct {
@@ -137,14 +182,16 @@ func NewScheduledTestResultRepository(db *sql.DB) service.ScheduledTestResultRep
 
 func (r *scheduledTestResultRepository) Create(ctx context.Context, result *service.ScheduledTestResult) (*service.ScheduledTestResult, error) {
 	row := r.db.QueryRowContext(ctx, `
-		INSERT INTO scheduled_test_results (plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		RETURNING id, plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at
-	`, result.PlanID, result.Status, result.ResponseText, result.ErrorMessage, result.LatencyMs, result.StartedAt, result.FinishedAt)
+		INSERT INTO scheduled_test_results (plan_id, status, response_text, error_message, downgraded, downgrade_reason, response_model, rule_results, latency_ms, started_at, finished_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		RETURNING id, plan_id, status, response_text, error_message, downgraded, downgrade_reason, response_model, rule_results, latency_ms, started_at, finished_at, created_at
+	`, result.PlanID, result.Status, result.ResponseText, result.ErrorMessage, result.Downgraded, result.DowngradeReason, result.ResponseModel,
+		nullableJSONB(result.RuleResults), result.LatencyMs, result.StartedAt, result.FinishedAt)
 
 	out := &service.ScheduledTestResult{}
 	if err := row.Scan(
 		&out.ID, &out.PlanID, &out.Status, &out.ResponseText, &out.ErrorMessage,
+		&out.Downgraded, &out.DowngradeReason, &out.ResponseModel, &out.RuleResults,
 		&out.LatencyMs, &out.StartedAt, &out.FinishedAt, &out.CreatedAt,
 	); err != nil {
 		return nil, err
@@ -154,7 +201,7 @@ func (r *scheduledTestResultRepository) Create(ctx context.Context, result *serv
 
 func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID int64, limit int) ([]*service.ScheduledTestResult, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at
+		SELECT id, plan_id, status, response_text, error_message, downgraded, downgrade_reason, response_model, rule_results, latency_ms, started_at, finished_at, created_at
 		FROM scheduled_test_results
 		WHERE plan_id = $1
 		ORDER BY created_at DESC
@@ -170,7 +217,8 @@ func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID
 		r := &service.ScheduledTestResult{}
 		if err := rows.Scan(
 			&r.ID, &r.PlanID, &r.Status, &r.ResponseText, &r.ErrorMessage,
-			&r.LatencyMs, &r.StartedAt, &r.FinishedAt, &r.CreatedAt,
+		&r.Downgraded, &r.DowngradeReason, &r.ResponseModel, &r.RuleResults,
+		&r.LatencyMs, &r.StartedAt, &r.FinishedAt, &r.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -204,6 +252,8 @@ func scanPlan(row scannable) (*service.ScheduledTestPlan, error) {
 	p := &service.ScheduledTestPlan{}
 	if err := row.Scan(
 		&p.ID, &p.AccountID, &p.ModelID, &p.CronExpression, &p.Enabled, &p.MaxResults, &p.AutoRecover, &p.AutoRecoverSchedulable,
+		&p.Mode, &p.AutoPauseOnDowngrade,
+		pq.Array(&p.RuleIDs), &p.RuleStrategy, &p.DowngradeAction, &p.DowngradeThreshold, &p.ConsecutiveDowngrades, &p.LastRuleIndex,
 		&p.LastRunAt, &p.NextRunAt, &p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -227,7 +277,9 @@ func scanPlanWithAccount(row scannable) (*service.ScheduledTestPlan, error) {
 	plan := &service.ScheduledTestPlan{}
 	if err := row.Scan(
 		&plan.ID, &plan.AccountID, &plan.ModelID, &plan.CronExpression, &plan.Enabled, &plan.MaxResults,
-		&plan.AutoRecover, &plan.AutoRecoverSchedulable, &plan.LastRunAt, &plan.NextRunAt,
+		&plan.AutoRecover, &plan.AutoRecoverSchedulable, &plan.Mode, &plan.AutoPauseOnDowngrade,
+		pq.Array(&plan.RuleIDs), &plan.RuleStrategy, &plan.DowngradeAction, &plan.DowngradeThreshold, &plan.ConsecutiveDowngrades, &plan.LastRuleIndex,
+		&plan.LastRunAt, &plan.NextRunAt,
 		&plan.CreatedAt, &plan.UpdatedAt, &plan.AccountName, &plan.AccountPlatform,
 	); err != nil {
 		return nil, err

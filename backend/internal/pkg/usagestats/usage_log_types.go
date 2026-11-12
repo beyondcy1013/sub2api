@@ -178,8 +178,43 @@ type UserBreakdownItem struct {
 	AccountCost  float64 `json:"account_cost"`  // 账号成本
 }
 
+// AccountBreakdownItem represents per-account usage breakdown within a dimension (group, model, endpoint).
+type AccountBreakdownItem struct {
+	AccountID    int64   `json:"account_id"`
+	AccountName  string  `json:"account_name"`
+	Platform     string  `json:"platform"`
+	Type         string  `json:"type"`
+	Requests     int64   `json:"requests"`
+	InputTokens  int64   `json:"input_tokens"`  // 输入 token 累计
+	OutputTokens int64   `json:"output_tokens"` // 输出 token 累计
+	CacheTokens  int64   `json:"cache_tokens"`  // 缓存创建 + 读取 token 累计
+	TotalTokens  int64   `json:"total_tokens"`  // 输入+输出+缓存 token 累计
+	Cost         float64 `json:"cost"`          // 标准计费
+	ActualCost   float64 `json:"actual_cost"`   // 实际扣除
+	AccountCost  float64 `json:"account_cost"`  // 账号成本
+}
+
 // UserBreakdownDimension specifies the dimension to filter for user breakdown.
 type UserBreakdownDimension struct {
+	GroupID      int64  // filter by group_id (>0 to enable)
+	Model        string // filter by model name (non-empty to enable)
+	ModelType    string // "requested", "upstream", or "mapping"
+	Endpoint     string // filter by endpoint value (non-empty to enable)
+	EndpointType string // "inbound", "upstream", or "path"
+	// Additional filter conditions
+	UserID             int64  // filter by user_id (>0 to enable)
+	APIKeyID           int64  // filter by api_key_id (>0 to enable)
+	AccountID          int64  // filter by account_id (>0 to enable)
+	RequestType        *int16 // filter by request_type (non-nil to enable)
+	Stream             *bool  // filter by stream flag (non-nil to enable)
+	NativeCompactionV2 *bool  // filter by native compaction v2 flag (non-nil to enable)
+	BillingType        *int8  // filter by billing_type (non-nil to enable)
+	// SortBy 指定排序列(空 = 默认按 actual_cost)。合法值由 repo 层 allowlist 校验。
+	SortBy string
+}
+
+// AccountBreakdownDimension specifies the dimension to filter for account breakdown.
+type AccountBreakdownDimension struct {
 	GroupID      int64  // filter by group_id (>0 to enable)
 	Model        string // filter by model name (non-empty to enable)
 	ModelType    string // "requested", "upstream", or "mapping"
@@ -285,6 +320,8 @@ type UsageLogFilters struct {
 	UpstreamModelMismatch *bool
 	StartTime             *time.Time
 	EndTime               *time.Time
+	// Status filters records: "success", "failed"/"error", or "" / "all"
+	Status string
 	// ExactTotal requests exact COUNT(*) for pagination. Default false for fast large-table paging.
 	ExactTotal bool
 }

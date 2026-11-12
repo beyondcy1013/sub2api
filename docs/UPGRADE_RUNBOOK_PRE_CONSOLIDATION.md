@@ -1,20 +1,20 @@
 # sub2api 上游升级运行手册
 
-本文件是 `/home/third_party/sub2api` 的唯一标准升级流程。定制行为的逐项清单见 [LOCAL_UPGRADE_CUSTOMIZATIONS.md](LOCAL_UPGRADE_CUSTOMIZATIONS.md)，项目身份和长期约束见 [../AGENTS.md](../AGENTS.md)。
+本文件是 `/home/codes/ai/sub2api` 的唯一标准升级流程。定制行为的逐项清单见 [LOCAL_UPGRADE_CUSTOMIZATIONS.md](LOCAL_UPGRADE_CUSTOMIZATIONS.md)，项目身份和长期约束见 [../AGENTS.md](../AGENTS.md)。
 
 ## 1. 固定边界
 
 | 项目 | 固定值 |
 | --- | --- |
-| 源码目录 | `/home/third_party/sub2api` |
+| 源码目录 | `/home/codes/ai/sub2api` |
 | 上游合并源 | `upstream/main` (`Wei-Shaw/sub2api`) |
 | fork 推送目标 | `origin/main` (`beyondcy1013/sub2api`) |
 | systemd 服务 | `sub2api.service` |
-| 运行二进制 | `/home/third_party/bin/sub2api/sub2api` |
+| 运行二进制 | `/home/codes/third_party/bin/sub2api/sub2api` |
 | HTTP 端口 | `18381` |
 | PostgreSQL 数据库 | `sub2api` |
 | Redis DB | `0` |
-| 配置文件 | `/home/third_party/sub2api/deploy/data/config.yaml` |
+| 配置文件 | `/home/codes/ai/sub2api/deploy/data/config.yaml` |
 
 必须遵守：
 
@@ -48,7 +48,7 @@ export http_proxy="" https_proxy="" all_proxy="" ALL_PROXY=""
 export HTTP_PROXY="http://127.0.0.1:7890"
 export HTTPS_PROXY="http://127.0.0.1:7890"
 
-cd /home/third_party/sub2api
+cd /home/codes/ai/sub2api
 git remote -v
 git status --short
 git branch --show-current
@@ -73,9 +73,9 @@ curl --noproxy '*' -fsS http://127.0.0.1:18381/ >/dev/null
 不要只建一个分支：分支无法保存 dirty 状态和未跟踪文件。四类恢复资料必须同时存在。
 
 ```bash
-cd /home/third_party/sub2api
+cd /home/codes/ai/sub2api
 TS=$(date +%Y%m%d-%H%M%S)
-BACKUP=/home/third_party/upgrade-backups/sub2api-$TS
+BACKUP=/home/codes/third_party/upgrade-backups/sub2api-$TS
 BACKUP_BRANCH=backup-pre-upgrade-$TS
 mkdir -p "$BACKUP"
 
@@ -112,7 +112,7 @@ git show-ref --verify "refs/heads/$BACKUP_BRANCH"
 只 stash tracked 改动，不包含 untracked 文件：
 
 ```bash
-cd /home/third_party/sub2api
+cd /home/codes/ai/sub2api
 STASH_CREATED=0
 if ! git diff --quiet || ! git diff --cached --quiet; then
   git stash push -m "pre-upgrade-$TS"
@@ -183,7 +183,7 @@ git diff --check
 `frontend/pnpm-lock.yaml` 是 lockfile v9，必须使用 pnpm 9；pnpm 8 会误报 lockfile 或缺依赖。
 
 ```bash
-cd /home/third_party/sub2api/backend
+cd /home/codes/ai/sub2api/backend
 
 # 本地 unit-tag 定制测试。
 go test -tags unit ./internal/handler/dto ./internal/service \
@@ -196,7 +196,7 @@ go test ./internal/repository ./internal/handler/admin ./internal/service -count
 # 完整后端回归。
 go test ./...
 
-cd /home/third_party/sub2api/frontend
+cd /home/codes/ai/sub2api/frontend
 
 # 选择 pnpm 9。当前系统全局 pnpm 可能仍是 8.x，不能直接使用。
 if [[ "$(pnpm --version 2>/dev/null || true)" == 9.* ]]; then
@@ -243,8 +243,8 @@ fi
 必须先完成前端 `pnpm build`，然后用 `-tags embed` 把 `frontend/dist` 嵌入 Go 二进制。
 
 ```bash
-REPO=/home/third_party/sub2api
-DEPLOY_DIR=/home/third_party/bin/sub2api
+REPO=/home/codes/ai/sub2api
+DEPLOY_DIR=/home/codes/third_party/bin/sub2api
 BIN=$DEPLOY_DIR/sub2api
 BUILD_OUT=$REPO/backend/bin/sub2api.new
 SWAP=$DEPLOY_DIR/.sub2api.swap-$TS
@@ -298,7 +298,7 @@ printf '%s\n' "$PROCESS_ENV" | rg -q '^SERVER_PORT=18381$'
 
 ```bash
 set -a
-. /home/third_party/sub2api/deploy/sub2api.env
+. /home/codes/ai/sub2api/deploy/sub2api.env
 set +a
 LOGIN_JSON=$(jq -nc --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" \
   '{email:$email,password:$password}')
@@ -325,7 +325,7 @@ unset TOKEN LOGIN_JSON ADMIN_PASSWORD DATABASE_PASSWORD REDIS_PASSWORD JWT_SECRE
 只允许普通 fast-forward push：
 
 ```bash
-cd /home/third_party/sub2api
+cd /home/codes/ai/sub2api
 git fetch origin main
 
 # origin 有别人提交而当前 HEAD 不包含它时必须停止协调，禁止 force。
@@ -348,7 +348,7 @@ git rev-list --left-right --count HEAD...origin/main
 ```bash
 rm -f "$BUILD_OUT" "$SWAP"
 case "$BACKUP" in
-  /home/third_party/upgrade-backups/sub2api-*) ;;
+  /home/codes/third_party/upgrade-backups/sub2api-*) ;;
   *) echo "FATAL: unexpected backup path: $BACKUP"; exit 1 ;;
 esac
 git branch -d "$BACKUP_BRANCH"

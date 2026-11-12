@@ -22,7 +22,7 @@ Use this for surgical fixes such as "把这个会话切到账号 20" or "move th
 
 ## Commands
 
-Run from `/home/third_party/sub2api`:
+Run from `/home/codes/ai/sub2api`:
 
 ```bash
 # By session hash

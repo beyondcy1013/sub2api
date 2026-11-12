@@ -40,6 +40,7 @@ func ProvideAdminHandlers(
 	pluginHandler *admin.PluginHandler,
 	apiKeyHandler *admin.AdminAPIKeyHandler,
 	scheduledTestHandler *admin.ScheduledTestHandler,
+	degradationRuleHandler *admin.DegradationRuleHandler,
 	scheduledAccountActionHandler *admin.ScheduledAccountActionHandler,
 	channelHandler *admin.ChannelHandler,
 	channelMonitorHandler *admin.ChannelMonitorHandler,
@@ -55,8 +56,10 @@ func ProvideAdminHandlers(
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 	claudeResetCredits *service.ClaudeResetCreditService,
 	openAIGatewayService *service.OpenAIGatewayService,
+	requestQualityProbe *service.RequestQualityProbeService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
+	accountHandler.SetRequestQualityProbeService(requestQualityProbe)
 	accountHandler.SetSuperPriorityService(superPriorityService)
 	settingHandler.SetSuperPriorityService(superPriorityService)
 	settingHandler.SetSchedulingRefreshers(superPriorityRunner, upstreamBillingProbe)
@@ -92,6 +95,7 @@ func ProvideAdminHandlers(
 		Plugin:                 pluginHandler,
 		APIKey:                 apiKeyHandler,
 		ScheduledTest:          scheduledTestHandler,
+		DegradationRule:        degradationRuleHandler,
 		ScheduledAccountAction: scheduledAccountActionHandler,
 		Channel:                channelHandler,
 		ChannelMonitor:         channelMonitorHandler,
@@ -123,12 +127,14 @@ func ProvideGatewayHandler(
 	settingService *service.SettingService,
 	coordinator *securityaudit.Coordinator,
 	geminiCachedContentService *service.GeminiCachedContentService,
+	requestQualityProbe *service.RequestQualityProbeService,
 ) *GatewayHandler {
 	h := NewGatewayHandler(gatewayService, openAIGatewayService, geminiCompatService, antigravityGatewayService,
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
 		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
 	h.securityAuditCoordinator = coordinator
 	h.geminiCachedContentService = geminiCachedContentService
+	h.SetRequestQualityProbeService(requestQualityProbe)
 	return h
 }
 
@@ -146,6 +152,7 @@ func ProvideOpenAIGatewayHandler(
 	cfg *config.Config,
 	coordinator *securityaudit.Coordinator,
 	compositeResolver *service.CompositeRouteResolver,
+	requestQualityProbe *service.RequestQualityProbeService,
 ) *OpenAIGatewayHandler {
 	gatewayService.SetPluginManager(pluginManager)
 	h := NewOpenAIGatewayHandler(gatewayService, concurrencyService, billingCacheService, apiKeyService,
@@ -153,6 +160,7 @@ func ProvideOpenAIGatewayHandler(
 	h.compositeResolver = compositeResolver
 	h.securityAuditCoordinator = coordinator
 	h.grokMediaEligibilityProber = grokQuotaService
+	h.SetRequestQualityProbeService(requestQualityProbe)
 	return h
 }
 
@@ -290,6 +298,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewPluginHandler,
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
+	admin.NewDegradationRuleHandler,
 	admin.NewScheduledAccountActionHandler,
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,

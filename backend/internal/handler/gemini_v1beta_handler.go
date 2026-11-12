@@ -50,16 +50,17 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
+	// 分组级模型白名单与全局模型排除过滤 models[].name（名字形如 models/xxx）。
 	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
-		if apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
-			return models
-		}
 		filtered := make([]gemini.Model, 0, len(models))
 		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.Name) {
-				filtered = append(filtered, model)
+			if h.settingService != nil && h.settingService.IsModelGloballyExcluded(c.Request.Context(), model.Name) {
+				continue
 			}
+			if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() && !apiKey.Group.ModelAllowlist.Allows(model.Name) {
+				continue
+			}
+			filtered = append(filtered, model)
 		}
 		return filtered
 	}
@@ -104,8 +105,17 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		}
 	}
 
-	if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, apiKey.Group.ModelAllowlist); ok && dropped {
+	var globalExcludePatterns []string
+	if h.settingService != nil {
+		globalExcludePatterns, _ = h.settingService.GetGlobalModelExcludePatterns(c.Request.Context())
+	}
+	allowlistEnabled := apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
+	if allowlistEnabled || len(globalExcludePatterns) > 0 {
+		var groupAllowlist service.GroupModelAllowlist
+		if allowlistEnabled {
+			groupAllowlist = apiKey.Group.ModelAllowlist
+		}
+		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, groupAllowlist, globalExcludePatterns); ok && dropped {
 			// 只在确有条目被过滤时替换响应体；全命中或解析失败时保持原始响应，
 			// 统一经 writeUpstreamResponse 写出（保留全部上游响应头）。
 			res.Body = filtered
@@ -177,7 +187,7 @@ func appendUpstreamGeminiModels(body []byte, extra []gemini.Model) ([]byte, bool
 // 返回值：filtered 为过滤后的响应体；dropped 表示是否有条目被移除（全命中时
 // 为 false，调用方应保持原始响应以完整透传上游头）；ok=false 表示解析失败，
 // 调用方同样应透传原始响应。
-func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAllowlist) (filtered []byte, dropped bool, ok bool) {
+func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAllowlist, globalPatterns ...[]string) (filtered []byte, dropped bool, ok bool) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, false, false
@@ -185,6 +195,10 @@ func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAll
 	rawModels, hasModels := envelope["models"]
 	if !hasModels {
 		return body, false, true
+	}
+	var patterns []string
+	if len(globalPatterns) > 0 {
+		patterns = globalPatterns[0]
 	}
 	type geminiModelName struct {
 		Name string `json:"name"`
@@ -199,9 +213,13 @@ func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAll
 		if err := json.Unmarshal(raw, &model); err != nil {
 			return nil, false, false
 		}
-		if allowlist.Allows(model.Name) {
-			kept = append(kept, raw)
+		if len(patterns) > 0 && service.IsModelGloballyExcluded(patterns, model.Name) {
+			continue
 		}
+		if allowlist.Enabled && !allowlist.Allows(model.Name) {
+			continue
+		}
+		kept = append(kept, raw)
 	}
 	if len(kept) == len(models) {
 		// 全部命中时直接透传原始响应体。

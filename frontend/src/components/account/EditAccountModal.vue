@@ -11,6 +11,21 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <div
+        v-if="account.extra?.fixed_codex"
+        data-test="fixed-codex-edit-notice"
+        class="rounded-lg border border-purple-200 bg-purple-50 p-3 text-xs text-purple-700 dark:border-purple-900/50 dark:bg-purple-900/20 dark:text-purple-300"
+      >
+        <div class="flex items-center gap-1.5 font-semibold">
+          <span class="inline-flex items-center rounded bg-purple-200/70 px-1.5 py-0.5 text-[10px] text-purple-800 dark:bg-purple-800 dark:text-purple-200">
+            固定 · 官方
+          </span>
+          <span>此账号由本机 Codex CLI (~/.codex/auth.json) 自动同步并置顶保护。</span>
+        </div>
+        <p class="mt-1 text-purple-600 dark:text-purple-400">
+          当 Token 刷新时将自动验证并安全写回 CLI 凭据文件；此账号禁止删除与回收。
+        </p>
+      </div>
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />

@@ -957,7 +957,7 @@ const getExplicitStickyLeft = (column: Column): string | undefined => {
 const getColumnStyle = (column: Column) => {
   const left = getExplicitStickyLeft(column)
   if (!column.width) return left ? { left } : undefined
-  if (props.dynamicColumnWidths) {
+  if (props.dynamicColumnWidths && !column.fixedWidth) {
     return { minWidth: column.width, ...(left ? { left } : {}) }
   }
   return {

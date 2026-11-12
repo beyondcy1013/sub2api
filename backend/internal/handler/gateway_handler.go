@@ -62,6 +62,7 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini   int
 	cfg                        *config.Config
 	settingService             *service.SettingService
+	requestQualityProbe        *service.RequestQualityProbeService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -120,6 +121,10 @@ func NewGatewayHandler(
 		cfg:                       cfg,
 		settingService:            settingService,
 	}
+}
+
+func (h *GatewayHandler) SetRequestQualityProbeService(svc *service.RequestQualityProbeService) {
+	h.requestQualityProbe = svc
 }
 
 // Messages handles Claude API compatible messages endpoint
@@ -730,6 +735,31 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 
+			if h.requestQualityProbe != nil {
+				if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, reqModel); !ok {
+					fs.FailedAccountIDs[account.ID] = struct{}{}
+					if selection.ReleaseFunc != nil {
+						selection.ReleaseFunc()
+						selection.ReleaseFunc = nil
+					}
+					fs.LastFailoverErr = &service.UpstreamFailoverError{
+						StatusCode:       http.StatusBadGateway,
+						Stage:            service.GatewayFailureStageInference,
+						Scope:            service.GatewayFailureScopeAccount,
+						Reason:           "request_quality_probe_failed",
+						ClientStatusCode: http.StatusBadGateway,
+						ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, reqModel, reason),
+					}
+					reqLog.Warn("gateway.account_skipped_quality_probe_failed",
+						zap.Int64("account_id", account.ID),
+						zap.String("account_name", account.Name),
+						zap.String("model", reqModel),
+						zap.String("reason", reason),
+					)
+					continue
+				}
+			}
+
 			// [DEBUG-STICKY] 打印账号选择结果
 			reqLog.Info("sticky.account_selected",
 				zap.Int64("selected_account_id", account.ID),
@@ -966,6 +996,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				forceCacheBilling := fs.ForceCacheBilling
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), currentAPIKey)
 				sessionID := service.ExtractClientSessionID(c)
+				if h.requestQualityProbe != nil {
+					h.requestQualityProbe.TouchRecentSuccess(account.ID, reqModel)
+				}
 				h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 					if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 						Result:             result,
@@ -1176,14 +1209,22 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 			if len(source) == 0 {
 				source = defaultModelIDsForPlatform(service.PlatformComposite)
 			}
-			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
+			filtered := apiKey.Group.ModelAllowlist.FilterForListing(source)
+			if h.settingService != nil {
+				filtered = h.settingService.FilterGloballyExcludedModels(c.Request.Context(), filtered)
+			}
+			writeAllowlistedModelsList(c, service.PlatformComposite, filtered)
 			return
 		}
 		if len(availableModels) > 0 {
 			writeModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}
-		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
+		fallback := defaultModelIDsForPlatform(service.PlatformComposite)
+		if h.settingService != nil {
+			fallback = h.settingService.FilterGloballyExcludedModels(c.Request.Context(), fallback)
+		}
+		writeModelsList(c, service.PlatformComposite, fallback)
 		return
 	}
 
@@ -1191,7 +1232,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		source := modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
-		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
+		filtered := apiKey.Group.ModelAllowlist.FilterForListing(source)
+		if h.settingService != nil {
+			filtered = h.settingService.FilterGloballyExcludedModels(c.Request.Context(), filtered)
+		}
+		writeAllowlistedModelsList(c, platform, filtered)
 		return
 	}
 
@@ -1202,24 +1247,24 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Fallback to default models
 	if platform == service.PlatformOpenAI {
-		writeModelsListResponse(c, openai.DefaultModels)
+		writeModelsListResponse(c, h.filterDefaultOpenAIModels(c.Request.Context(), openai.DefaultModels))
 		return
 	}
 
 	if platform == service.PlatformGemini {
-		writeModelsListResponse(c, geminicli.DefaultModels)
+		writeModelsListResponse(c, h.filterDefaultGeminiModels(c.Request.Context(), geminicli.DefaultModels))
 		return
 	}
 	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
+		writeGrokModelsList(c, h.filterModelIDs(c.Request.Context(), xai.DefaultModelIDs()))
 		return
 	}
 	if platform == service.PlatformTypeSafe {
-		writeModelsList(c, platform, []string{typesafe.JevLatestModel})
+		writeModelsList(c, platform, h.filterModelIDs(c.Request.Context(), []string{typesafe.JevLatestModel}))
 		return
 	}
 
-	writeModelsListResponse(c, claude.DefaultModels)
+	writeModelsListResponse(c, h.filterDefaultClaudeModels(c.Request.Context(), claude.DefaultModels))
 }
 
 // CodexModels returns the effective group model list using the manifest shape
@@ -1268,6 +1313,7 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	if platform == "" {
 		platform = group.Platform
 	}
+	var res []string
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID, service.CompositeRouteEndpointResponses, false)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
@@ -1279,20 +1325,25 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 			models = group.ModelAllowlist.FilterForListing(models)
 		}
 		if filtered, err := h.gatewayService.FilterCompositeCodexModels(ctx, group.ID, models); err == nil {
-			return filtered
+			res = filtered
+		} else {
+			res = models
 		}
-		return models
+	} else {
+		availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+		fallbackModels := defaultCodexModelIDsForPlatform(platform)
+		if group.ModelAllowlistEnabled() {
+			res = group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels))
+		} else if len(availableModels) > 0 {
+			res = availableModels
+		} else {
+			res = fallbackModels
+		}
 	}
-
-	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
-	fallbackModels := defaultCodexModelIDsForPlatform(platform)
-	if group.ModelAllowlistEnabled() {
-		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels))
+	if h.settingService != nil {
+		res = h.settingService.FilterGloballyExcludedModels(ctx, res)
 	}
-	if len(availableModels) > 0 {
-		return availableModels
-	}
-	return fallbackModels
+	return res
 }
 
 // compositeAvailableModels lists the models the composite group can serve.
@@ -1315,6 +1366,9 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
 			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)
+				if h.settingService != nil {
+					platformModels = h.settingService.FilterGloballyExcludedModels(ctx, platformModels)
+				}
 			}
 		}
 		for _, model := range platformModels {
@@ -1565,10 +1619,65 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 		}
 		models = filtered
 	}
+	if h.settingService != nil {
+		filtered := make([]antigravity.ClaudeModel, 0, len(models))
+		for _, model := range models {
+			if !h.settingService.IsModelGloballyExcluded(c.Request.Context(), model.ID) {
+				filtered = append(filtered, model)
+			}
+		}
+		models = filtered
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   models,
 	})
+}
+
+func (h *GatewayHandler) filterModelIDs(ctx context.Context, modelIDs []string) []string {
+	if h == nil || h.settingService == nil || len(modelIDs) == 0 {
+		return modelIDs
+	}
+	return h.settingService.FilterGloballyExcludedModels(ctx, modelIDs)
+}
+
+func (h *GatewayHandler) filterDefaultOpenAIModels(ctx context.Context, models []openai.Model) []openai.Model {
+	if h == nil || h.settingService == nil || len(models) == 0 {
+		return models
+	}
+	res := make([]openai.Model, 0, len(models))
+	for _, m := range models {
+		if !h.settingService.IsModelGloballyExcluded(ctx, m.ID) {
+			res = append(res, m)
+		}
+	}
+	return res
+}
+
+func (h *GatewayHandler) filterDefaultGeminiModels(ctx context.Context, models []geminicli.Model) []geminicli.Model {
+	if h == nil || h.settingService == nil || len(models) == 0 {
+		return models
+	}
+	res := make([]geminicli.Model, 0, len(models))
+	for _, m := range models {
+		if !h.settingService.IsModelGloballyExcluded(ctx, m.ID) {
+			res = append(res, m)
+		}
+	}
+	return res
+}
+
+func (h *GatewayHandler) filterDefaultClaudeModels(ctx context.Context, models []claude.Model) []claude.Model {
+	if h == nil || h.settingService == nil || len(models) == 0 {
+		return models
+	}
+	res := make([]claude.Model, 0, len(models))
+	for _, m := range models {
+		if !h.settingService.IsModelGloballyExcluded(ctx, m.ID) {
+			res = append(res, m)
+		}
+	}
+	return res
 }
 
 func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {

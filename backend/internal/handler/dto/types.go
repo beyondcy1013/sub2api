@@ -667,6 +667,13 @@ type UsageLog struct {
 
 	CreatedAt time.Time `json:"created_at"`
 
+	Status       string  `json:"status"`
+	StatusCode   *int    `json:"status_code,omitempty"`
+	ErrorID      *int64  `json:"error_id,omitempty"`
+	ErrorMessage *string `json:"error_message,omitempty"`
+	ErrorType    *string `json:"error_type,omitempty"`
+	ErrorPhase   *string `json:"error_phase,omitempty"`
+
 	User         *User             `json:"user,omitempty"`
 	APIKey       *APIKey           `json:"api_key,omitempty"`
 	Group        *Group            `json:"group,omitempty"`

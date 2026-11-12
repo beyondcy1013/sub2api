@@ -591,6 +591,8 @@ func TestAPIContracts(t *testing.T) {
 								"request_id": "req_123",
 								"model": "claude-3",
 								"request_type": "stream",
+								"status": "success",
+								"status_code": 200,
 								"native_compaction_v2": false,
 								"openai_ws_mode": false,
 								"group_id": null,
@@ -813,6 +815,7 @@ func TestAPIContracts(t *testing.T) {
 						"google_oauth_client_secret_configured": false,
 						"google_oauth_redirect_url": "",
 						"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
+						"global_model_exclude_patterns": null,
 						"ops_monitoring_enabled": false,
 						"ops_realtime_monitoring_enabled": true,
 						"ops_query_mode_default": "auto",
@@ -821,6 +824,11 @@ func TestAPIContracts(t *testing.T) {
 						"site_logo": "",
 						"site_subtitle": "Subtitle",
 						"api_base_url": "https://api.example.com",
+						"pelican_probe_settings": {
+							"candy_enabled": true,
+							"candy_prompt": "只回答数字。这是一道逻辑推理题，不是穷举题：请直接依据题目的逻辑关系推理出唯一确定的结果，不要穷举、不要解释、不要分步计算，最终只输出一个数字。\n在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）：\n辣椒味：圆形 7 个，五角星形 7 个（共 14 个）\n空心菜味：圆形 9 个，五角星形 6 个（共 15 个）\n金属味：圆形 8 个，五角星形 4 个（共 12 个，作为干扰项）\n问题：为了保证能够拿到不同形状的辣椒味和空心菜味糖果（即：一个圆形辣椒味 + 一个五角星形空心菜味，或者一个五角星形辣椒味 + 一个圆形空心菜味），最少需要从袋子中取出多少颗糖果？",
+							"candy_expected_answer": 21
+						},
 						"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"contact_info": "support",
@@ -902,6 +910,7 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_ticket_fail_closed": false,
 					"openai_codex_ticket_strategy": "standby",
 					"openai_codex_ticket_harvest_scope": {"mode":"all","group_ids":[],"account_policy":"schedulable_only"},
+					"pelican_probe_settings": {"candy_enabled": true, "candy_prompt": "只回答数字。这是一道逻辑推理题，不是穷举题：请直接依据题目的逻辑关系推理出唯一确定的结果，不要穷举、不要解释、不要分步计算，最终只输出一个数字。\n在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）：\n辣椒味：圆形 7 个，五角星形 7 个（共 14 个）\n空心菜味：圆形 9 个，五角星形 6 个（共 15 个）\n金属味：圆形 8 个，五角星形 4 个（共 12 个，作为干扰项）\n问题：为了保证能够拿到不同形状的辣椒味和空心菜味糖果（即：一个圆形辣椒味 + 一个五角星形空心菜味，或者一个五角星形辣椒味 + 一个圆形空心菜味），最少需要从袋子中取出多少颗糖果？", "candy_expected_answer": 21},
 					"openai_codex_ticket_harvest_proxy_url": "",
 					"openai_codex_ticket_harvest_proxy_configured": false,
 					"openai_codex_ticket_models": ["gpt-6-astra", "gpt-5.6-sol"],
@@ -1182,10 +1191,16 @@ func TestAPIContracts(t *testing.T) {
 					"google_oauth_client_secret_configured": false,
 					"google_oauth_redirect_url": "",
 					"google_oauth_frontend_redirect_url": "/auth/oauth/callback",
+					"global_model_exclude_patterns": null,
 					"site_name": "Sub2API",
 					"site_logo": "",
 					"site_subtitle": "Subscription to API Conversion Platform",
 					"api_base_url": "",
+					"pelican_probe_settings": {
+						"candy_enabled": true,
+						"candy_prompt": "只回答数字。这是一道逻辑推理题，不是穷举题：请直接依据题目的逻辑关系推理出唯一确定的结果，不要穷举、不要解释、不要分步计算，最终只输出一个数字。\n在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）：\n辣椒味：圆形 7 个，五角星形 7 个（共 14 个）\n空心菜味：圆形 9 个，五角星形 6 个（共 15 个）\n金属味：圆形 8 个，五角星形 4 个（共 12 个，作为干扰项）\n问题：为了保证能够拿到不同形状的辣椒味和空心菜味糖果（即：一个圆形辣椒味 + 一个五角星形空心菜味，或者一个五角星形辣椒味 + 一个圆形空心菜味），最少需要从袋子中取出多少颗糖果？",
+						"candy_expected_answer": 21
+					},
 					"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"contact_info": "",
@@ -1250,6 +1265,7 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_ticket_fail_closed": false,
 					"openai_codex_ticket_strategy": "standby",
 					"openai_codex_ticket_harvest_scope": {"mode":"all","group_ids":[],"account_policy":"schedulable_only"},
+					"pelican_probe_settings": {"candy_enabled": true, "candy_prompt": "只回答数字。这是一道逻辑推理题，不是穷举题：请直接依据题目的逻辑关系推理出唯一确定的结果，不要穷举、不要解释、不要分步计算，最终只输出一个数字。\n在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）：\n辣椒味：圆形 7 个，五角星形 7 个（共 14 个）\n空心菜味：圆形 9 个，五角星形 6 个（共 15 个）\n金属味：圆形 8 个，五角星形 4 个（共 12 个，作为干扰项）\n问题：为了保证能够拿到不同形状的辣椒味和空心菜味糖果（即：一个圆形辣椒味 + 一个五角星形空心菜味，或者一个五角星形辣椒味 + 一个圆形空心菜味），最少需要从袋子中取出多少颗糖果？", "candy_expected_answer": 21},
 					"openai_codex_ticket_harvest_proxy_url": "",
 					"openai_codex_ticket_harvest_proxy_configured": false,
 					"openai_codex_ticket_models": ["gpt-6-astra", "gpt-5.6-sol"],
@@ -2911,6 +2927,10 @@ func (r *stubUsageLogRepo) GetStatsWithFilters(ctx context.Context, filters usag
 	}, nil
 }
 func (r *stubUsageLogRepo) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetAccountBreakdownStats(ctx context.Context, startTime, endTime time.Time, dim usagestats.AccountBreakdownDimension, limit int) ([]usagestats.AccountBreakdownItem, error) {
 	return nil, errors.New("not implemented")
 }
 

@@ -380,9 +380,27 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	return &ccResp, usage, nil
 }
 
+// accountErrorIdentifier formats the account identifier for client error messages.
+func accountErrorIdentifier(account *Account) string {
+	if account == nil {
+		return "this account"
+	}
+	name := strings.TrimSpace(account.Name)
+	if name != "" {
+		if account.ID > 0 {
+			return fmt.Sprintf("account '%s' (id: %d)", name, account.ID)
+		}
+		return fmt.Sprintf("account '%s'", name)
+	}
+	if account.ID > 0 {
+		return fmt.Sprintf("account id %d", account.ID)
+	}
+	return "this account"
+}
+
 // writeOpenAIResponsesFallbackError 以 /v1/responses 回退路径的既有错误格式回写
-// （裸 error 对象；不调用 MarkResponseCommitted，与原内联写法保持一致）。
 func writeOpenAIResponsesFallbackError(c *gin.Context, statusCode int, errType, message string) {
+	MarkResponseCommitted(c)
 	c.JSON(statusCode, gin.H{
 		"error": gin.H{
 			"type":    errType,

@@ -45,6 +45,17 @@ function mountTable(row: Partial<OpsErrorLog>) {
 }
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
+  it('links a failure to its system logs without opening another row action', async () => {
+    const wrapper = mountTable({ account_id: 309, account_name: 'Claude relay' })
+    await wrapper.setProps({ systemLogLink: true })
+    expect(wrapper.text()).toContain('req-1')
+    expect(wrapper.text()).toContain('#309')
+    const link = wrapper.findAll('button').find(button => button.text() === 'admin.ops.logs.relatedSystemLogs')!
+    await link.trigger('click')
+    expect(wrapper.emitted('viewSystemLogs')?.[0]?.[0]).toMatchObject({ request_id: 'req-1', account_id: 309 })
+    expect(wrapper.emitted('openErrorDetail')).toBeUndefined()
+    wrapper.unmount()
+  })
   // 回归:上游错误行(phase=upstream, owner=provider)以前在单一「用户」列里只显示账号、
   // 丢失用户;现在用户/API Key/账号各占独立列,三者同时可见。
   it('renders user, api key and account in separate columns for an upstream row', () => {

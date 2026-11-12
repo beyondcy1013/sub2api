@@ -93,7 +93,7 @@
             class="input pr-8"
             :placeholder="t('admin.usage.searchAccountPlaceholder')"
             @input="debounceAccountSearch"
-            @focus="showAccountDropdown = true"
+            @focus="onAccountFocus"
           />
           <button
             v-if="filters.account_id"
@@ -148,6 +148,12 @@
         <div v-if="mode === 'usage'" class="w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('admin.usage.upstreamModelAudit') }}</label>
           <Select v-model="filters.upstream_model_mismatch" :options="upstreamModelMismatchOptions" @change="emitChange" />
+        </div>
+
+        <!-- Status Filter (usage only) -->
+        <div v-if="mode === 'usage'" class="w-full sm:w-auto sm:min-w-[150px]">
+          <label class="input-label">{{ t('usage.status') }}</label>
+          <Select v-model="filters.status" :options="statusOptions" @change="emitChange" />
         </div>
 
         <!-- Error Phase Filter (errors only) -->
@@ -217,9 +223,9 @@ interface Props {
   modelOptions?: string[]
   /**
    * errors 模式:隐藏用量专属字段/按钮,显示错误类型+状态码(错误请求 tab 用)
-   * ranking 模式:同 usage 但隐藏计费模式筛选与清理/导出按钮(用户排行 tab 用)
+   * ranking/accounts 模式:同 usage 但隐藏计费模式筛选与清理/导出按钮
    */
-  mode?: 'usage' | 'errors' | 'ranking'
+  mode?: 'usage' | 'errors' | 'ranking' | 'accounts'
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }
@@ -327,6 +333,12 @@ const upstreamModelMismatchOptions = ref<SelectOption[]>([
   { value: null, label: t('admin.usage.allUpstreamModelAudit') },
   { value: true, label: t('admin.usage.upstreamModelMismatchOnly') },
   { value: false, label: t('admin.usage.upstreamModelMatchedOnly') }
+])
+
+const statusOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: t('common.all') },
+  { value: 'success', label: t('usage.statusSuccess') },
+  { value: 'failed', label: t('usage.statusFailed') },
 ])
 
 const emitChange = () => emit('change')
@@ -454,6 +466,18 @@ const clearAccount = () => {
   emitChange()
 }
 
+const onAccountFocus = async () => {
+  showAccountDropdown.value = true
+  if (accountResults.value.length === 0) {
+    try {
+      const res = await adminAPI.accounts.list(1, 20, accountKeyword.value ? { search: accountKeyword.value } : undefined)
+      accountResults.value = res.items.map((a) => ({ id: a.id, name: a.name }))
+    } catch {
+      accountResults.value = []
+    }
+  }
+}
+
 const onApiKeyFocus = () => {
   showApiKeyDropdown.value = true
   // Trigger search if no results yet
@@ -545,7 +569,15 @@ const setUserKeyword = (email: string) => {
   showUserDropdown.value = false
 }
 
+// 供外部(如账号统计下钻或表格点击)在程序化设置 account_id 后回显选中的账号名称
+const setAccountKeyword = (name: string) => {
+  if (accountSearchTimeout) clearTimeout(accountSearchTimeout)
+  accountKeyword.value = name
+  accountResults.value = []
+  showAccountDropdown.value = false
+}
+
 const getUserSearchRevision = () => userSearchSequence
 
-defineExpose({ getUserSearchRevision, setUserKeyword })
+defineExpose({ getUserSearchRevision, setUserKeyword, setAccountKeyword })
 </script>

@@ -98,19 +98,21 @@ const DataTableStub = {
 }
 
 const AccountTestModalStub = {
-  props: ['show', 'account'],
+  props: ['show', 'accounts', 'autoStart'],
   emits: ['close', 'test-succeeded', 'test-failed'],
   template: `
-    <button
-      v-if="show && account"
-      data-test="complete-account-test"
-      @click="$emit('test-succeeded', account)"
-    >complete</button>
-    <button
-      v-if="show && account"
-      data-test="fail-account-test"
-      @click="$emit('test-failed', account, 'token_invalidated')"
-    >fail</button>
+    <div v-if="show" data-test="test-modal-active" :data-auto-start="String(autoStart)">
+      <button
+        v-if="accounts[0]"
+        data-test="complete-account-test"
+        @click="$emit('test-succeeded', accounts[0])"
+      >complete</button>
+      <button
+        v-if="accounts[0]"
+        data-test="fail-account-test"
+        @click="$emit('test-failed', accounts[0], 'token_invalidated')"
+      >fail</button>
+    </div>
   `
 }
 
@@ -317,6 +319,17 @@ describe('admin AccountsView successful test recovery prompt', () => {
 
     expect(markAccountFailed).toHaveBeenCalledWith(account.id, 'token_invalidated')
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.markAsFailedSuccess')
+    wrapper.unmount()
+  })
+
+  it('点击直接测智时传递 autoStart 为 true', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="account-test-action"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="test-modal-active"]').attributes('data-auto-start')).toBe('true')
     wrapper.unmount()
   })
 })

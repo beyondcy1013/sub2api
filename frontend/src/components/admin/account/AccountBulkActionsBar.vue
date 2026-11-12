@@ -1,7 +1,10 @@
 <template>
   <div
     class="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/20"
-    :class="bare ? 'flex min-w-0 flex-wrap items-center gap-2' : 'mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between'"
+    :class="[
+      bare ? 'flex min-w-0 flex-wrap items-center gap-2 max-lg:w-full max-lg:basis-full' : 'mb-4 flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between',
+      selectedIds.length === 0 ? 'max-lg:hidden' : ''
+    ]"
   >
     <div class="hidden lg:flex flex-wrap items-center gap-2">
       <span v-if="allResultsSelected" class="text-sm font-medium text-primary-900 dark:text-primary-100">
@@ -86,7 +89,7 @@
           class="btn btn-secondary btn-sm"
           @click="$emit('pelican-test')"
         >
-          {{ t('admin.accounts.pelicanAction') }}
+          {{ t('admin.accounts.accountTesting.title') }}
         </button>
         <button v-if="showDelete" data-test="bulk-delete" @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
         <button
@@ -101,6 +104,13 @@
         <button @click="$emit('reset-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</button>
         <button @click="$emit('refresh-token')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.refreshToken') }}</button>
         <button @click="$emit('probe-upstream-billing')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}</button>
+        <button
+          :disabled="refreshingBalance"
+          @click="$emit('refresh-balance')"
+          class="btn btn-secondary btn-sm"
+        >
+          {{ refreshingBalance ? t('admin.accounts.bulkActions.refreshingBalance') : t('admin.accounts.bulkActions.refreshBalance') }}
+        </button>
         <button @click="$emit('toggle-schedulable', true)" class="btn btn-success btn-sm">{{ t('admin.accounts.bulkActions.enableScheduling') }}</button>
         <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
@@ -127,53 +137,62 @@
       </button>
     </div>
 
-    <div :class="bare ? 'flex min-w-0 flex-1 items-center justify-between gap-2 lg:hidden' : 'flex items-center justify-between gap-2 lg:hidden'">
-      <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <span
-          class="truncate text-sm font-medium text-primary-900 dark:text-primary-100"
-          :title="mobileSelectionText"
-        >
-          {{ mobileSelectionText }}
-        </span>
+    <div
+      v-if="selectedIds.length > 0"
+      class="flex items-center justify-between gap-2 lg:hidden"
+      :class="bare ? 'min-w-0 flex-1' : 'w-full'"
+      data-test="mobile-bulk-bar"
+    >
+      <span
+        class="min-w-0 truncate text-sm font-medium text-primary-900 dark:text-primary-100"
+        :title="mobileSelectionText"
+      >
+        {{ mobileSelectionText }}
+      </span>
+      <div class="flex shrink-0 items-center gap-2" data-test="mobile-bulk-actions-root">
         <button
-          v-if="selectedIds.length > 0"
           type="button"
-          class="shrink-0 text-xs font-medium text-primary-700 hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
+          data-test="mobile-bulk-actions-trigger"
+          class="btn btn-secondary min-h-[44px] gap-1.5 px-2.5"
+          :aria-expanded="mobileSheetOpen"
+          @click="mobileSheetOpen = true"
+        >
+          <Icon name="more" size="sm" />
+          <span>{{ t('admin.accounts.bulkActions.title') }}</span>
+          <Icon name="chevronUp" size="xs" />
+        </button>
+        <button
+          type="button"
+          data-test="mobile-bulk-clear"
+          class="btn btn-ghost min-h-[44px] px-2.5"
           @click="$emit('clear')"
         >
           {{ t('admin.accounts.bulkActions.clear') }}
         </button>
       </div>
-      <div class="relative shrink-0" data-test="mobile-bulk-actions-root">
-        <button
-          type="button"
-          data-test="mobile-bulk-actions-trigger"
-          class="btn btn-secondary gap-1.5 px-2.5"
-          :aria-expanded="mobileMenuOpen"
-          @click="mobileMenuOpen = !mobileMenuOpen"
-        >
-          <Icon name="more" size="sm" />
-          <span>{{ t('admin.accounts.bulkActions.mobileMenu') }}</span>
-          <Icon :name="mobileMenuOpen ? 'chevronUp' : 'chevronDown'" size="xs" />
-        </button>
-        <div
-          v-if="mobileMenuOpen"
-          data-test="mobile-bulk-actions-panel"
-          class="absolute right-0 z-50 mt-2 w-[min(calc(100vw-2rem),16rem)] rounded-xl border border-gray-200 bg-white p-3 shadow-xl dark:border-dark-700 dark:bg-dark-800"
-        >
-          <input
-            data-test="bulk-account-filter"
-            type="search"
-            class="input h-9 w-full text-sm"
-            :value="searchQuery"
-            :placeholder="t('admin.accounts.bulkActions.filterPlaceholder')"
-            @input="$emit('update:search-query', ($event.target as HTMLInputElement).value)"
-          />
+    </div>
 
-          <div class="mt-3 space-y-1.5">
+    <MobileActionSheet v-model="mobileSheetOpen" :title="t('admin.accounts.bulkActions.title')">
+      <div class="space-y-4" data-test="mobile-bulk-actions-sheet">
+        <div class="text-sm font-medium text-primary-900 dark:text-primary-100">
+          {{ mobileSelectionText }}
+        </div>
+
+        <input
+          data-test="bulk-account-filter"
+          type="search"
+          class="input h-11 w-full text-sm"
+          :value="searchQuery"
+          :placeholder="t('admin.accounts.bulkActions.filterPlaceholder')"
+          @input="$emit('update:search-query', ($event.target as HTMLInputElement).value)"
+        />
+
+        <div>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.bulkActions.selectionScope') }}</div>
+          <div class="mt-2 space-y-1.5">
             <button
               type="button"
-              class="mobile-bulk-action"
+              class="mobile-sheet-action"
               :disabled="selectingAll || !canSelectAllResults"
               @click="$emit('select-all-results')"
             >
@@ -185,15 +204,17 @@
             </button>
             <button
               type="button"
-              class="mobile-bulk-action"
-              :disabled="selectedIds.length === 0"
+              class="mobile-sheet-action"
               @click="$emit('select-page')"
             >
               {{ t('admin.accounts.bulkActions.selectCurrentPage') }}
             </button>
           </div>
+        </div>
 
-          <div class="mt-3 space-y-2">
+        <div>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.bulkActions.quickSettings') }}</div>
+          <div class="mt-2 space-y-2">
             <Select
               v-model="quickProxyId"
               data-test="quick-proxy-select"
@@ -211,95 +232,113 @@
               @change="handleQuickGroupChange"
             />
           </div>
+        </div>
 
-          <div class="mt-3 border-t border-gray-100 pt-3 dark:border-dark-700">
-            <div class="space-y-1.5">
-              <template v-if="selectedIds.length > 0">
-                <button
-                  type="button"
-                  data-test="batch-test-and-mark"
-                  class="mobile-bulk-action"
-                  :disabled="testingSelected"
-                  @click="$emit('test-and-mark')"
-                >
-                  {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
-                </button>
-                <button
-                  type="button"
-                  data-test="batch-pelican-test"
-                  class="mobile-bulk-action"
-                  @click="$emit('pelican-test')"
-                >
-                  {{ t('admin.accounts.pelicanAction') }}
-                </button>
-                <button
-                  v-if="showDelete"
-                  type="button"
-                  data-test="bulk-delete"
-                  class="mobile-bulk-action mobile-bulk-action-danger"
-                  @click="$emit('delete')"
-                >
-                  {{ t('admin.accounts.bulkActions.delete') }}
-                </button>
-                <button
-                  v-if="showPermanentDelete"
-                  type="button"
-                  data-test="bulk-permanent-delete"
-                  class="mobile-bulk-action mobile-bulk-action-danger"
-                  :disabled="permanentDeleting"
-                  @click="$emit('permanent-delete')"
-                >
-                  {{ permanentDeleting ? t('admin.accounts.bulkActions.permanentlyDeleting') : t('admin.accounts.bulkActions.permanentDelete') }}
-                </button>
-                <button type="button" class="mobile-bulk-action" @click="$emit('reset-status')">
-                  {{ t('admin.accounts.bulkActions.resetStatus') }}
-                </button>
-                <button type="button" class="mobile-bulk-action" @click="$emit('refresh-token')">
-                  {{ t('admin.accounts.bulkActions.refreshToken') }}
-                </button>
-                <button type="button" class="mobile-bulk-action" @click="$emit('probe-upstream-billing')">
-                  {{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}
-                </button>
-                <button type="button" class="mobile-bulk-action" @click="$emit('toggle-schedulable', true)">
-                  {{ t('admin.accounts.bulkActions.enableScheduling') }}
-                </button>
-                <button type="button" class="mobile-bulk-action" @click="$emit('toggle-schedulable', false)">
-                  {{ t('admin.accounts.bulkActions.disableScheduling') }}
-                </button>
-                <button type="button" class="mobile-bulk-action mobile-bulk-action-primary" @click="$emit('edit-selected')">
-                  {{ t('admin.accounts.bulkActions.edit') }}
-                </button>
-              </template>
+        <div>
+          <div class="mobile-sheet-section">{{ t('admin.accounts.bulkActions.selectedActions') }}</div>
+          <div class="mt-2 space-y-1.5">
+            <template v-if="selectedIds.length > 0">
               <button
                 type="button"
-                data-test="bulk-primary-action"
-                class="mobile-bulk-action"
-                :disabled="refreshingUsage"
-                @click="$emit('refresh-usage')"
+                data-test="batch-test-and-mark"
+                class="mobile-sheet-action"
+                :disabled="testingSelected"
+                @click="closeAndRun(() => $emit('test-and-mark'))"
               >
-                {{ refreshingUsage ? t('admin.accounts.bulkActions.refreshingUsage') : t('admin.accounts.bulkActions.refreshUsage') }}
+                {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
               </button>
               <button
                 type="button"
-                data-test="bulk-primary-action"
-                class="mobile-bulk-action mobile-bulk-action-primary"
-                @click="$emit('edit-filtered')"
+                data-test="batch-pelican-test"
+                class="mobile-sheet-action"
+                @click="closeAndRun(() => $emit('pelican-test'))"
               >
-                {{ t('admin.accounts.bulkEdit.submit') }}
+                {{ t('admin.accounts.accountTesting.title') }}
               </button>
-            </div>
+              <button type="button" class="mobile-sheet-action" @click="closeAndRun(() => $emit('reset-status'))">
+                {{ t('admin.accounts.bulkActions.resetStatus') }}
+              </button>
+              <button type="button" class="mobile-sheet-action" @click="closeAndRun(() => $emit('refresh-token'))">
+                {{ t('admin.accounts.bulkActions.refreshToken') }}
+              </button>
+              <button type="button" class="mobile-sheet-action" @click="closeAndRun(() => $emit('probe-upstream-billing'))">
+                {{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}
+              </button>
+              <button
+                type="button"
+                class="mobile-sheet-action"
+                :disabled="refreshingBalance"
+                @click="closeAndRun(() => $emit('refresh-balance'))"
+              >
+                {{ refreshingBalance ? t('admin.accounts.bulkActions.refreshingBalance') : t('admin.accounts.bulkActions.refreshBalance') }}
+              </button>
+              <button type="button" class="mobile-sheet-action" @click="closeAndRun(() => $emit('toggle-schedulable', true))">
+                {{ t('admin.accounts.bulkActions.enableScheduling') }}
+              </button>
+              <button type="button" class="mobile-sheet-action" @click="closeAndRun(() => $emit('toggle-schedulable', false))">
+                {{ t('admin.accounts.bulkActions.disableScheduling') }}
+              </button>
+              <button type="button" class="mobile-sheet-action mobile-sheet-action-primary" @click="closeAndRun(() => $emit('edit-selected'))">
+                {{ t('admin.accounts.bulkActions.edit') }}
+              </button>
+            </template>
+            <button
+              type="button"
+              data-test="bulk-primary-action"
+              class="mobile-sheet-action"
+              :disabled="refreshingUsage"
+              @click="closeAndRun(() => $emit('refresh-usage'))"
+            >
+              {{ refreshingUsage ? t('admin.accounts.bulkActions.refreshingUsage') : t('admin.accounts.bulkActions.refreshUsage') }}
+            </button>
+            <button
+              type="button"
+              data-test="bulk-primary-action"
+              class="mobile-sheet-action mobile-sheet-action-primary"
+              @click="closeAndRun(() => $emit('edit-filtered'))"
+            >
+              {{ t('admin.accounts.bulkEdit.submit') }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="selectedIds.length > 0 && (showDelete || showPermanentDelete)">
+          <div class="mobile-sheet-section text-red-500 dark:text-red-400">
+            {{ t('admin.accounts.bulkActions.dangerActions') }}
+          </div>
+          <div class="mt-2 space-y-1.5">
+            <button
+              v-if="showDelete"
+              type="button"
+              data-test="bulk-delete"
+              class="mobile-sheet-action mobile-sheet-action-danger"
+              @click="closeAndRun(() => $emit('delete'))"
+            >
+              {{ t('admin.accounts.bulkActions.delete') }}
+            </button>
+            <button
+              v-if="showPermanentDelete"
+              type="button"
+              data-test="bulk-permanent-delete"
+              class="mobile-sheet-action mobile-sheet-action-danger"
+              :disabled="permanentDeleting"
+              @click="closeAndRun(() => $emit('permanent-delete'))"
+            >
+              {{ permanentDeleting ? t('admin.accounts.bulkActions.permanentlyDeleting') : t('admin.accounts.bulkActions.permanentDelete') }}
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </MobileActionSheet>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import Select from '@/components/common/Select.vue'
+import MobileActionSheet from '@/components/common/MobileActionSheet.vue'
 import type { AdminGroup, Proxy as ProxyConfig } from '@/types'
 
 const props = withDefaults(defineProps<{
@@ -309,6 +348,7 @@ const props = withDefaults(defineProps<{
   allResultsSelected?: boolean
   quickUpdating?: 'proxy' | 'group' | null
   refreshingUsage?: boolean
+  refreshingBalance?: boolean
   testingSelected?: boolean
   showDelete?: boolean
   showPermanentDelete?: boolean
@@ -324,6 +364,7 @@ const props = withDefaults(defineProps<{
   allResultsSelected: false,
   quickUpdating: null,
   refreshingUsage: false,
+  refreshingBalance: false,
   testingSelected: false,
   showDelete: true,
   showPermanentDelete: false,
@@ -349,6 +390,7 @@ const emit = defineEmits<{
   'refresh-token': []
   'probe-upstream-billing': []
   'refresh-usage': []
+  'refresh-balance': []
   'test-and-mark': []
   'pelican-test': []
 }>()
@@ -356,7 +398,21 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const quickProxyId = ref<number | null>(null)
 const quickGroupId = ref<number | null>(null)
-const mobileMenuOpen = ref(false)
+const mobileSheetOpen = ref(false)
+
+// Close first, then emit after the DOM flush so the sheet's focus restoration
+// cannot steal focus back from any dialog the parent opens for the action.
+const closeAndRun = async (action: () => void) => {
+  mobileSheetOpen.value = false
+  await nextTick()
+  action()
+}
+
+// Nothing selected -> the bar disappears; an open sheet must not linger.
+watch(() => props.selectedIds.length, count => {
+  if (count === 0) mobileSheetOpen.value = false
+})
+
 const proxyOptions = computed(() => [
   { value: 0, label: t('admin.accounts.noProxy') },
   ...props.proxies.map(proxy => ({ value: proxy.id, label: proxy.name }))
@@ -388,46 +444,3 @@ const handleQuickGroupChange = (value: string | number | boolean | null) => {
   nextTick(() => { quickGroupId.value = null })
 }
 </script>
-
-<style scoped>
-.mobile-bulk-action {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: flex-start;
-  border-radius: 0.5rem;
-  padding: 0.375rem 0.5rem;
-  text-align: left;
-  font-size: 0.8125rem;
-  line-height: 1.25rem;
-  color: rgb(55 65 81);
-}
-
-.mobile-bulk-action:hover:not(:disabled) {
-  background-color: rgb(243 244 246);
-}
-
-.mobile-bulk-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.mobile-bulk-action-primary {
-  background-color: rgb(2 132 199);
-  font-weight: 500;
-  color: white;
-}
-
-.mobile-bulk-action-primary:hover:not(:disabled) {
-  background-color: rgb(14 165 233);
-}
-
-.mobile-bulk-action-danger {
-  color: rgb(220 38 38);
-}
-
-.mobile-bulk-action-danger:hover:not(:disabled) {
-  background-color: rgb(254 242 242);
-}
-
-</style>

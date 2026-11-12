@@ -2,6 +2,8 @@ export interface PelicanPromptScenario {
   id: string
   name: string
   prompt: string
+  evaluator?: 'auto' | 'html' | 'numeric' | 'reply'
+  expectedAnswer?: number
 }
 
 export interface PelicanPromptScenarioState {
@@ -15,8 +17,15 @@ interface StoredPelicanPromptScenarioState {
 }
 
 const STORAGE_KEY = 'sub2api:account-pelican-prompt-scenarios:v1'
-const MAX_SCENARIOS = 20
+const MAX_SCENARIOS = 2000
 const MAX_PROMPT_LENGTH = 20000
+
+function scenarioFields(item: PelicanPromptScenario): Partial<PelicanPromptScenario> {
+  return {
+    ...(['auto', 'html', 'numeric', 'reply'].includes(item.evaluator || '') ? { evaluator: item.evaluator } : {}),
+    ...(Number.isSafeInteger(item.expectedAnswer) ? { expectedAnswer: item.expectedAnswer } : {})
+  }
+}
 
 function isScenario(value: unknown): value is PelicanPromptScenario {
   if (!value || typeof value !== 'object') return false
@@ -60,6 +69,7 @@ export function loadPelicanPromptScenarios(
       .map(item => ({
         id: item.id,
         name: item.name.trim(),
+        ...scenarioFields(item),
         prompt: item.prompt
       }))
 
@@ -71,7 +81,7 @@ export function loadPelicanPromptScenarios(
     const selectedId = typeof parsed.selectedId === 'string'
       && uniqueScenarios.some(item => item.id === parsed.selectedId)
       ? parsed.selectedId
-      : uniqueScenarios[0].id
+      : (uniqueScenarios[0]?.id || '')
 
     return { scenarios: uniqueScenarios, selectedId }
   } catch {
@@ -86,14 +96,13 @@ export function savePelicanPromptScenarios(state: PelicanPromptScenarioState): v
     .map(item => ({
       id: item.id,
       name: item.name.trim(),
+      ...scenarioFields(item),
       prompt: item.prompt
     }))
 
-  if (scenarios.length === 0) return
-
   const selectedId = scenarios.some(item => item.id === state.selectedId)
     ? state.selectedId
-    : scenarios[0].id
+    : (scenarios[0]?.id || '')
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ scenarios, selectedId }))

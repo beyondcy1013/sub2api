@@ -74,6 +74,16 @@ type AccountHandler struct {
 	openAIGatewayService    *service.OpenAIGatewayService
 	cfg                     *config.Config
 	opencodeGoUsage         *service.OpenCodeGoUsageService
+	codexAuthFileSync       *service.CodexAuthFileSyncService
+	requestQualityProbe     *service.RequestQualityProbeService
+}
+
+func (h *AccountHandler) SetRequestQualityProbeService(svc *service.RequestQualityProbeService) {
+	h.requestQualityProbe = svc
+}
+
+func (h *AccountHandler) SetCodexAuthFileSyncService(svc *service.CodexAuthFileSyncService) {
+	h.codexAuthFileSync = svc
 }
 
 func (h *AccountHandler) SetOpenAIGatewayService(gateway *service.OpenAIGatewayService) {
@@ -983,6 +993,13 @@ func (h *AccountHandler) List(c *gin.Context) {
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
+		if h.codexAuthFileSync != nil && acc.IsFixedCodex() {
+			if acc.Extra == nil {
+				acc.Extra = make(map[string]any)
+			}
+			acc.Extra[service.AccountFixedCodexExtraKey] = true
+			acc.Extra[service.AccountAuthFileExtraKey] = h.codexAuthFileSync.GetSnapshot()
+		}
 		accountResponse := h.accountResponseFromService(acc)
 		if lite {
 			accountResponse = h.accountListResponseFromService(acc)
@@ -1599,6 +1616,8 @@ type TestAccountRequest struct {
 	Prompt          string `json:"prompt"`
 	Mode            string `json:"mode"`
 	ReasoningEffort string `json:"reasoning_effort"`
+	Evaluator       string `json:"evaluator"`
+	ExpectedAnswer  *int   `json:"expected_answer"`
 }
 
 type SyncFromCRSRequest struct {
@@ -1631,6 +1650,8 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	// Use AccountTestService to test the account with SSE streaming
 	opts := service.AccountTestOptions{
 		ReasoningEffort: req.ReasoningEffort,
+		Evaluator:       req.Evaluator,
+		ExpectedAnswer:  req.ExpectedAnswer,
 	}
 	if err := h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		if c.Request.Context().Err() == nil {
@@ -1900,6 +1921,11 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 			}
 		}
 		newCredentials = service.NormalizeOpenAIPersonalAccessTokenCredentials(account, tokenInfo, newCredentials)
+		if h.codexAuthFileSync != nil && account.IsFixedCodex() {
+			accessToken, _ := newCredentials["access_token"].(string)
+			refreshToken, _ := newCredentials["refresh_token"].(string)
+			h.codexAuthFileSync.WriteBackIfFixed(account, accessToken, refreshToken)
+		}
 	} else if account.Platform == service.PlatformGemini {
 		tokenInfo, err := h.geminiOAuthService.RefreshAccountToken(ctx, account)
 		if err != nil {
@@ -2277,6 +2303,15 @@ func (h *AccountHandler) BatchDelete(c *gin.Context) {
 			errorsByAccount = append(errorsByAccount, deleteError{
 				AccountID: accountID,
 				Error:     "account not found",
+			})
+			continue
+		}
+
+		if account.IsFixedCodex() {
+			failedIDs = append(failedIDs, accountID)
+			errorsByAccount = append(errorsByAccount, deleteError{
+				AccountID: accountID,
+				Error:     "固定官方账号受保护不可删除",
 			})
 			continue
 		}
@@ -3323,6 +3358,62 @@ func buildClaudePickerModel(id string) claude.Model {
 	return claude.Model{ID: id, Type: "model", DisplayName: id, CreatedAt: ""}
 }
 
+func (h *AccountHandler) filterAvailableModelsResponse(c *gin.Context, data any) any {
+	if h.accountTestService == nil || h.accountTestService.SettingService() == nil || data == nil {
+		return data
+	}
+	patterns, err := h.accountTestService.SettingService().GetGlobalModelExcludePatterns(c.Request.Context())
+	if err != nil || len(patterns) == 0 {
+		return data
+	}
+	switch list := data.(type) {
+	case []openai.Model:
+		filtered := make([]openai.Model, 0, len(list))
+		for _, m := range list {
+			if !service.IsModelGloballyExcluded(patterns, m.ID) {
+				filtered = append(filtered, m)
+			}
+		}
+		return filtered
+	case []geminicli.Model:
+		filtered := make([]geminicli.Model, 0, len(list))
+		for _, m := range list {
+			if !service.IsModelGloballyExcluded(patterns, m.ID) {
+				filtered = append(filtered, m)
+			}
+		}
+		return filtered
+	case []claude.Model:
+		filtered := make([]claude.Model, 0, len(list))
+		for _, m := range list {
+			if !service.IsModelGloballyExcluded(patterns, m.ID) {
+				filtered = append(filtered, m)
+			}
+		}
+		return filtered
+	case []xai.Model:
+		filtered := make([]xai.Model, 0, len(list))
+		for _, m := range list {
+			if !service.IsModelGloballyExcluded(patterns, m.ID) {
+				filtered = append(filtered, m)
+			}
+		}
+		return filtered
+	case []antigravity.ClaudeModel:
+		filtered := make([]antigravity.ClaudeModel, 0, len(list))
+		for _, m := range list {
+			if !service.IsModelGloballyExcluded(patterns, m.ID) {
+				filtered = append(filtered, m)
+			}
+		}
+		return filtered
+	case []string:
+		return service.FilterGloballyExcludedModels(patterns, list)
+	default:
+		return data
+	}
+}
+
 // GetAvailableModels handles getting available models for an account
 // GET /api/v1/admin/accounts/:id/models
 func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
@@ -3342,21 +3433,24 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	if account.IsOpenAI() {
 		// Prefer the shared, account-keyed upstream catalog. If discovery fails,
 		// retain the legacy local catalog below so the test dialog remains usable.
-		if h.accountTestService != nil {
+		// catalog=local skips upstream discovery entirely for pickers that must
+		// answer from the locally configured catalog without fetch latency.
+		localCatalogOnly := strings.EqualFold(strings.TrimSpace(c.Query("catalog")), "local")
+		if h.accountTestService != nil && !localCatalogOnly {
 			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, filterAccountTestPickerModels(account, models, openaiPickerModelID, buildOpenAIPickerModel))
+				response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, models, openaiPickerModelID, buildOpenAIPickerModel)))
 				return
 			}
 		}
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, h.filterAvailableModelsResponse(c, openai.DefaultModels))
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, h.filterAvailableModelsResponse(c, openai.DefaultModels))
 			return
 		}
 
@@ -3380,7 +3474,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				})
 			}
 		}
-		response.Success(c, models)
+		response.Success(c, h.filterAvailableModelsResponse(c, models))
 		return
 	}
 
@@ -3391,17 +3485,17 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// channel cannot serve.
 		if account.IsOAuth() {
 			if account.IsGeminiGoogleOne() {
-				response.Success(c, filterAccountTestPickerModels(account, geminicli.GoogleOneModels, geminiPickerModelID, buildGeminiPickerModel))
+				response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, geminicli.GoogleOneModels, geminiPickerModelID, buildGeminiPickerModel)))
 				return
 			}
-			response.Success(c, filterAccountTestPickerModels(account, geminicli.DefaultModels, geminiPickerModelID, buildGeminiPickerModel))
+			response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, geminicli.DefaultModels, geminiPickerModelID, buildGeminiPickerModel)))
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, filterAccountTestPickerModels(account, geminicli.DefaultModels, geminiPickerModelID, buildGeminiPickerModel))
+			response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, geminicli.DefaultModels, geminiPickerModelID, buildGeminiPickerModel)))
 			return
 		}
 
@@ -3424,14 +3518,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				})
 			}
 		}
-		response.Success(c, models)
+		response.Success(c, h.filterAvailableModelsResponse(c, models))
 		return
 	}
 
 	// Explicit account mappings expose their request-side names to connectivity tests.
 	if account.Platform == service.PlatformAntigravity {
 		models := antigravityAccountTestModels(account.Credentials["model_mapping"])
-		response.Success(c, filterAccountTestPickerModels(account, models, antigravityPickerModelID, buildAntigravityPickerModel))
+		response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, models, antigravityPickerModelID, buildAntigravityPickerModel)))
 		return
 	}
 
@@ -3447,13 +3541,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			hasExplicitMapping = len(rawMapping) > 0
 		}
 		if !hasExplicitMapping {
-			response.Success(c, filterAccountTestPickerModels(account, defaultModels, xaiPickerModelID, buildXAIPickerModel))
+			response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, defaultModels, xaiPickerModelID, buildXAIPickerModel)))
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, defaultModels)
+			response.Success(c, h.filterAvailableModelsResponse(c, defaultModels))
 			return
 		}
 
@@ -3481,20 +3575,20 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				DisplayName: requestedModel,
 			})
 		}
-		response.Success(c, models)
+		response.Success(c, h.filterAvailableModelsResponse(c, models))
 		return
 	}
 
 	// TypeSafe accounts serve only the native System One model.
 	if account.IsTypeSafe() {
-		response.Success(c, []claude.Model{{ID: typesafe.JevLatestModel, Type: "model", DisplayName: typesafe.JevLatestModel}})
+		response.Success(c, h.filterAvailableModelsResponse(c, []claude.Model{{ID: typesafe.JevLatestModel, Type: "model", DisplayName: typesafe.JevLatestModel}}))
 		return
 	}
 
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
-		response.Success(c, filterAccountTestPickerModels(account, claude.DefaultModels, claudePickerModelID, buildClaudePickerModel))
+		response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, claude.DefaultModels, claudePickerModelID, buildClaudePickerModel)))
 		return
 	}
 
@@ -3502,7 +3596,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models
-		response.Success(c, filterAccountTestPickerModels(account, claude.DefaultModels, claudePickerModelID, buildClaudePickerModel))
+		response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, claude.DefaultModels, claudePickerModelID, buildClaudePickerModel)))
 		return
 	}
 
@@ -3529,7 +3623,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		}
 	}
 
-	response.Success(c, models)
+	response.Success(c, h.filterAvailableModelsResponse(c, models))
 }
 
 // antigravityAccountTestModels uses the stored mapping rather than GetModelMapping,
@@ -3615,7 +3709,26 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
+	h.filterUpstreamCatalogResponse(c, catalog)
 	response.Success(c, catalog)
+}
+
+func (h *AccountHandler) filterUpstreamCatalogResponse(c *gin.Context, catalog *service.UpstreamModelCatalog) {
+	if catalog == nil || h.accountTestService == nil || h.accountTestService.SettingService() == nil {
+		return
+	}
+	patterns, err := h.accountTestService.SettingService().GetGlobalModelExcludePatterns(c.Request.Context())
+	if err != nil || len(patterns) == 0 {
+		return
+	}
+	catalog.Models = service.FilterGloballyExcludedModels(patterns, catalog.Models)
+	if len(catalog.Metadata) > 0 {
+		for modelID := range catalog.Metadata {
+			if service.IsModelGloballyExcluded(patterns, modelID) {
+				delete(catalog.Metadata, modelID)
+			}
+		}
+	}
 }
 
 // SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).
@@ -3673,6 +3786,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		return
 	}
 
+	h.filterUpstreamCatalogResponse(c, catalog)
 	response.Success(c, catalog)
 }
 

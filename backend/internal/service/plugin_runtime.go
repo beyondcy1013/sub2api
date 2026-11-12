@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/textproto"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -22,8 +23,8 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	hcplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -640,9 +641,13 @@ func headersToPlugin(headers http.Header) map[string]*pluginv1.HeaderValues {
 func headersFromPlugin(headers map[string]*pluginv1.HeaderValues) http.Header {
 	out := make(http.Header, len(headers))
 	for key, values := range headers {
-		if values != nil {
-			out[key] = append([]string(nil), values.Values...)
+		if values == nil {
+			continue
 		}
+		// 插件上游若走 HTTP/2 会回传小写头名；http.Header.Get 只查规范键，
+		// 不归一化会让 x-codex-*/retry-after 等响应头在宿主侧全部不可见。
+		canonical := textproto.CanonicalMIMEHeaderKey(key)
+		out[canonical] = append(out[canonical], values.Values...)
 	}
 	return out
 }

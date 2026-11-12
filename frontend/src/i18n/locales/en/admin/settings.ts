@@ -504,6 +504,14 @@ export default {
         saved: 'OpenCode Go usage refresh settings saved',
         saveFailed: 'Failed to save OpenCode Go usage refresh settings'
       },
+      globalModelFilter: {
+        title: 'Global Model Filter',
+        description: 'Configure globally excluded model patterns (supports * wildcard, e.g. *thinking*, *pro*, gemini-2.5*). Matched models will be hidden from /v1/models, blocked from accounts and mappings, filtered during upstream sync, and rejected by the gateway.',
+        placeholder: 'Enter model name or pattern, e.g. *thinking* or gpt-3.5*',
+        add: 'Add',
+        empty: 'No global exclude patterns configured',
+        hint: 'Patterns are case-insensitive and support provider prefixes and slash/colon segments. Changes take effect on the gateway after saving.',
+      },
       gatewayForwarding: {
         title: 'Request Forwarding',
         description: 'Control how requests are forwarded to upstream OAuth accounts',

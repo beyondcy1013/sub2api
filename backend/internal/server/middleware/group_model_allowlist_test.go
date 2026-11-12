@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -497,5 +499,137 @@ func TestGroupModelAllowlistDuplicateIdenticalModelsAllowed(t *testing.T) {
 	}
 	if len(*calls) != 1 {
 		t.Fatalf("expected handler to run once, got %v", *calls)
+	}
+}
+
+type mockSettingRepoForAllowlist struct {
+	data map[string]string
+}
+
+func (m *mockSettingRepoForAllowlist) Get(_ context.Context, key string) (*service.Setting, error) {
+	v, ok := m.data[key]
+	if !ok {
+		return nil, service.ErrSettingNotFound
+	}
+	return &service.Setting{Key: key, Value: v}, nil
+}
+
+func (m *mockSettingRepoForAllowlist) GetValue(_ context.Context, key string) (string, error) {
+	return m.data[key], nil
+}
+
+func (m *mockSettingRepoForAllowlist) Set(_ context.Context, key, value string) error {
+	m.data[key] = value
+	return nil
+}
+
+func (m *mockSettingRepoForAllowlist) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	res := make(map[string]string)
+	for _, k := range keys {
+		if v, ok := m.data[k]; ok {
+			res[k] = v
+		}
+	}
+	return res, nil
+}
+
+func (m *mockSettingRepoForAllowlist) SetMultiple(_ context.Context, settings map[string]string) error {
+	for k, v := range settings {
+		m.data[k] = v
+	}
+	return nil
+}
+
+func (m *mockSettingRepoForAllowlist) GetAll(_ context.Context) (map[string]string, error) {
+	return m.data, nil
+}
+
+func (m *mockSettingRepoForAllowlist) Delete(_ context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+
+func newGroupModelAllowlistTestRouterWithSettingService(apiKey *service.APIKey, pathPrefix string, settingService *service.SettingService) (*gin.Engine, *[]string) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	var calls []string
+	router.Use(func(c *gin.Context) {
+		if apiKey != nil {
+			c.Set(string(ContextKeyAPIKey), apiKey)
+		}
+		c.Next()
+	})
+	router.Use(GroupModelAllowlist(settingService))
+	register := func(method, path string) {
+		router.Handle(method, path, func(c *gin.Context) {
+			calls = append(calls, "handler:"+path)
+			c.Status(http.StatusOK)
+		})
+	}
+	register(http.MethodPost, pathPrefix+"/messages")
+	register(http.MethodPost, pathPrefix+"/chat/completions")
+	register(http.MethodGet, pathPrefix+"/models/:model")
+	return router, &calls
+}
+
+func TestGroupModelAllowlist_GloballyExcludedModelRejected(t *testing.T) {
+	repo := &mockSettingRepoForAllowlist{
+		data: map[string]string{
+			service.SettingKeyGlobalModelExcludePatterns: `["*thinking*", "gpt-3.5*"]`,
+		},
+	}
+	settingService := service.NewSettingService(repo, &config.Config{})
+	// Allowlist disabled on group
+	router, calls := newGroupModelAllowlistTestRouterWithSettingService(allowlistAPIKey(false), "/v1", settingService)
+
+	// 1. Matched model rejected with 404
+	w := doJSON(t, router, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-3.5-turbo"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for globally excluded model, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "gpt-3.5-turbo") {
+		t.Fatalf("expected error message to mention rejected model, got %s", w.Body.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("expected handler not to be called, got %v", *calls)
+	}
+
+	// 2. Claude thinking model rejected
+	w2 := doJSON(t, router, http.MethodPost, "/v1/messages", `{"model":"claude-3-7-sonnet-thinking"}`)
+	if w2.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for thinking model, got %d: %s", w2.Code, w2.Body.String())
+	}
+
+	// 3. Normal model allowed
+	w3 := doJSON(t, router, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`)
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected 200 for allowed model, got %d: %s", w3.Code, w3.Body.String())
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("expected handler to run once, got %v", *calls)
+	}
+}
+
+func TestGroupModelAllowlist_GloballyExcludedOverridesGroupAllowlist(t *testing.T) {
+	repo := &mockSettingRepoForAllowlist{
+		data: map[string]string{
+			service.SettingKeyGlobalModelExcludePatterns: `["o1-mini*"]`,
+		},
+	}
+	settingService := service.NewSettingService(repo, &config.Config{})
+	// Group allowlist explicitly includes o1-mini
+	router, calls := newGroupModelAllowlistTestRouterWithSettingService(allowlistAPIKey(true, "o1-mini", "gpt-4o"), "/v1", settingService)
+
+	w := doJSON(t, router, http.MethodPost, "/v1/chat/completions", `{"model":"o1-mini"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for globally excluded model even if in group allowlist, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("expected handler not to be called, got %v", *calls)
+	}
+
+	w2 := doJSON(t, router, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid allowlisted model, got %d: %s", w2.Code, w2.Body.String())
 	}
 }

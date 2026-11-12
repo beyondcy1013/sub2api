@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -464,6 +465,112 @@ func TestNormalizedCodexLimits_BothDataNoWindowMinutes(t *testing.T) {
 	if normalized.Reset5hSeconds == nil || *normalized.Reset5hSeconds != 10000 {
 		t.Errorf("expected Reset5hSeconds=10000, got %v", normalized.Reset5hSeconds)
 	}
+}
+
+// 429 响应体携带 usage_limit_reached + resets_at 而无 x-codex-* 头（插件/WS
+// 通道常见）时，必须把触发窗口标记为 100%，否则用量窗口继续显示限流前的旧百分比。
+func TestHandle429_OpenAIBodyOnlyMarksMatchingCodexWindowExhausted(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+
+	now := time.Now()
+	reset5h := now.Add(3 * time.Hour)
+	account := &Account{
+		ID:       289,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent":   44.0,
+			"codex_5h_reset_at":       reset5h.Add(3 * time.Second).Format(time.RFC3339),
+			"codex_5h_window_minutes": 300,
+			"codex_7d_used_percent":   46.0,
+			"codex_7d_reset_at":       now.Add(4 * 24 * time.Hour).Format(time.RFC3339),
+			"codex_usage_updated_at":  now.Add(-17 * time.Minute).Format(time.RFC3339),
+		},
+	}
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":` +
+		strconv.FormatInt(reset5h.Unix(), 10) + `}}`)
+
+	svc.handle429(context.Background(), account, http.Header{}, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.NotEmpty(t, repo.updatedExtra, "body-only 429 must mark the exhausted codex window")
+	require.Equal(t, 100.0, repo.updatedExtra["codex_5h_used_percent"])
+	require.Equal(t, reset5h.Format(time.RFC3339), repo.updatedExtra["codex_5h_reset_at"])
+	// 7d 窗口不匹配 resets_at，必须保持原值不被误标
+	_, marked7d := repo.updatedExtra["codex_7d_used_percent"]
+	require.False(t, marked7d, "unrelated 7d window must not be marked exhausted")
+}
+
+func TestHandle429_OpenAIBodyOnlyMarks7dWhenResetIsFarOut(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+
+	now := time.Now()
+	reset7d := now.Add(4*24*time.Hour + 2*time.Hour)
+	account := &Account{
+		ID:       290,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent": 12.0,
+			"codex_5h_reset_at":     now.Add(2 * time.Hour).Format(time.RFC3339),
+			"codex_7d_reset_at":     reset7d.Add(-30 * time.Second).Format(time.RFC3339),
+		},
+	}
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"weekly limit","resets_at":` +
+		strconv.FormatInt(reset7d.Unix(), 10) + `}}`)
+
+	svc.handle429(context.Background(), account, http.Header{}, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.Equal(t, 100.0, repo.updatedExtra["codex_7d_used_percent"])
+	require.Equal(t, reset7d.Format(time.RFC3339), repo.updatedExtra["codex_7d_reset_at"])
+	_, marked5h := repo.updatedExtra["codex_5h_used_percent"]
+	require.False(t, marked5h)
+}
+
+// rate_limit_exceeded 等突发限流的短重置不得猜测窗口归属——否则分钟级冷却
+// 会被误写成 5h/7d 配额耗尽。
+func TestHandle429_OpenAIBodyOnlyBurstLimitDoesNotFabricateWindow(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+
+	now := time.Now()
+	account := &Account{
+		ID:       291,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent": 44.0,
+			"codex_5h_reset_at":     now.Add(3 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	body := []byte(`{"error":{"type":"rate_limit_exceeded","message":"slow down","resets_at":` +
+		strconv.FormatInt(now.Add(90*time.Second).Unix(), 10) + `}}`)
+
+	svc.handle429(context.Background(), account, http.Header{}, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.Empty(t, repo.updatedExtra, "burst rate_limit_exceeded must not fabricate a codex window snapshot")
+}
+
+// 无任何已存窗口边界时，usage_limit_reached 仍要按重置距离归属窗口。
+func TestHandle429_OpenAIBodyOnlyHorizonFallback(t *testing.T) {
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+
+	now := time.Now()
+	reset5h := now.Add(2 * time.Hour)
+	account := &Account{ID: 292, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	body := []byte(`{"error":{"type":"usage_limit_reached","message":"limit","resets_at":` +
+		strconv.FormatInt(reset5h.Unix(), 10) + `}}`)
+
+	svc.handle429(context.Background(), account, http.Header{}, body)
+
+	require.Equal(t, account.ID, repo.rateLimitedID)
+	require.Equal(t, 100.0, repo.updatedExtra["codex_5h_used_percent"])
+	require.Equal(t, 300, repo.updatedExtra["codex_5h_window_minutes"])
 }
 
 func TestHandle429_AnthropicPlatformUnaffected(t *testing.T) {

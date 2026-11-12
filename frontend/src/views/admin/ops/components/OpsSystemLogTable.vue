@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import LogRetentionSelect from './LogRetentionSelect.vue'
-import { opsAPI, type OpsRuntimeLogConfig, type OpsSystemLog, type OpsSystemLogSinkHealth } from '@/api/admin/ops'
+import { opsAPI, type OpsRuntimeLogConfig, type OpsSystemLog, type OpsSystemLogQuery, type OpsSystemLogSinkHealth } from '@/api/admin/ops'
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
@@ -18,12 +18,14 @@ const isDesktopViewport = useMediaQuery('(min-width: 768px)')
 const props = withDefaults(defineProps<{
   platformFilter?: string
   refreshToken?: number
+  initialQuery?: OpsSystemLogQuery
 }>(), {
   platformFilter: '',
   refreshToken: 0
 })
 
 const loading = ref(false)
+const loadError = ref('')
 const logs = ref<OpsSystemLog[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -210,13 +212,17 @@ const buildQuery = () => {
 
 const fetchLogs = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await opsAPI.listSystemLogs(buildQuery())
     logs.value = res.items || []
     total.value = res.total || 0
   } catch (err: any) {
+    logs.value = []
+    total.value = 0
     console.error('[OpsSystemLogTable] Failed to fetch logs', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.systemLogs.loadFailed'))
+    loadError.value = extractApiErrorMessage(err, t('admin.ops.systemLogs.loadFailed'))
+    appStore.showError(loadError.value)
   } finally {
     loading.value = false
   }
@@ -391,6 +397,20 @@ const applyFilters = () => {
 const hasData = computed(() => logs.value.length > 0)
 
 onMounted(async () => {
+  const context = props.initialQuery
+  if (context) {
+    filters.request_id = context.request_id || ''
+    filters.client_request_id = context.client_request_id || ''
+    // datetime-local displays local time, so convert ISO instants rather
+    // than dropping the timezone and shifting a correlated query.
+    for (const key of ['start_time', 'end_time'] as const) {
+      if (!context[key]) continue
+      const date = new Date(context[key]!)
+      if (Number.isNaN(date.getTime())) continue
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      filters[key] = local.toISOString().slice(0, 16)
+    }
+  }
   if (props.platformFilter) {
     filters.platform = props.platformFilter
   }
@@ -543,7 +563,8 @@ onMounted(async () => {
     </div>
 
     <div class="overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700">
-      <div v-if="loading" class="px-4 py-8 text-center text-sm text-gray-500">{{ t('common.loading') }}</div>
+      <div v-if="loadError" role="alert" class="px-4 py-4 text-sm text-red-600 dark:text-red-400">{{ loadError }}</div>
+      <div v-else-if="loading" class="px-4 py-8 text-center text-sm text-gray-500">{{ t('common.loading') }}</div>
       <div v-else-if="!hasData" class="px-4 py-8 text-center text-sm text-gray-500">{{ t('admin.ops.systemLogs.empty') }}</div>
       <div v-else-if="!isDesktopViewport" class="divide-y divide-gray-100 dark:divide-dark-800">
         <div v-for="row in logs" :key="row.id" class="space-y-1.5 p-3">

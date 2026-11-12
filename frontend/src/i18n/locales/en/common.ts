@@ -189,6 +189,7 @@ export default {
     plugins: 'Plugins',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
+    logs: 'Log Center',
     ops: 'Ops',
     promoCodes: 'Promo Codes',
     settings: 'Settings',

@@ -405,6 +405,17 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyFallbackModelGemini] = settings.FallbackModelGemini
 	updates[SettingKeyFallbackModelAntigravity] = settings.FallbackModelAntigravity
 
+	// 全局大模型排除表达式
+	normalizedGlobalExclude := NormalizeGlobalModelExcludePatterns(settings.GlobalModelExcludePatterns)
+	if normalizedGlobalExclude == nil {
+		normalizedGlobalExclude = []string{}
+	}
+	globalExcludeJSON, err := json.Marshal(normalizedGlobalExclude)
+	if err != nil {
+		return nil, fmt.Errorf("marshal global model exclude patterns: %w", err)
+	}
+	updates[SettingKeyGlobalModelExcludePatterns] = string(globalExcludeJSON)
+
 	// Identity patch configuration (Claude -> Gemini)
 	updates[SettingKeyEnableIdentityPatch] = strconv.FormatBool(settings.EnableIdentityPatch)
 	updates[SettingKeyIdentityPatchPrompt] = settings.IdentityPatchPrompt
@@ -529,6 +540,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
 	updates[SettingKeyOpenAICodexTicketStrategy] = NormalizeCodexTicketStrategy(settings.OpenAICodexTicketStrategy)
 	updates[SettingKeyOpenAICodexTicketStrict] = strconv.FormatBool(settings.OpenAICodexTicketStrictResponse)
+	probeSettingsJSON, probeErr := json.Marshal(normalizePelicanProbeSettings(settings.PelicanProbeSettings))
+	if probeErr != nil {
+		return nil, fmt.Errorf("marshal pelican probe settings: %w", probeErr)
+	}
+	updates[SettingKeyPelicanProbeSettings] = string(probeSettingsJSON)
 	if settings.OpenAICodexTicketStaticProxyURL != "" {
 		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = settings.OpenAICodexTicketStaticProxyURL
 	}
@@ -868,6 +884,13 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateOpenAICodexTicketModelsCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
 	s.InvalidateOpenAICodexTicketHarvestScopeCache()
+	s.InvalidatePelicanProbeSettingsCache()
+	if settings.GlobalModelExcludePatterns != nil {
+		s.globalModelExcludePatternsCache.Store(NormalizeGlobalModelExcludePatterns(settings.GlobalModelExcludePatterns))
+	} else {
+		s.globalModelExcludePatternsCache.Store([]string(nil))
+	}
+	s.globalModelExcludePatternsSF.Forget("global_model_exclude_patterns")
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

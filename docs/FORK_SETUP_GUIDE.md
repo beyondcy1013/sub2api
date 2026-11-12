@@ -24,7 +24,7 @@ upstream  -> Wei-Shaw/sub2api (source, fetch only)
 ## New Upgrade Flow
 
 ```bash
-cd /home/third_party/sub2api   # or /home/third_party/sub2freeApi
+cd /home/codes/ai/sub2api   # or /home/codes/ai/sub2freeApi
 
 # Clear conflicting env proxies (IMPORTANT - env proxy 12111 causes 407)
 export http_proxy="" https_proxy="" HTTP_PROXY="" HTTPS_PROXY="" all_proxy="" ALL_PROXY=""
@@ -46,7 +46,7 @@ git push origin main
 
 Or use the automated script:
 ```bash
-./scripts/upgrade-from-fork.sh /home/third_party/sub2api
+./scripts/upgrade-from-fork.sh /home/codes/ai/sub2api
 ```
 
 ## Recovery

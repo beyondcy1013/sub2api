@@ -277,6 +277,10 @@ func (r *openAIPassthroughFailoverRepo) SetRateLimited(_ context.Context, _ int6
 	return nil
 }
 
+func (r *openAIPassthroughFailoverRepo) UpdateExtra(_ context.Context, _ int64, _ map[string]any) error {
+	return nil
+}
+
 func (r *openAIPassthroughFailoverRepo) SetOverloaded(_ context.Context, _ int64, until time.Time) error {
 	r.overloadCalls = append(r.overloadCalls, until)
 	return nil

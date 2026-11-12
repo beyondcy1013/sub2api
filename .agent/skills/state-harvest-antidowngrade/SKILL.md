@@ -122,7 +122,7 @@ OpenAI 官方在面向 Codex（如 VSCode/Cursor 等客户端接口）的请求�
 ### 4.2 自动化预热脚本
 可在系统 Crontab 或定时任务中，每 20 分钟执行一次轻量预热探针（使用技能附带的工具）：
 ```bash
-python3 /home/codes/third_party/sub2api/.agent/skills/state-harvest-antidowngrade/scripts/verify_ticket.py \
+python3 /home/codes/ai/sub2api/.agent/skills/state-harvest-antidowngrade/scripts/verify_ticket.py \
   --auto-token \
   --proxy "http://127.0.0.1:18300"
 ```
@@ -132,7 +132,7 @@ python3 /home/codes/third_party/sub2api/.agent/skills/state-harvest-antidowngrad
 ## 5. 诊断工具脚本使用指南
 
 技能目录下提供了开箱即用的检测与采集工具：
-[`scripts/verify_ticket.py`](file:///home/codes/third_party/sub2api/.agent/skills/state-harvest-antidowngrade/scripts/verify_ticket.py)
+[`scripts/verify_ticket.py`](file:///home/codes/ai/sub2api/.agent/skills/state-harvest-antidowngrade/scripts/verify_ticket.py)
 
 ### 5.1 常用命令速查
 

@@ -399,6 +399,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	ManagementOnly     bool
 	Name               string
 	Notes              *string
 	Platform           string
@@ -697,6 +698,7 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
+	accountRequests         *accountRequestRegistry
 	userRepo                UserRepository
 	groupRepo               GroupRepository
 	groupDuplicateRepo      GroupDuplicateRepository
@@ -765,6 +767,7 @@ func NewAdminService(
 	channelCacheInvalidator ChannelCacheInvalidator,
 ) AdminService {
 	return &adminServiceImpl{
+		accountRequests:         &liveAccountRequests,
 		cfg:                     cfg,
 		userRepo:                userRepo,
 		groupRepo:               groupRepo,

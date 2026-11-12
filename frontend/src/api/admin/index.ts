@@ -25,6 +25,7 @@ import errorPassthroughAPI from './errorPassthrough'
 import dataManagementAPI from './dataManagement'
 import apiKeysAPI from './apiKeys'
 import scheduledTestsAPI from './scheduledTests'
+import degradationRulesAPI from './degradationRules'
 import backupAPI from './backup'
 import tlsFingerprintProfileAPI from './tlsFingerprintProfile'
 import channelsAPI from './channels'
@@ -65,6 +66,7 @@ export const adminAPI = {
   dataManagement: dataManagementAPI,
   apiKeys: apiKeysAPI,
   scheduledTests: scheduledTestsAPI,
+  degradationRules: degradationRulesAPI,
   backup: backupAPI,
   tlsFingerprintProfiles: tlsFingerprintProfileAPI,
   channels: channelsAPI,
@@ -103,6 +105,7 @@ export {
   dataManagementAPI,
   apiKeysAPI,
   scheduledTestsAPI,
+  degradationRulesAPI,
   backupAPI,
   tlsFingerprintProfileAPI,
   channelsAPI,

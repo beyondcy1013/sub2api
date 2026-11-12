@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/tidwall/gjson"
 )
 
 const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id, native_compaction_v2, created_at"
@@ -95,30 +96,94 @@ func (r *usageLogRepository) Delete(ctx context.Context, id int64) error {
 // UsageLogFilters represents filters for usage log queries
 type UsageLogFilters = usagestats.UsageLogFilters
 
-// ListWithFilters lists usage logs with optional filters (for admin)
-func (r *usageLogRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
+const usageLogWithStatusColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id, native_compaction_v2, created_at, status, status_code, error_id, error_message, error_type, error_phase, error_body"
+
+const usageLogSuccessSelectWithStatus = `
+SELECT
+  id, user_id, api_key_id, account_id, request_id, model, requested_model,
+  upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id,
+  input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens,
+  image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost,
+  cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier,
+  billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address,
+  image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown,
+  video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort,
+  inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id,
+  model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id,
+  native_compaction_v2, created_at,
+  'success'::text AS status, 200::integer AS status_code, NULL::bigint AS error_id, NULL::text AS error_message, NULL::text AS error_type, NULL::text AS error_phase, NULL::text AS error_body
+FROM usage_logs
+`
+
+const opsErrorLogSelectAsUsageLog = `
+SELECT
+  -o.id AS id, COALESCE(o.user_id, 0) AS user_id, COALESCE(o.api_key_id, 0) AS api_key_id, COALESCE(o.account_id, 0) AS account_id,
+  COALESCE(NULLIF(o.request_id, ''), NULLIF(o.client_request_id, ''), '') AS request_id,
+  COALESCE(o.model, '') AS model, o.requested_model, o.upstream_model, NULL::text AS upstream_response_model, NULL::boolean AS upstream_model_mismatch,
+  o.group_id, NULL::bigint AS subscription_id,
+  0 AS input_tokens, 0 AS output_tokens, 0 AS cache_creation_tokens, 0 AS cache_read_tokens, 0 AS cache_creation_5m_tokens, 0 AS cache_creation_1h_tokens,
+  0 AS image_output_tokens, 0.0::float8 AS image_output_cost, 0 AS image_input_tokens, 0.0::float8 AS image_input_cost,
+  0.0::float8 AS input_cost, 0.0::float8 AS output_cost, 0.0::float8 AS cache_creation_cost, 0.0::float8 AS cache_read_cost,
+  0.0::float8 AS total_cost, 0.0::float8 AS actual_cost, 1.0::float8 AS rate_multiplier, NULL::float8 AS account_rate_multiplier,
+  0::smallint AS billing_type, COALESCE(o.request_type, 0)::smallint AS request_type, o.stream, false AS openai_ws_mode,
+  o.duration_ms, NULL::integer AS first_token_ms, o.user_agent, host(o.client_ip)::text AS ip_address,
+  0 AS image_count, NULL::text AS image_size, NULL::text AS image_input_size, NULL::text AS image_output_size, NULL::text AS image_size_source, NULL::jsonb AS image_size_breakdown,
+  0 AS video_count, NULL::text AS video_resolution, NULL::integer AS video_duration_seconds, NULL::text AS service_tier,
+  NULL::text AS reasoning_effort, NULL::text AS requested_reasoning_effort, o.inbound_endpoint, o.upstream_endpoint,
+  false AS cache_ttl_overridden, false AS long_context_billing_applied, NULL::bigint AS channel_id, NULL::text AS model_mapping_chain,
+  NULL::text AS billing_tier, NULL::text AS billing_mode, NULL::float8 AS account_stats_cost, NULL::text AS upstream_request_id,
+  NULL::text AS session_id, false AS native_compaction_v2, o.created_at,
+  'error'::text AS status, COALESCE(o.status_code, 500)::integer AS status_code, o.id AS error_id, o.error_message, o.error_type, o.error_phase, o.error_body
+FROM ops_error_logs o
+`
+
+func normalizeUsageStatusFilter(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "all":
+		return "all"
+	case "error", "failed", "failure", "4xx", "5xx":
+		return "error"
+	default:
+		return "success"
+	}
+}
+
+func cleanErrorMessage(rawMsg, errorBody string) string {
+	msg := strings.TrimSpace(rawMsg)
+	body := strings.TrimSpace(errorBody)
+	if body != "" && (msg == "" || strings.HasPrefix(msg, "Upstream request failed") || msg == "upstream error event") {
+		for _, path := range []string{"error.message", "response.error.message", "message"} {
+			extracted := strings.TrimSpace(gjson.Get(body, path).String())
+			if extracted != "" {
+				return extracted
+			}
+		}
+	}
+	return msg
+}
+
+func buildUsageLogConditions(filters UsageLogFilters, startParamIndex int) ([]string, []any) {
 	conditions := make([]string, 0, 9)
 	args := make([]any, 0, 9)
+	nextArg := func(val any) string {
+		args = append(args, val)
+		return fmt.Sprintf("$%d", startParamIndex+len(args))
+	}
 
 	if filters.UserID > 0 {
-		conditions = append(conditions, fmt.Sprintf("user_id = $%d", len(args)+1))
-		args = append(args, filters.UserID)
+		conditions = append(conditions, "user_id = "+nextArg(filters.UserID))
 	}
 	if filters.APIKeyID > 0 {
-		conditions = append(conditions, fmt.Sprintf("api_key_id = $%d", len(args)+1))
-		args = append(args, filters.APIKeyID)
+		conditions = append(conditions, "api_key_id = "+nextArg(filters.APIKeyID))
 	}
 	if filters.AccountID > 0 {
-		conditions = append(conditions, fmt.Sprintf("account_id = $%d", len(args)+1))
-		args = append(args, filters.AccountID)
+		conditions = append(conditions, "account_id = "+nextArg(filters.AccountID))
 	}
 	if filters.GroupID > 0 {
-		conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
-		args = append(args, filters.GroupID)
+		conditions = append(conditions, "group_id = "+nextArg(filters.GroupID))
 	}
 	if requestID := strings.TrimSpace(filters.RequestID); requestID != "" {
-		conditions = append(conditions, fmt.Sprintf("request_id = $%d", len(args)+1))
-		args = append(args, requestID)
+		conditions = append(conditions, "request_id = "+nextArg(requestID))
 	}
 	conditions, args = appendUsageLogModelWhereCondition(conditions, args, filters.Model, filters.ModelFilterSource)
 	conditions, args = appendRequestTypeOrStreamWhereCondition(conditions, args, filters.RequestType, filters.Stream)
@@ -132,33 +197,61 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		conditions = append(conditions, upstreamModelMismatchCondition("upstream_model_mismatch", *filters.UpstreamModelMismatch))
 	}
 	if filters.StartTime != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", len(args)+1))
-		args = append(args, *filters.StartTime)
+		conditions = append(conditions, "created_at >= "+nextArg(*filters.StartTime))
 	}
 	if filters.EndTime != nil {
-		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)+1))
-		args = append(args, *filters.EndTime)
+		conditions = append(conditions, "created_at < "+nextArg(*filters.EndTime))
 	}
 
-	whereClause := buildWhere(conditions)
-	var (
-		logs []service.UsageLog
-		page *pagination.PaginationResult
-		err  error
-	)
-	if shouldUseFastUsageLogTotal(filters) {
-		logs, page, err = r.listUsageLogsWithFastPagination(ctx, whereClause, args, params)
-	} else {
-		logs, page, err = r.listUsageLogsWithPagination(ctx, whereClause, args, params)
-	}
-	if err != nil {
-		return nil, nil, err
+	return conditions, args
+}
+
+func buildOpsErrorLogConditions(filters UsageLogFilters, startParamIndex int) ([]string, []any) {
+	conditions := make([]string, 0, 8)
+	args := make([]any, 0, 8)
+	nextArg := func(val any) string {
+		args = append(args, val)
+		return fmt.Sprintf("$%d", startParamIndex+len(args))
 	}
 
-	if err := r.hydrateUsageLogAssociations(ctx, logs); err != nil {
-		return nil, nil, err
+	conditions = append(conditions, "COALESCE(status_code, 0) >= 400")
+
+	if filters.UserID > 0 {
+		conditions = append(conditions, "user_id = "+nextArg(filters.UserID))
 	}
-	return logs, page, nil
+	if filters.APIKeyID > 0 {
+		conditions = append(conditions, "api_key_id = "+nextArg(filters.APIKeyID))
+	}
+	if filters.AccountID > 0 {
+		conditions = append(conditions, "account_id = "+nextArg(filters.AccountID))
+	}
+	if filters.GroupID > 0 {
+		conditions = append(conditions, "group_id = "+nextArg(filters.GroupID))
+	}
+	if reqID := strings.TrimSpace(filters.RequestID); reqID != "" {
+		conditions = append(conditions, "(request_id = "+nextArg(reqID)+" OR client_request_id = "+nextArg(reqID)+")")
+	}
+	if model := strings.TrimSpace(filters.Model); model != "" {
+		conditions = append(conditions, "(model = "+nextArg(model)+" OR requested_model = "+nextArg(model)+")")
+	}
+	if filters.RequestType != nil {
+		conditions = append(conditions, "request_type = "+nextArg(int16(*filters.RequestType)))
+	}
+	if filters.Stream != nil {
+		conditions = append(conditions, "stream = "+nextArg(*filters.Stream))
+	}
+	if filters.StartTime != nil {
+		conditions = append(conditions, "created_at >= "+nextArg(*filters.StartTime))
+	}
+	if filters.EndTime != nil {
+		conditions = append(conditions, "created_at < "+nextArg(*filters.EndTime))
+	}
+
+	if filters.BillingType != nil || strings.TrimSpace(filters.BillingMode) != "" || (filters.NativeCompactionV2 != nil && *filters.NativeCompactionV2) || filters.UpstreamModelMismatch != nil {
+		conditions = append(conditions, "1 = 0")
+	}
+
+	return conditions, args
 }
 
 func upstreamModelMismatchCondition(column string, mismatch bool) string {
@@ -220,6 +313,170 @@ func (r *usageLogRepository) listUsageLogsWithFastPagination(ctx context.Context
 		total = int64(offset) + int64(limit) + 1
 	}
 
+	return logs, paginationResultFromTotal(total, params), nil
+}
+
+// ListWithFilters lists usage logs with optional filters (for admin)
+func (r *usageLogRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
+	statusFilter := normalizeUsageStatusFilter(filters.Status)
+	fastTotal := shouldUseFastUsageLogTotal(filters)
+
+	var (
+		logs []service.UsageLog
+		page *pagination.PaginationResult
+		err  error
+	)
+
+	switch statusFilter {
+	case "error":
+		opsConds, opsArgs := buildOpsErrorLogConditions(filters, 0)
+		whereClause := buildWhere(opsConds)
+		queryBase := opsErrorLogSelectAsUsageLog + " " + whereClause
+		countBase := "FROM ops_error_logs " + whereClause
+		logs, page, err = r.queryAndPaginateUsageLogs(ctx, queryBase, countBase, opsArgs, params, fastTotal)
+	case "all":
+		logs, page, err = r.listCombinedUsageLogs(ctx, filters, params, fastTotal)
+	default: // "success"
+		usageConds, usageArgs := buildUsageLogConditions(filters, 0)
+		whereClause := buildWhere(usageConds)
+		if fastTotal {
+			logs, page, err = r.listUsageLogsWithFastPagination(ctx, whereClause, usageArgs, params)
+		} else {
+			logs, page, err = r.listUsageLogsWithPagination(ctx, whereClause, usageArgs, params)
+		}
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := r.hydrateUsageLogAssociations(ctx, logs); err != nil {
+		return nil, nil, err
+	}
+	return logs, page, nil
+}
+
+func (r *usageLogRepository) listCombinedUsageLogs(ctx context.Context, filters UsageLogFilters, params pagination.PaginationParams, fastTotal bool) ([]service.UsageLog, *pagination.PaginationResult, error) {
+	usageConds, usageArgs := buildUsageLogConditions(filters, 0)
+	opsConds, opsArgs := buildOpsErrorLogConditions(filters, len(usageArgs))
+
+	usageWhere := buildWhere(usageConds)
+	opsWhere := buildWhere(opsConds)
+
+	limit := params.Limit()
+	offset := params.Offset()
+	branchLimit := limit + offset
+	if fastTotal {
+		branchLimit = limit + offset + 1
+	}
+
+	allArgs := make([]any, 0, len(usageArgs)+len(opsArgs)+4)
+	allArgs = append(allArgs, usageArgs...)
+	allArgs = append(allArgs, opsArgs...)
+
+	pBranchLimit1 := len(allArgs) + 1
+	allArgs = append(allArgs, branchLimit)
+
+	pBranchLimit2 := len(allArgs) + 1
+	allArgs = append(allArgs, branchLimit)
+
+	fetchLimit := limit
+	if fastTotal {
+		fetchLimit = limit + 1
+	}
+	pFetchLimit := len(allArgs) + 1
+	allArgs = append(allArgs, fetchLimit)
+
+	pOffset := len(allArgs) + 1
+	allArgs = append(allArgs, offset)
+
+	orderBy := usageLogOrderBy(params)
+
+	query := fmt.Sprintf(`
+(
+  %s %s ORDER BY created_at DESC LIMIT $%d
+)
+UNION ALL
+(
+  %s %s ORDER BY created_at DESC LIMIT $%d
+)
+ORDER BY %s LIMIT $%d OFFSET $%d
+`, usageLogSuccessSelectWithStatus, usageWhere, pBranchLimit1, opsErrorLogSelectAsUsageLog, opsWhere, pBranchLimit2, orderBy, pFetchLimit, pOffset)
+
+	logs, err := r.queryUsageLogsWithStatus(ctx, query, allArgs...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var total int64
+	if fastTotal {
+		hasMore := false
+		if len(logs) > limit {
+			hasMore = true
+			logs = logs[:limit]
+		}
+		total = int64(offset) + int64(len(logs))
+		if hasMore {
+			total = int64(offset) + int64(limit) + 1
+		}
+	} else {
+		count1Query := "SELECT COUNT(*) FROM usage_logs " + usageWhere
+		var count1 int64
+		if err := scanSingleRow(ctx, r.sql, count1Query, usageArgs, &count1); err != nil {
+			return nil, nil, err
+		}
+		count2Query := "SELECT COUNT(*) FROM ops_error_logs " + opsWhere
+		var count2 int64
+		if err := scanSingleRow(ctx, r.sql, count2Query, opsArgs, &count2); err != nil {
+			return nil, nil, err
+		}
+		total = count1 + count2
+	}
+
+	return logs, paginationResultFromTotal(total, params), nil
+}
+
+func (r *usageLogRepository) queryAndPaginateUsageLogs(ctx context.Context, queryBase, countBase string, args []any, params pagination.PaginationParams, fastTotal bool) ([]service.UsageLog, *pagination.PaginationResult, error) {
+	limit := params.Limit()
+	offset := params.Offset()
+
+	if fastTotal {
+		limitPos := len(args) + 1
+		offsetPos := len(args) + 2
+		listArgs := append(append([]any{}, args...), limit+1, offset)
+		query := fmt.Sprintf("%s ORDER BY %s LIMIT $%d OFFSET $%d", queryBase, usageLogOrderBy(params), limitPos, offsetPos)
+
+		logs, err := r.queryUsageLogsWithStatus(ctx, query, listArgs...)
+		if err != nil {
+			return nil, nil, err
+		}
+		hasMore := false
+		if len(logs) > limit {
+			hasMore = true
+			logs = logs[:limit]
+		}
+		total := int64(offset) + int64(len(logs))
+		if hasMore {
+			total = int64(offset) + int64(limit) + 1
+		}
+		return logs, paginationResultFromTotal(total, params), nil
+	}
+
+	countQuery := "SELECT COUNT(*) " + countBase
+	var total int64
+	if err := scanSingleRow(ctx, r.sql, countQuery, args, &total); err != nil {
+		return nil, nil, err
+	}
+
+	limitPos := len(args) + 1
+	offsetPos := len(args) + 2
+	listArgs := append(append([]any{}, args...), limit, offset)
+	query := fmt.Sprintf("%s ORDER BY %s LIMIT $%d OFFSET $%d", queryBase, usageLogOrderBy(params), limitPos, offsetPos)
+
+	logs, err := r.queryUsageLogsWithStatus(ctx, query, listArgs...)
+	if err != nil {
+		return nil, nil, err
+	}
 	return logs, paginationResultFromTotal(total, params), nil
 }
 
@@ -704,6 +961,350 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 	}
 	if upstreamRequestID.Valid {
 		log.UpstreamRequestID = &upstreamRequestID.String
+	}
+
+	log.Status = "success"
+	code200 := 200
+	log.StatusCode = &code200
+
+	return log, nil
+}
+
+func (r *usageLogRepository) queryUsageLogsWithStatus(ctx context.Context, query string, args ...any) (logs []service.UsageLog, err error) {
+	rows, err := r.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			logs = nil
+		}
+	}()
+
+	logs = make([]service.UsageLog, 0)
+	for rows.Next() {
+		var log *service.UsageLog
+		log, err = scanUsageLogWithStatus(rows)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, *log)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
+func scanUsageLogWithStatus(scanner interface{ Scan(...any) error }) (*service.UsageLog, error) {
+	var (
+		id                        int64
+		userID                    int64
+		apiKeyID                  int64
+		accountID                 int64
+		requestID                 sql.NullString
+		model                     string
+		requestedModel            sql.NullString
+		upstreamModel             sql.NullString
+		upstreamResponseModel     sql.NullString
+		upstreamModelMismatch     sql.NullBool
+		groupID                   sql.NullInt64
+		subscriptionID            sql.NullInt64
+		inputTokens               int
+		outputTokens              int
+		cacheCreationTokens       int
+		cacheReadTokens           int
+		cacheCreation5m           int
+		cacheCreation1h           int
+		imageOutputTokens         int
+		imageOutputCost           float64
+		imageInputTokens          int
+		imageInputCost            float64
+		inputCost                 float64
+		outputCost                float64
+		cacheCreationCost         float64
+		cacheReadCost             float64
+		totalCost                 float64
+		actualCost                float64
+		rateMultiplier            float64
+		accountRateMultiplier     sql.NullFloat64
+		billingType               int16
+		requestTypeRaw            int16
+		stream                    bool
+		openaiWSMode              bool
+		durationMs                sql.NullInt64
+		firstTokenMs              sql.NullInt64
+		userAgent                 sql.NullString
+		ipAddress                 sql.NullString
+		imageCount                int
+		imageSize                 sql.NullString
+		imageInputSize            sql.NullString
+		imageOutputSize           sql.NullString
+		imageSizeSource           sql.NullString
+		imageSizeBreakdown        sql.NullString
+		videoCount                int
+		videoResolution           sql.NullString
+		videoDurationSeconds      sql.NullInt64
+		serviceTier               sql.NullString
+		reasoningEffort           sql.NullString
+		requestedReasoningEffort  sql.NullString
+		inboundEndpoint           sql.NullString
+		upstreamEndpoint          sql.NullString
+		cacheTTLOverridden        bool
+		longContextBillingApplied bool
+		channelID                 sql.NullInt64
+		modelMappingChain         sql.NullString
+		billingTier               sql.NullString
+		billingMode               sql.NullString
+		accountStatsCost          sql.NullFloat64
+		upstreamRequestID         sql.NullString
+		sessionID                 sql.NullString
+		nativeCompactionV2        bool
+		createdAt                 time.Time
+		status                    sql.NullString
+		statusCode                sql.NullInt64
+		errorID                   sql.NullInt64
+		errorMessage              sql.NullString
+		errorType                 sql.NullString
+		errorPhase                sql.NullString
+		errorBody                 sql.NullString
+	)
+
+	if err := scanner.Scan(
+		&id,
+		&userID,
+		&apiKeyID,
+		&accountID,
+		&requestID,
+		&model,
+		&requestedModel,
+		&upstreamModel,
+		&upstreamResponseModel,
+		&upstreamModelMismatch,
+		&groupID,
+		&subscriptionID,
+		&inputTokens,
+		&outputTokens,
+		&cacheCreationTokens,
+		&cacheReadTokens,
+		&cacheCreation5m,
+		&cacheCreation1h,
+		&imageOutputTokens,
+		&imageOutputCost,
+		&imageInputTokens,
+		&imageInputCost,
+		&inputCost,
+		&outputCost,
+		&cacheCreationCost,
+		&cacheReadCost,
+		&totalCost,
+		&actualCost,
+		&rateMultiplier,
+		&accountRateMultiplier,
+		&billingType,
+		&requestTypeRaw,
+		&stream,
+		&openaiWSMode,
+		&durationMs,
+		&firstTokenMs,
+		&userAgent,
+		&ipAddress,
+		&imageCount,
+		&imageSize,
+		&imageInputSize,
+		&imageOutputSize,
+		&imageSizeSource,
+		&imageSizeBreakdown,
+		&videoCount,
+		&videoResolution,
+		&videoDurationSeconds,
+		&serviceTier,
+		&reasoningEffort,
+		&requestedReasoningEffort,
+		&inboundEndpoint,
+		&upstreamEndpoint,
+		&cacheTTLOverridden,
+		&longContextBillingApplied,
+		&channelID,
+		&modelMappingChain,
+		&billingTier,
+		&billingMode,
+		&accountStatsCost,
+		&upstreamRequestID,
+		&sessionID,
+		&nativeCompactionV2,
+		&createdAt,
+		&status,
+		&statusCode,
+		&errorID,
+		&errorMessage,
+		&errorType,
+		&errorPhase,
+		&errorBody,
+	); err != nil {
+		return nil, err
+	}
+
+	log := &service.UsageLog{
+		ID:                        id,
+		UserID:                    userID,
+		APIKeyID:                  apiKeyID,
+		AccountID:                 accountID,
+		Model:                     model,
+		RequestedModel:            coalesceTrimmedString(requestedModel, model),
+		InputTokens:               inputTokens,
+		OutputTokens:              outputTokens,
+		CacheCreationTokens:       cacheCreationTokens,
+		CacheReadTokens:           cacheReadTokens,
+		CacheCreation5mTokens:     cacheCreation5m,
+		CacheCreation1hTokens:     cacheCreation1h,
+		ImageOutputTokens:         imageOutputTokens,
+		ImageOutputCost:           imageOutputCost,
+		ImageInputTokens:          imageInputTokens,
+		ImageInputCost:            imageInputCost,
+		InputCost:                 inputCost,
+		OutputCost:                outputCost,
+		CacheCreationCost:         cacheCreationCost,
+		CacheReadCost:             cacheReadCost,
+		TotalCost:                 totalCost,
+		ActualCost:                actualCost,
+		RateMultiplier:            rateMultiplier,
+		AccountRateMultiplier:     nullFloat64Ptr(accountRateMultiplier),
+		BillingType:               int8(billingType),
+		RequestType:               service.RequestTypeFromInt16(requestTypeRaw),
+		NativeCompactionV2:        nativeCompactionV2,
+		ImageCount:                imageCount,
+		VideoCount:                videoCount,
+		CacheTTLOverridden:        cacheTTLOverridden,
+		LongContextBillingApplied: longContextBillingApplied,
+		CreatedAt:                 createdAt,
+	}
+	log.Stream = stream
+	log.OpenAIWSMode = openaiWSMode
+	log.RequestType = log.EffectiveRequestType()
+	log.Stream, log.OpenAIWSMode = service.ApplyLegacyRequestFields(log.RequestType, stream, openaiWSMode)
+
+	if requestID.Valid {
+		log.RequestID = requestID.String
+	}
+	if groupID.Valid {
+		value := groupID.Int64
+		log.GroupID = &value
+	}
+	if subscriptionID.Valid {
+		value := subscriptionID.Int64
+		log.SubscriptionID = &value
+	}
+	if durationMs.Valid {
+		value := int(durationMs.Int64)
+		log.DurationMs = &value
+	}
+	if firstTokenMs.Valid {
+		value := int(firstTokenMs.Int64)
+		log.FirstTokenMs = &value
+	}
+	if userAgent.Valid {
+		log.UserAgent = &userAgent.String
+	}
+	if ipAddress.Valid {
+		log.IPAddress = &ipAddress.String
+	}
+	if imageSize.Valid {
+		log.ImageSize = &imageSize.String
+	}
+	if imageInputSize.Valid {
+		log.ImageInputSize = &imageInputSize.String
+	}
+	if imageOutputSize.Valid {
+		log.ImageOutputSize = &imageOutputSize.String
+	}
+	if imageSizeSource.Valid {
+		log.ImageSizeSource = &imageSizeSource.String
+	}
+	log.ImageSizeBreakdown = stringIntMapFromNullJSON(imageSizeBreakdown)
+	if videoResolution.Valid {
+		log.VideoResolution = &videoResolution.String
+	}
+	if videoDurationSeconds.Valid {
+		value := int(videoDurationSeconds.Int64)
+		log.VideoDurationSeconds = &value
+	}
+	if serviceTier.Valid {
+		log.ServiceTier = &serviceTier.String
+	}
+	if reasoningEffort.Valid {
+		log.ReasoningEffort = &reasoningEffort.String
+	}
+	if requestedReasoningEffort.Valid {
+		log.RequestedReasoningEffort = &requestedReasoningEffort.String
+	}
+	if inboundEndpoint.Valid {
+		log.InboundEndpoint = &inboundEndpoint.String
+	}
+	if upstreamEndpoint.Valid {
+		log.UpstreamEndpoint = &upstreamEndpoint.String
+	}
+	if upstreamModel.Valid {
+		log.UpstreamModel = &upstreamModel.String
+	}
+	if upstreamResponseModel.Valid {
+		log.UpstreamResponseModel = &upstreamResponseModel.String
+	}
+	if upstreamModelMismatch.Valid {
+		value := upstreamModelMismatch.Bool
+		log.UpstreamModelMismatch = &value
+	}
+	if channelID.Valid {
+		value := channelID.Int64
+		log.ChannelID = &value
+	}
+	if modelMappingChain.Valid {
+		log.ModelMappingChain = &modelMappingChain.String
+	}
+	if billingTier.Valid {
+		log.BillingTier = &billingTier.String
+	}
+	if billingMode.Valid {
+		log.BillingMode = &billingMode.String
+	}
+	if accountStatsCost.Valid {
+		log.AccountStatsCost = &accountStatsCost.Float64
+	}
+	if sessionID.Valid {
+		log.SessionID = &sessionID.String
+	}
+	if upstreamRequestID.Valid {
+		log.UpstreamRequestID = &upstreamRequestID.String
+	}
+
+	log.Status = "success"
+	if status.Valid && status.String != "" {
+		log.Status = status.String
+	}
+	if statusCode.Valid {
+		code := int(statusCode.Int64)
+		log.StatusCode = &code
+	} else if log.Status == "success" {
+		code := 200
+		log.StatusCode = &code
+	} else {
+		code := 500
+		log.StatusCode = &code
+	}
+	if errorID.Valid {
+		id := errorID.Int64
+		log.ErrorID = &id
+	}
+	cleanMsg := cleanErrorMessage(errorMessage.String, errorBody.String)
+	if cleanMsg != "" {
+		log.ErrorMessage = &cleanMsg
+	}
+	if errorType.Valid && errorType.String != "" {
+		log.ErrorType = &errorType.String
+	}
+	if errorPhase.Valid && errorPhase.String != "" {
+		log.ErrorPhase = &errorPhase.String
 	}
 
 	return log, nil

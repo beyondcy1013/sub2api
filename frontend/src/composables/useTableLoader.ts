@@ -1,5 +1,4 @@
 import { ref, reactive, onUnmounted, toRaw } from 'vue'
-import { useDebounceFn } from '@vueuse/core'
 import type { BasePaginationResponse, FetchOptions } from '@/types'
 import { getPersistedPageSize, setPersistedPageSize } from './usePersistedPageSize'
 
@@ -76,7 +75,16 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     return load()
   }
 
-  const debouncedReload = useDebounceFn(reload, debounceMs)
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  const debouncedReload = () => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+    }
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      void reload()
+    }, debounceMs)
+  }
 
   const handlePageChange = (page: number) => {
     // 确保页码在有效范围内
@@ -94,6 +102,10 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
 
   onUnmounted(() => {
     abortController?.abort()
+    if (debounceTimer) {
+      clearTimeout(debounceTimer)
+      debounceTimer = null
+    }
   })
 
   return {

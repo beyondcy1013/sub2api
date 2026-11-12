@@ -715,3 +715,54 @@ func TestResponsesClientToolStreamRestorer_RestoresAllTerminalEvents(t *testing.
 		})
 	}
 }
+
+func TestAdaptResponsesClientTools_LowersUndeclaredHistoricalCustomToolCall(t *testing.T) {
+	req := map[string]any{
+		"tools": []any{
+			map[string]any{
+				"type": "function",
+				"name": "exec_command",
+				"parameters": map[string]any{
+					"type": "object",
+				},
+			},
+		},
+		"input": []any{
+			map[string]any{
+				"type":    "custom_tool_call",
+				"id":      "ctc_apply_patch_123",
+				"call_id": "call_123",
+				"name":    "apply_patch",
+				"input":   "*** old\n--- new\n",
+			},
+			map[string]any{
+				"type":    "custom_tool_call_output",
+				"id":      "ctco_apply_patch_123",
+				"call_id": "call_123",
+				"output":  "Success",
+			},
+		},
+	}
+
+	mapping, changed, err := AdaptResponsesClientTools(req)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.True(t, mapping.CustomTools["apply_patch"])
+
+	input := requireResponsesClientToolValue[[]any](t, req["input"])
+	require.Len(t, input, 2)
+
+	call := requireResponsesClientToolValue[map[string]any](t, input[0])
+	require.Equal(t, "function_call", call["type"])
+	require.Equal(t, "fc_apply_patch_123", call["id"])
+	require.Equal(t, "call_123", call["call_id"])
+	require.Equal(t, "apply_patch", call["name"])
+	require.JSONEq(t, `{"input":"*** old\n--- new\n"}`, requireResponsesClientToolValue[string](t, call["arguments"]))
+	require.Nil(t, call["input"])
+
+	output := requireResponsesClientToolValue[map[string]any](t, input[1])
+	require.Equal(t, "function_call_output", output["type"])
+	require.Equal(t, "call_123", output["call_id"])
+	require.Equal(t, "Success", output["output"])
+	require.Nil(t, output["id"])
+}

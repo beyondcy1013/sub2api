@@ -37,6 +37,10 @@ const messages: Record<string, string> = {
 	'admin.usage.upstreamModelMatchedOnly': 'Matched only',
   'admin.usage.group': 'Group',
   'admin.usage.allGroups': 'All Groups',
+  'usage.status': 'Status',
+  'usage.statusSuccess': 'Success',
+  'usage.statusFailed': 'Failed',
+  'common.all': 'All',
   'common.refresh': 'Refresh',
   'common.reset': 'Reset',
   'admin.usage.cleanup.button': 'Cleanup',
@@ -302,6 +306,44 @@ describe('UsageFilters — native compaction filter', () => {
     await wrapper.vm.$nextTick()
 
     expect(filters.native_compaction_v2).toBe(true)
+    expect(wrapper.emitted('change')).toBeTruthy()
+  })
+
+  it('exposes status filter and emits change when selecting status', async () => {
+    const SelectStub = {
+      name: 'Select',
+      props: ['modelValue', 'options'],
+      emits: ['update:modelValue', 'change'],
+      template: '<div />',
+    }
+    const filters = defaultFilters()
+    const wrapper = mount(UsageFilters, {
+      props: {
+        modelValue: filters,
+        exporting: false,
+        startDate: '2026-05-01',
+        endDate: '2026-05-28',
+        showActions: false,
+        modelOptions: [],
+      },
+      global: { stubs: { Select: SelectStub, Teleport: true } },
+    })
+
+    const statusSelect = wrapper.findAllComponents(SelectStub).find((select: any) =>
+      (select.props('options') as Array<{ value: unknown }>).some((option) => option.value === 'failed')
+    )
+    expect(statusSelect).toBeDefined()
+    expect(statusSelect!.props('options')).toEqual([
+      { value: 'all', label: 'All' },
+      { value: 'success', label: 'Success' },
+      { value: 'failed', label: 'Failed' },
+    ])
+
+    statusSelect!.vm.$emit('update:modelValue', 'failed')
+    statusSelect!.vm.$emit('change')
+    await wrapper.vm.$nextTick()
+
+    expect((filters as any).status).toBe('failed')
     expect(wrapper.emitted('change')).toBeTruthy()
   })
 })

@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog
+  <component :is="embedded ? 'div' : BaseDialog"
     :show="show"
     :title="t('admin.scheduledTests.title')"
     width="wide"
@@ -11,24 +11,142 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">
           {{ t('admin.scheduledTests.title') }}
         </p>
-        <button
-          v-if="!isGlobalMode"
-          @click="showAddForm = !showAddForm"
-          class="btn btn-primary flex items-center gap-1.5 text-sm"
-        >
-          <Icon name="plus" size="sm" :stroke-width="2" />
-          {{ t('admin.scheduledTests.addPlan') }}
-        </button>
-        <button
-          v-else
-          @click="showAddForm = !showAddForm"
-          class="btn btn-primary flex items-center gap-1.5 text-sm"
-        >
-          <Icon name="plus" size="sm" :stroke-width="2" />
-          {{ t('admin.scheduledTests.batchPlan') }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            @click="toggleRulesLibrary"
+            class="btn btn-secondary flex items-center gap-1.5 text-sm"
+          >
+            <Icon name="brain" size="sm" :stroke-width="2" />
+            {{ t('admin.scheduledTests.ruleLibrary') }}
+          </button>
+          <button
+            v-if="!rulesOnly && !isGlobalMode"
+            @click="showAddForm = !showAddForm"
+            class="btn btn-primary flex items-center gap-1.5 text-sm"
+          >
+            <Icon name="plus" size="sm" :stroke-width="2" />
+            {{ t('admin.scheduledTests.addPlan') }}
+          </button>
+          <button
+            v-else-if="!rulesOnly"
+            @click="showAddForm = !showAddForm"
+            class="btn btn-primary flex items-center gap-1.5 text-sm"
+          >
+            <Icon name="plus" size="sm" :stroke-width="2" />
+            {{ t('admin.scheduledTests.batchPlan') }}
+          </button>
+        </div>
       </div>
 
+      <!-- Rules Library -->
+      <div
+        v-if="showRulesLibrary"
+        class="rounded-xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-900/20"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.scheduledTests.ruleLibrary') }}
+          </div>
+          <button
+            v-if="!ruleEditing"
+            @click="startRuleCreate"
+            class="flex items-center gap-1 rounded-lg bg-primary-500 px-2.5 py-1 text-xs font-medium text-white hover:bg-primary-600"
+          >
+            <Icon name="plus" size="sm" :stroke-width="2" />
+            {{ t('admin.scheduledTests.ruleAdd') }}
+          </button>
+        </div>
+
+        <!-- Rule edit form -->
+        <div v-if="ruleEditing" class="mb-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-800">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.scheduledTests.ruleName') }}</label>
+              <Input v-model="ruleForm.name" :placeholder="t('admin.scheduledTests.ruleName')" />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.scheduledTests.ruleEvaluator') }}</label>
+              <Select v-model="ruleForm.evaluator" :options="evaluatorOptions" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.scheduledTests.rulePrompt') }}</label>
+              <textarea
+                v-model="ruleForm.prompt"
+                rows="4"
+                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200"
+              ></textarea>
+            </div>
+            <div v-if="ruleForm.evaluator === 'numeric_answer'">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.scheduledTests.ruleExpectedAnswer') }}</label>
+              <Input v-model="ruleForm.expected_answer" type="number" />
+            </div>
+            <div v-if="ruleForm.evaluator === 'contains_keywords'" class="sm:col-span-2">
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.scheduledTests.ruleKeywords') }}</label>
+              <Input v-model="ruleForm.keywords" :placeholder="t('admin.scheduledTests.ruleKeywordsPlaceholder')" />
+              <Select
+                v-model="ruleForm.keyword_match"
+                class="mt-2"
+                :options="[
+                  { label: t('admin.scheduledTests.ruleKeywordsAll'), value: 'all' },
+                  { label: t('admin.scheduledTests.ruleKeywordsAny'), value: 'any' }
+                ]"
+              />
+            </div>
+            <div class="flex items-end">
+              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <Toggle v-model="ruleForm.enabled" />
+                {{ t('admin.scheduledTests.enabled') }}
+              </label>
+            </div>
+          </div>
+          <div class="mt-3 flex justify-end gap-2">
+            <button class="rounded-lg bg-gray-100 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300" @click="ruleEditing = false">
+              {{ t('common.cancel') }}
+            </button>
+            <button class="rounded-lg bg-primary-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-600" :disabled="ruleSaving" @click="handleRuleSave">
+              {{ t('common.save') }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Rules list -->
+        <div class="space-y-2">
+          <div
+            v-for="rule in degradationRules"
+            :key="rule.id"
+            class="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
+          >
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ rule.name }}</span>
+                <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ rule.evaluator }}</span>
+                <span
+                  :class="[
+                    'text-[10px] font-medium',
+                    rule.enabled ? 'text-green-600 dark:text-green-400' : 'text-gray-400'
+                  ]"
+                >
+                  {{ rule.enabled ? t('admin.scheduledTests.ruleEnabled') : t('admin.scheduledTests.ruleDisabled') }}
+                </span>
+              </div>
+              <p class="mt-0.5 truncate text-xs text-gray-400" :title="rule.prompt">{{ rule.prompt }}</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+              <button class="rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-500 dark:hover:bg-blue-900/20" :title="t('admin.scheduledTests.ruleEdit')" @click="startRuleEdit(rule)">
+                <Icon name="edit" size="sm" :stroke-width="2" />
+              </button>
+              <button class="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/20" :title="t('admin.scheduledTests.ruleDelete')" @click="handleRuleDelete(rule)">
+                <Icon name="trash" size="sm" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+          <p v-if="!degradationRules.length && !rulesLoading" class="py-2 text-center text-xs text-gray-400">
+            {{ t('admin.scheduledTests.ruleEmpty') }}
+          </p>
+        </div>
+      </div>
+
+      <template v-if="!rulesOnly">
       <!-- Add Plan Form -->
       <div
         v-if="showAddForm"
@@ -65,6 +183,12 @@
               :placeholder="t('admin.scheduledTests.searchAccounts')"
               class="mb-2"
             />
+            <p
+              v-if="newPlan.mode === 'pelican'"
+              class="mb-2 text-xs text-amber-600 dark:text-amber-400"
+            >
+              {{ t('admin.scheduledTests.modePelicanHint') }}
+            </p>
             <div class="grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto rounded-lg border border-gray-200 p-2 sm:grid-cols-2 md:grid-cols-3 dark:border-dark-600">
               <label
                 v-for="account in filteredCandidateAccounts"
@@ -83,96 +207,7 @@
               </label>
             </div>
           </div>
-          <div>
-            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-              {{ t('admin.scheduledTests.model') }}
-            </label>
-            <Select
-              v-model="newPlan.model_id"
-              :options="modelOptions"
-              :placeholder="t('admin.scheduledTests.model')"
-              :searchable="modelOptions.length > 5"
-            />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
-              {{ t('admin.scheduledTests.cronExpression') }}
-              <HelpTooltip>
-                <template #trigger>
-                  <span class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-gray-400/70 text-[10px] font-semibold text-gray-400 transition-colors hover:border-primary-500 hover:text-primary-600 dark:border-gray-500 dark:text-gray-500 dark:hover:border-primary-400 dark:hover:text-primary-400">
-                    ?
-                  </span>
-                </template>
-                <div class="space-y-1.5">
-                  <p class="font-medium">{{ t('admin.scheduledTests.cronTooltipTitle') }}</p>
-                  <p>{{ t('admin.scheduledTests.cronTooltipMeaning') }}</p>
-                  <p>{{ t('admin.scheduledTests.cronTooltipExampleEvery30Min') }}</p>
-                  <p>{{ t('admin.scheduledTests.cronTooltipExampleHourly') }}</p>
-                  <p>{{ t('admin.scheduledTests.cronTooltipExampleDaily') }}</p>
-                  <p>{{ t('admin.scheduledTests.cronTooltipExampleWeekly') }}</p>
-                  <p>{{ t('admin.scheduledTests.cronTooltipRange') }}</p>
-                </div>
-              </HelpTooltip>
-            </label>
-            <Input
-              v-model="newPlan.cron_expression"
-              :placeholder="'*/30 * * * *'"
-              :hint="t('admin.scheduledTests.cronHelp')"
-            />
-            <CronScheduleBuilder v-model="newPlan.cron_expression" />
-          </div>
-          <div>
-            <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
-              {{ t('admin.scheduledTests.maxResults') }}
-              <HelpTooltip>
-                <template #trigger>
-                  <span class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-gray-400/70 text-[10px] font-semibold text-gray-400 transition-colors hover:border-primary-500 hover:text-primary-600 dark:border-gray-500 dark:text-gray-500 dark:hover:border-primary-400 dark:hover:text-primary-400">
-                    ?
-                  </span>
-                </template>
-                <div class="space-y-1.5">
-                  <p class="font-medium">{{ t('admin.scheduledTests.maxResultsTooltipTitle') }}</p>
-                  <p>{{ t('admin.scheduledTests.maxResultsTooltipMeaning') }}</p>
-                  <p>{{ t('admin.scheduledTests.maxResultsTooltipBody') }}</p>
-                  <p>{{ t('admin.scheduledTests.maxResultsTooltipExample') }}</p>
-                  <p>{{ t('admin.scheduledTests.maxResultsTooltipRange') }}</p>
-                </div>
-              </HelpTooltip>
-            </label>
-            <Input
-              v-model="newPlan.max_results"
-              type="number"
-              placeholder="100"
-            />
-          </div>
-          <div class="flex items-end">
-            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <Toggle v-model="newPlan.enabled" />
-              {{ t('admin.scheduledTests.enabled') }}
-            </label>
-          </div>
-          <div class="flex items-end">
-            <div>
-              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <Toggle v-model="newPlan.auto_recover" />
-                {{ t('admin.scheduledTests.autoRecover') }}
-              </label>
-              <p class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                {{ t('admin.scheduledTests.autoRecoverHelp') }}
-              </p>
-            </div>
-          </div>
-          <div class="flex items-end">
-            <div>
-              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <Toggle v-model="newPlan.auto_recover_schedulable" />
-                {{ t('admin.scheduledTests.autoRecoverSchedulable') }}
-              </label>
-              <p class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                {{ t('admin.scheduledTests.autoRecoverSchedulableHelp') }}
-              </p>
-            </div>
-          </div>
+          <ScheduledDetectionPlanForm :model-value="newPlan" :model-options="modeModelOptions" :rules="degradationRules" class="sm:col-span-2" />
         </div>
         <div class="mt-3 flex justify-end gap-2">
           <button
@@ -254,6 +289,14 @@
               >
                 {{ t('admin.scheduledTests.autoRecover') }}
               </span>
+
+              <!-- Pelican Mode Badge -->
+              <span
+                v-if="plan.mode === 'pelican'"
+                class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+              >
+                {{ t('admin.scheduledTests.modePelican') }}
+              </span>
             </div>
 
             <div class="flex items-center gap-3">
@@ -308,98 +351,7 @@
             <div class="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">
               {{ t('admin.scheduledTests.editPlan') }}
             </div>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                  {{ t('admin.scheduledTests.model') }}
-                </label>
-                <Select
-                  v-model="editForm.model_id"
-                  :options="modelOptions"
-                  :placeholder="t('admin.scheduledTests.model')"
-                  :searchable="modelOptions.length > 5"
-                />
-              </div>
-              <div class="sm:col-span-2">
-                <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
-                  {{ t('admin.scheduledTests.cronExpression') }}
-                  <HelpTooltip>
-                    <template #trigger>
-                      <span class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-gray-400/70 text-[10px] font-semibold text-gray-400 transition-colors hover:border-primary-500 hover:text-primary-600 dark:border-gray-500 dark:text-gray-500 dark:hover:border-primary-400 dark:hover:text-primary-400">
-                        ?
-                      </span>
-                    </template>
-                    <div class="space-y-1.5">
-                      <p class="font-medium">{{ t('admin.scheduledTests.cronTooltipTitle') }}</p>
-                      <p>{{ t('admin.scheduledTests.cronTooltipMeaning') }}</p>
-                      <p>{{ t('admin.scheduledTests.cronTooltipExampleEvery30Min') }}</p>
-                      <p>{{ t('admin.scheduledTests.cronTooltipExampleHourly') }}</p>
-                      <p>{{ t('admin.scheduledTests.cronTooltipExampleDaily') }}</p>
-                      <p>{{ t('admin.scheduledTests.cronTooltipExampleWeekly') }}</p>
-                      <p>{{ t('admin.scheduledTests.cronTooltipRange') }}</p>
-                    </div>
-                  </HelpTooltip>
-                </label>
-                <Input
-                  v-model="editForm.cron_expression"
-                  :placeholder="'*/30 * * * *'"
-                  :hint="t('admin.scheduledTests.cronHelp')"
-                />
-                <CronScheduleBuilder v-model="editForm.cron_expression" />
-              </div>
-              <div>
-                <label class="mb-1 flex items-center gap-1 text-xs font-medium text-gray-600 dark:text-gray-400">
-                  {{ t('admin.scheduledTests.maxResults') }}
-                  <HelpTooltip>
-                    <template #trigger>
-                      <span class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-gray-400/70 text-[10px] font-semibold text-gray-400 transition-colors hover:border-primary-500 hover:text-primary-600 dark:border-gray-500 dark:text-gray-500 dark:hover:border-primary-400 dark:hover:text-primary-400">
-                        ?
-                      </span>
-                    </template>
-                    <div class="space-y-1.5">
-                      <p class="font-medium">{{ t('admin.scheduledTests.maxResultsTooltipTitle') }}</p>
-                      <p>{{ t('admin.scheduledTests.maxResultsTooltipMeaning') }}</p>
-                      <p>{{ t('admin.scheduledTests.maxResultsTooltipBody') }}</p>
-                      <p>{{ t('admin.scheduledTests.maxResultsTooltipExample') }}</p>
-                      <p>{{ t('admin.scheduledTests.maxResultsTooltipRange') }}</p>
-                    </div>
-                  </HelpTooltip>
-                </label>
-                <Input
-                  v-model="editForm.max_results"
-                  type="number"
-                  placeholder="100"
-                />
-              </div>
-              <div class="flex items-end">
-                <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <Toggle v-model="editForm.enabled" />
-                  {{ t('admin.scheduledTests.enabled') }}
-                </label>
-              </div>
-              <div class="flex items-end">
-                <div>
-                  <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <Toggle v-model="editForm.auto_recover" />
-                    {{ t('admin.scheduledTests.autoRecover') }}
-                  </label>
-                  <p class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                    {{ t('admin.scheduledTests.autoRecoverHelp') }}
-                  </p>
-                </div>
-              </div>
-              <div class="flex items-end">
-                <div>
-                  <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <Toggle v-model="editForm.auto_recover_schedulable" />
-                    {{ t('admin.scheduledTests.autoRecoverSchedulable') }}
-                  </label>
-                  <p class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-                    {{ t('admin.scheduledTests.autoRecoverSchedulableHelp') }}
-                  </p>
-                </div>
-              </div>
-            </div>
+            <ScheduledDetectionPlanForm :model-value="editForm" :model-options="editModelOptions" :rules="degradationRules" />
             <div class="mt-3 flex justify-end gap-2">
               <button
                 @click="cancelEdit"
@@ -448,39 +400,8 @@
                 :key="result.id"
                 class="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-900"
               >
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <!-- Status Badge -->
-                    <span
-                      :class="[
-                        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-                        result.status === 'success'
-                          ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400'
-                          : result.status === 'running'
-                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                            : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'
-                      ]"
-                    >
-                      {{
-                        result.status === 'success'
-                          ? t('admin.scheduledTests.success')
-                          : result.status === 'running'
-                            ? t('admin.scheduledTests.running')
-                            : t('admin.scheduledTests.failed')
-                      }}
-                    </span>
-
-                    <!-- Latency -->
-                    <span v-if="result.latency_ms > 0" class="text-xs text-gray-500 dark:text-gray-400">
-                      {{ result.latency_ms }}ms
-                    </span>
-                  </div>
-
-                  <!-- Started At -->
-                  <span class="text-xs text-gray-400">
-                    {{ formatDateTime(result.started_at) }}
-                  </span>
-                </div>
+                <DetectionResultSummary :status="result.status" :capability="plan.mode === 'pelican'" :downgraded="result.downgraded" :reason="result.downgrade_reason" :error="result.error_message" :model="result.response_model" :latency-ms="result.latency_ms" :outcomes="ruleOutcomes(result)" />
+                <span class="text-xs text-gray-400">{{ formatDateTime(result.started_at) }}</span>
 
                 <!-- Response / Error (collapsible) -->
                 <div v-if="result.error_message" class="mt-2">
@@ -528,6 +449,7 @@
           </div>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- Delete Confirmation -->
@@ -541,7 +463,7 @@
       @confirm="handleDelete"
       @cancel="showDeleteConfirm = false"
     />
-  </BaseDialog>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -549,24 +471,31 @@ import { computed, ref, reactive, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Input from '@/components/common/Input.vue'
 import Toggle from '@/components/common/Toggle.vue'
-import CronScheduleBuilder from './CronScheduleBuilder.vue'
+import ScheduledDetectionPlanForm from './ScheduledDetectionPlanForm.vue'
+import DetectionResultSummary from './DetectionResultSummary.vue'
+import { loadDetectionAccounts } from '@/utils/accountDetection'
 import { Icon } from '@/components/icons'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import { formatDateTime } from '@/utils/format'
-import type { Account, ScheduledTestPlan, ScheduledTestResult } from '@/types'
+import type { Account, DegradationRule, DegradationEvaluator, RuleOutcome, ScheduledTestMode, ScheduledTestPlan, ScheduledTestResult } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+
+// Default model used by the pelican downgrade probe when no model is set
+// (mirrors service.DefaultPelicanModel in the backend).
+const PELICAN_DEFAULT_MODEL = 'gpt-6-astra'
 
 const props = defineProps<{
   show: boolean
   accountId: number | null
   modelOptions: SelectOption[]
+  embedded?: boolean
+  rulesOnly?: boolean
 }>()
 
 const isGlobalMode = computed(() => props.accountId === null)
@@ -601,7 +530,13 @@ const editForm = reactive({
   max_results: '100' as string,
   enabled: true,
   auto_recover: false,
-  auto_recover_schedulable: false
+  auto_recover_schedulable: false,
+  mode: 'default' as ScheduledTestMode,
+  auto_pause_on_downgrade: false,
+  rule_ids: [] as number[],
+  rule_strategy: 'all' as 'all' | 'random' | 'sequential',
+  downgrade_action: 'mark' as 'mark' | 'pause',
+  downgrade_threshold: '1' as string
 })
 
 const newPlan = reactive({
@@ -610,8 +545,162 @@ const newPlan = reactive({
   max_results: '100' as string,
   enabled: true,
   auto_recover: false,
-  auto_recover_schedulable: false
+  auto_recover_schedulable: false,
+  mode: 'default' as ScheduledTestMode,
+  auto_pause_on_downgrade: false,
+  rule_ids: [] as number[],
+  rule_strategy: 'all' as 'all' | 'random' | 'sequential',
+  downgrade_action: 'pause' as 'mark' | 'pause',
+  downgrade_threshold: '1' as string
 })
+
+// --- Degradation rule library ---
+const showRulesLibrary = ref(props.rulesOnly === true)
+const degradationRules = ref<DegradationRule[]>([])
+const rulesLoading = ref(false)
+const ruleEditing = ref(false)
+const ruleSaving = ref(false)
+const ruleForm = reactive({
+  id: null as number | null,
+  name: '',
+  enabled: true,
+  evaluator: 'numeric_answer' as DegradationEvaluator,
+  prompt: '',
+  expected_answer: '21' as string,
+  keywords: '' as string,
+  keyword_match: 'all' as string
+})
+
+const evaluatorOptions = [
+  { label: t('admin.scheduledTests.evaluatorNumeric'), value: 'numeric_answer' },
+  { label: t('admin.scheduledTests.evaluatorKeywords'), value: 'contains_keywords' },
+  { label: t('admin.scheduledTests.evaluatorRefusal'), value: 'refusal_only' },
+  { label: t('admin.scheduledTests.evaluatorHTML'), value: 'html_document' }
+]
+
+const toggleRulesLibrary = async () => {
+  showRulesLibrary.value = !showRulesLibrary.value
+  if (showRulesLibrary.value) {
+    await loadRules()
+  }
+}
+
+const loadRules = async () => {
+  rulesLoading.value = true
+  try {
+    degradationRules.value = await adminAPI.degradationRules.list()
+  } catch (error: any) {
+    appStore.showError(error?.message || 'Failed to load rules')
+  } finally {
+    rulesLoading.value = false
+  }
+}
+
+const startRuleCreate = () => {
+  ruleForm.id = null
+  ruleForm.name = ''
+  ruleForm.enabled = true
+  ruleForm.evaluator = 'numeric_answer'
+  ruleForm.prompt = ''
+  ruleForm.expected_answer = '21'
+  ruleForm.keywords = ''
+  ruleForm.keyword_match = 'all'
+  ruleEditing.value = true
+}
+
+const startRuleEdit = (rule: DegradationRule) => {
+  ruleForm.id = rule.id
+  ruleForm.name = rule.name
+  ruleForm.enabled = rule.enabled
+  ruleForm.evaluator = rule.evaluator
+  ruleForm.prompt = rule.prompt
+  ruleForm.expected_answer = String(rule.params.expected_answer ?? 21)
+  ruleForm.keywords = (rule.params.keywords || []).join(', ')
+  ruleForm.keyword_match = rule.params.keyword_match || 'all'
+  ruleEditing.value = true
+}
+
+const handleRuleSave = async () => {
+  if (!ruleForm.name.trim() || !ruleForm.prompt.trim() || ruleSaving.value) return
+  ruleSaving.value = true
+  try {
+    const params: import('@/types').DegradationParams = {}
+    if (ruleForm.evaluator === 'numeric_answer') {
+      params.expected_answer = Number(ruleForm.expected_answer) || 21
+    }
+    if (ruleForm.evaluator === 'contains_keywords') {
+      params.keywords = ruleForm.keywords.split(/[,，]/).map(k => k.trim()).filter(Boolean)
+      params.keyword_match = ruleForm.keyword_match
+    }
+    const payload = {
+      name: ruleForm.name.trim(),
+      enabled: ruleForm.enabled,
+      evaluator: ruleForm.evaluator,
+      prompt: ruleForm.prompt.trim(),
+      params
+    }
+    if (ruleForm.id === null) {
+      await adminAPI.degradationRules.create(payload)
+    } else {
+      await adminAPI.degradationRules.update(ruleForm.id, payload)
+    }
+    appStore.showSuccess(t('admin.scheduledTests.ruleSaveSuccess'))
+    ruleEditing.value = false
+    await loadRules()
+  } catch (error: any) {
+    appStore.showError(error?.message || 'Failed to save rule')
+  } finally {
+    ruleSaving.value = false
+  }
+}
+
+const handleRuleDelete = async (rule: DegradationRule) => {
+  if (!window.confirm(t('admin.scheduledTests.ruleDeleteConfirm', { name: rule.name }))) return
+  try {
+    await adminAPI.degradationRules.delete(rule.id)
+    appStore.showSuccess(t('admin.scheduledTests.ruleDeleteSuccess'))
+    await loadRules()
+  } catch (error: any) {
+    appStore.showError(error?.message || 'Failed to delete rule')
+  }
+}
+
+const ruleOutcomes = (result: ScheduledTestResult): RuleOutcome[] => {
+  return Array.isArray(result.rule_results) ? result.rule_results : []
+}
+
+// Ensure the pelican default model is selectable even when it is not part of
+// the account's model catalog.
+const withPelicanDefaultModel = (options: SelectOption[]) => {
+  if (!options.some(option => option.value === PELICAN_DEFAULT_MODEL)) {
+    return [...options, { label: `${PELICAN_DEFAULT_MODEL} (${t('admin.scheduledTests.pelicanDefaultModel')})`, value: PELICAN_DEFAULT_MODEL }]
+  }
+  return options
+}
+const modeModelOptions = computed(() =>
+  newPlan.mode === 'pelican' ? withPelicanDefaultModel(props.modelOptions) : props.modelOptions
+)
+const editModelOptions = computed(() =>
+  editForm.mode === 'pelican' ? withPelicanDefaultModel(props.modelOptions) : props.modelOptions
+)
+
+// Switching to pelican mode defaults the model, the rule selection and the
+// handling action; switching back clears them.
+watch(
+  () => newPlan.mode,
+  (mode) => {
+    if (mode === 'pelican') {
+      if (!newPlan.model_id) newPlan.model_id = PELICAN_DEFAULT_MODEL
+      if (newPlan.rule_ids.length === 0 && degradationRules.value.length > 0) {
+        newPlan.rule_ids = degradationRules.value.filter(r => r.enabled).map(r => r.id)
+      }
+      newPlan.downgrade_action = 'pause'
+    } else {
+      newPlan.rule_ids = []
+      newPlan.downgrade_action = 'mark'
+    }
+  }
+)
 
 const candidateAccounts = ref<Account[]>([])
 const accountsLoading = ref(false)
@@ -626,6 +715,9 @@ const groupOptions = computed(() => [
 const filteredCandidateAccounts = computed(() => {
   const query = accountSearch.value.trim().toLowerCase()
   return candidateAccounts.value.filter(account => {
+    if (newPlan.mode === 'pelican' && account.platform !== 'openai') {
+      return false
+    }
     if (selectedGroupId.value !== null && !(account.group_ids || []).includes(selectedGroupId.value)) {
       return false
     }
@@ -647,32 +739,14 @@ const resetNewPlan = () => {
   newPlan.enabled = true
   newPlan.auto_recover = false
   newPlan.auto_recover_schedulable = false
+  newPlan.mode = 'default'
+  newPlan.auto_pause_on_downgrade = false
+  newPlan.rule_ids = []
+  newPlan.rule_strategy = 'all'
+  newPlan.downgrade_action = 'mark'
+  newPlan.downgrade_threshold = '1'
 }
 
-// Load plans when dialog opens
-watch(
-  () => props.show,
-  async (visible) => {
-    if (!visible) {
-      plans.value = []
-      results.value = []
-      expandedPlanId.value = null
-      expandedResultIds.clear()
-      showAddForm.value = false
-      showDeleteConfirm.value = false
-      accountSearch.value = ''
-      selectedGroupId.value = null
-      selectedAccountIds.value = new Set()
-      return
-    }
-    if (visible && isGlobalMode.value) {
-      await loadPlans()
-      await loadGlobalFormData()
-    } else if (visible && props.accountId) {
-      await loadPlans()
-    }
-  }
-)
 
 const loadPlans = async () => {
   loading.value = true
@@ -692,10 +766,10 @@ const loadGlobalFormData = async () => {
   accountsLoading.value = true
   try {
     const [accountPage, groupList] = await Promise.all([
-      adminAPI.accounts.list(1, 1000, { lite: '1' }),
+      loadDetectionAccounts(),
       adminAPI.groups.getAll()
     ])
-    candidateAccounts.value = accountPage.items
+    candidateAccounts.value = accountPage
     groups.value = groupList
     accountsLoaded.value = true
   } catch (error: any) {
@@ -740,7 +814,13 @@ const handleCreate = async () => {
         enabled: newPlan.enabled,
         max_results: maxResults,
         auto_recover: newPlan.auto_recover,
-        auto_recover_schedulable: newPlan.auto_recover_schedulable
+        auto_recover_schedulable: newPlan.auto_recover_schedulable,
+        mode: newPlan.mode,
+        auto_pause_on_downgrade: newPlan.auto_pause_on_downgrade,
+        rule_ids: newPlan.rule_ids,
+        rule_strategy: newPlan.rule_strategy,
+        downgrade_action: newPlan.downgrade_action,
+        downgrade_threshold: Number(newPlan.downgrade_threshold) || 1
       })
       if (result.failed > 0) {
         appStore.showError(t('admin.scheduledTests.batchPartial', { created: result.created, failed: result.failed }))
@@ -755,7 +835,13 @@ const handleCreate = async () => {
         enabled: newPlan.enabled,
         max_results: maxResults,
         auto_recover: newPlan.auto_recover,
-        auto_recover_schedulable: newPlan.auto_recover_schedulable
+        auto_recover_schedulable: newPlan.auto_recover_schedulable,
+        mode: newPlan.mode,
+        auto_pause_on_downgrade: newPlan.auto_pause_on_downgrade,
+        rule_ids: newPlan.rule_ids,
+        rule_strategy: newPlan.rule_strategy,
+        downgrade_action: newPlan.downgrade_action,
+        downgrade_threshold: Number(newPlan.downgrade_threshold) || 1
       })
       appStore.showSuccess(t('admin.scheduledTests.createSuccess'))
     }
@@ -791,6 +877,12 @@ const startEdit = (plan: ScheduledTestPlan) => {
   editForm.enabled = plan.enabled
   editForm.auto_recover = plan.auto_recover
   editForm.auto_recover_schedulable = plan.auto_recover_schedulable
+  editForm.mode = plan.mode === 'pelican' ? 'pelican' : 'default'
+  editForm.auto_pause_on_downgrade = plan.auto_pause_on_downgrade
+  editForm.rule_ids = [...(plan.rule_ids || [])]
+  editForm.rule_strategy = plan.rule_strategy || 'all'
+  editForm.downgrade_action = plan.downgrade_action || (plan.auto_pause_on_downgrade ? 'pause' : 'mark')
+  editForm.downgrade_threshold = String(plan.downgrade_threshold || 1)
 }
 
 const cancelEdit = () => {
@@ -807,7 +899,13 @@ const handleEdit = async () => {
       max_results: Number(editForm.max_results) || 100,
       enabled: editForm.enabled,
       auto_recover: editForm.auto_recover,
-      auto_recover_schedulable: editForm.auto_recover_schedulable
+      auto_recover_schedulable: editForm.auto_recover_schedulable,
+      mode: editForm.mode,
+      auto_pause_on_downgrade: editForm.auto_pause_on_downgrade,
+      rule_ids: editForm.rule_ids,
+      rule_strategy: editForm.rule_strategy,
+      downgrade_action: editForm.downgrade_action,
+      downgrade_threshold: Number(editForm.downgrade_threshold) || 1
     })
     const index = plans.value.findIndex((p) => p.id === editingPlanId.value)
     if (index !== -1) {
@@ -877,4 +975,30 @@ const toggleResultDetail = (resultId: number) => {
     expandedResultIds.add(resultId)
   }
 }
+// Load plans when dialog opens
+watch(
+  () => props.show,
+  async (visible) => {
+    if (!visible) {
+      plans.value = []
+      results.value = []
+      expandedPlanId.value = null
+      expandedResultIds.clear()
+      showAddForm.value = false
+      showDeleteConfirm.value = false
+      accountSearch.value = ''
+      selectedGroupId.value = null
+      selectedAccountIds.value = new Set()
+      return
+    }
+    if (visible && isGlobalMode.value) {
+      await Promise.all([...(props.rulesOnly ? [] : [loadPlans()]), loadRules()])
+      if (!props.rulesOnly) await loadGlobalFormData()
+    } else if (visible && props.accountId) {
+      await Promise.all([...(props.rulesOnly ? [] : [loadPlans()]), loadRules()])
+    }
+  },
+  { immediate: true }
+)
+
 </script>

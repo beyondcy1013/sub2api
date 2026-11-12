@@ -326,6 +326,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result := &SystemSettings{
 		RegistrationEnabled:                    settings[SettingKeyRegistrationEnabled] == "true",
 		RegistrationEmailDomainQuotaEnabled:    settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
+		GlobalModelExcludePatterns:             parseGlobalModelExcludePatterns(settings[SettingKeyGlobalModelExcludePatterns]),
 		EmailVerifyEnabled:                     emailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
 		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
@@ -921,6 +922,16 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.OpenAICodexTicketStrategy = NormalizeCodexTicketStrategy(settings[SettingKeyOpenAICodexTicketStrategy])
 	result.OpenAICodexTicketStrictResponse = settings[SettingKeyOpenAICodexTicketStrict] == "true"
+	if raw, ok := settings[SettingKeyPelicanProbeSettings]; ok && strings.TrimSpace(raw) != "" {
+		var probeSettings PelicanProbeSettings
+		if err := json.Unmarshal([]byte(raw), &probeSettings); err == nil {
+			result.PelicanProbeSettings = normalizePelicanProbeSettings(probeSettings)
+		} else {
+			result.PelicanProbeSettings = DefaultPelicanProbeSettings()
+		}
+	} else {
+		result.PelicanProbeSettings = DefaultPelicanProbeSettings()
+	}
 	result.OpenAICodexTicketStaticProxyURL = strings.TrimSpace(settings[SettingKeyOpenAICodexTicketStaticProxyURL])
 	if raw, ok := settings[SettingKeyOpenAICodexTicketModels]; ok && strings.TrimSpace(raw) != "" {
 		var models []string
@@ -1385,4 +1396,22 @@ func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) 
 	}
 
 	return defaultPageSize, normalizedOptions
+}
+
+func parseGlobalModelExcludePatterns(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == '\n' || r == ';'
+		}) {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				list = append(list, trimmed)
+			}
+		}
+	}
+	return NormalizeGlobalModelExcludePatterns(list)
 }

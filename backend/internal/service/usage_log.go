@@ -210,6 +210,19 @@ type UsageLog struct {
 
 	CreatedAt time.Time
 
+	// Status 表示请求结果状态: "success" 或 "error"
+	Status string
+	// StatusCode HTTP 状态码（成功一般为 200，错误为 4xx/5xx）
+	StatusCode *int
+	// ErrorID 关联 ops_error_logs 的 ID（仅错误记录有效）
+	ErrorID *int64
+	// ErrorMessage 错误信息
+	ErrorMessage *string
+	// ErrorType 错误类型，例如 "invalid_request_error", "upstream_error", 等
+	ErrorType *string
+	// ErrorPhase 错误阶段，例如 "upstream", "auth", 等
+	ErrorPhase *string
+
 	User         *User
 	APIKey       *APIKey
 	Account      *Account

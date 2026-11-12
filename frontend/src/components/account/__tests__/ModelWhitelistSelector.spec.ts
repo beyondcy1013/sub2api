@@ -13,7 +13,8 @@ const {
   showInfo,
   showWarning,
   syncUpstreamModels,
-  syncUpstreamModelsPreview
+  syncUpstreamModelsPreview,
+  isModelGloballyExcluded
 } = vi.hoisted(() => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
   showError: vi.fn(),
@@ -21,7 +22,8 @@ const {
   showInfo: vi.fn(),
   showWarning: vi.fn(),
   syncUpstreamModels: vi.fn(),
-  syncUpstreamModelsPreview: vi.fn()
+  syncUpstreamModelsPreview: vi.fn(),
+  isModelGloballyExcluded: vi.fn().mockReturnValue(false)
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -40,6 +42,15 @@ vi.mock('@/stores/app', () => ({
     showSuccess,
     showInfo,
     showWarning
+  })
+}))
+
+vi.mock('@/stores/adminSettings', () => ({
+  useAdminSettingsStore: () => ({
+    loaded: true,
+    fetch: vi.fn().mockResolvedValue(undefined),
+    globalModelExcludePatterns: [],
+    isModelGloballyExcluded
   })
 }))
 
@@ -94,6 +105,8 @@ describe('ModelWhitelistSelector', () => {
     showWarning.mockReset()
     syncUpstreamModels.mockReset()
     syncUpstreamModelsPreview.mockReset()
+    isModelGloballyExcluded.mockReset()
+    isModelGloballyExcluded.mockReturnValue(false)
   })
 
   afterEach(() => {
@@ -329,6 +342,30 @@ describe('ModelWhitelistSelector', () => {
     expect(syncUpstreamModelsPreview).toHaveBeenCalledOnce()
     expect(wrapper.emitted('upstream-synced')).toEqual([[]])
     expect(wrapper.emitted('update:modelValue')).toEqual([[['x-preview-f-free']]])
+  })
+
+  it('never merges globally excluded models into the whitelist after an upstream sync', async () => {
+    isModelGloballyExcluded.mockImplementation((model: string) => model.startsWith('gpt-5'))
+    syncUpstreamModelsPreview.mockResolvedValue({
+      models: ['gpt-6.1-sol', 'gpt-5.4', 'gpt-5.4-mini'],
+      metadata: {}
+    })
+    const wrapper = mountSelector({
+      syncCredentials: {
+        platform: 'openai',
+        type: 'apikey',
+        base_url: 'https://provider.example/v1',
+        api_key: 'test-key'
+      }
+    })
+    const syncButton = wrapper
+      .findAll('button')
+      .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+
+    await syncButton?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['gpt-6.1-sol']]])
   })
 
   it('shows the upstream sync button for OpenCode Go create-account credentials', () => {

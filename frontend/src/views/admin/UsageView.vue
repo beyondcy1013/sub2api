@@ -85,7 +85,7 @@
 
         <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
-            <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
+            <div v-if="activeTab === 'usage' || activeTab === 'errors'" class="relative" ref="columnDropdownRef">
               <button
                 data-testid="usage-column-settings"
                 @click="showColumnDropdown = !showColumnDropdown"
@@ -133,6 +133,8 @@
             :default-sort-order="'desc'"
             @sort="handleSort"
             @userClick="handleUserClick"
+            @accountClick="handleAccountClick"
+            @errorClick="openError"
             @ipGeoBatchFailed="handleIpGeoBatchFailed"
           />
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
@@ -160,6 +162,17 @@
             :filters="breakdownFilters"
             :model="filters.model"
             @select-user="handleRankingSelectUser"
+          />
+        </div>
+        <!-- 懒挂载：首次切到账号统计 tab 才请求数据，之后随筛选自动刷新 -->
+        <div v-if="accountRankingMounted" v-show="activeTab === 'accounts'" class="overflow-hidden rounded-b-2xl">
+          <AccountTokenRanking
+            ref="accountRankingRef"
+            :start-date="startDate"
+            :end-date="endDate"
+            :filters="breakdownFilters"
+            :model="filters.model"
+            @select-account="handleRankingSelectAccount"
           />
         </div>
       </div>
@@ -196,6 +209,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination fro
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UserTokenRanking from '@/components/admin/usage/UserTokenRanking.vue'
+import AccountTokenRanking from '@/components/admin/usage/AccountTokenRanking.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import OpsErrorLogTable from '@/views/admin/ops/components/OpsErrorLogTable.vue'
@@ -274,6 +288,21 @@ const handleRankingSelectUser = (userId: number, email: string) => {
   applyFilters()
 }
 
+// Drill down from the per-account token ranking or usage table: scope the whole usage view to
+// that account and jump to the usage-detail tab.
+const handleRankingSelectAccount = (accountId: number, accountName: string) => {
+  filters.value = { ...filters.value, account_id: accountId }
+  usageFiltersRef.value?.setAccountKeyword?.(accountName || String(accountId))
+  activeTab.value = 'usage'
+  applyFilters()
+}
+
+const handleAccountClick = (accountId: number, accountName?: string) => {
+  filters.value = { ...filters.value, account_id: accountId }
+  usageFiltersRef.value?.setAccountKeyword?.(accountName || String(accountId))
+  applyFilters()
+}
+
 const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
 // Use local timezone to avoid UTC timezone issues
 const formatLD = (d: Date) => {
@@ -298,7 +327,7 @@ const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
 }
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
-const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, start_date: startDate.value, end_date: endDate.value })
+const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, status: 'all', start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
@@ -321,6 +350,7 @@ const applyRouteQueryFilters = () => {
   const queryStartDate = getSingleQueryValue(route.query.start_date)
   const queryEndDate = getSingleQueryValue(route.query.end_date)
   const queryUserId = getNumericQueryValue(route.query.user_id)
+  const queryAccountId = getNumericQueryValue(route.query.account_id)
 
   if (queryStartDate) {
     startDate.value = queryStartDate
@@ -332,6 +362,7 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
+    account_id: queryAccountId,
     start_date: startDate.value,
     end_date: endDate.value
   }
@@ -355,6 +386,20 @@ const loadRouteUserFilterLabel = async () => {
   } catch {
     if (!routeUserFilterIsCurrent()) return
     usageFiltersRef.value?.setUserKeyword?.(String(requestedUserId))
+  }
+}
+
+const loadRouteAccountFilterLabel = async () => {
+  const requestedAccountId = filters.value.account_id
+  if (!requestedAccountId) return
+
+  try {
+    const account = await adminAPI.accounts.getById(requestedAccountId)
+    if (filters.value.account_id !== requestedAccountId) return
+    usageFiltersRef.value?.setAccountKeyword?.(account.name || String(requestedAccountId))
+  } catch {
+    if (filters.value.account_id !== requestedAccountId) return
+    usageFiltersRef.value?.setAccountKeyword?.(String(requestedAccountId))
   }
 }
 
@@ -539,12 +584,13 @@ const refreshData = () => {
   loadChartData()
   if (activeTab.value === 'errors') loadAdminErrors()
   if (rankingMounted.value) rankingRef.value?.reload()
+  if (accountRankingMounted.value) accountRankingRef.value?.reload()
 }
 const resetFilters = () => {
   const range = getLast24HoursRangeDates()
   startDate.value = range.start
   endDate.value = range.end
-  filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, native_compaction_v2: null, billing_type: null, billing_mode: undefined }
+  filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, native_compaction_v2: null, billing_type: null, billing_mode: undefined, status: 'all' }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
   applyFilters()
 }
@@ -583,6 +629,7 @@ const exportToExcel = async () => {
       t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
       t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
       t('usage.type'),
+      t('usage.status'),
       t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
       t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
       t('admin.usage.inputCost'), t('admin.usage.outputCost'),
@@ -602,6 +649,9 @@ const exportToExcel = async () => {
         log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
         log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
+        log.status === 'error' || (log.status_code != null && log.status_code >= 400)
+          ? `${log.status_code || 500} ${log.error_message ? `(${log.error_message})` : ''}`.trim()
+          : `${log.status_code || 200}`,
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
         log.cache_read_cost?.toFixed(6) || '0.000000', log.cache_creation_cost?.toFixed(6) || '0.000000',
@@ -641,6 +691,7 @@ const allColumns = computed(() => [
   { key: 'user', label: t('admin.usage.user'), sortable: false },
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
   { key: 'account', label: t('admin.usage.account'), sortable: false },
+  { key: 'status', label: t('usage.status'), sortable: false },
   { key: 'model', label: t('usage.model'), sortable: true },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },
@@ -783,21 +834,25 @@ const loadSavedColumns = () => {
 }
 
 // Detail tabs
-type DetailTab = 'usage' | 'errors' | 'ranking'
+type DetailTab = 'usage' | 'errors' | 'ranking' | 'accounts'
 const activeTab = ref<DetailTab>('usage')
 const detailTabs = computed(() => [
   { key: 'usage' as const, label: t('usage.tabs.usage'), icon: 'document' as const },
   { key: 'errors' as const, label: t('usage.tabs.errors'), icon: 'exclamationTriangle' as const },
   { key: 'ranking' as const, label: t('usage.tabs.ranking'), icon: 'chart' as const },
+  { key: 'accounts' as const, label: t('usage.tabs.accounts'), icon: 'server' as const },
 ])
 const usageFiltersRef = ref<InstanceType<typeof UsageFilters> | null>(null)
 const rankingMounted = ref(false)
 const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
+const accountRankingMounted = ref(false)
+const accountRankingRef = ref<InstanceType<typeof AccountTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
+  if (tab === 'accounts') accountRankingMounted.value = true
 }
 
 // Error tab state
@@ -867,6 +922,7 @@ const handleColumnClickOutside = (event: MouseEvent) => {
 onMounted(() => {
   applyRouteQueryFilters()
   void loadRouteUserFilterLabel()
+  void loadRouteAccountFilterLabel()
   loadLogs()
   loadStats()
   loadModelStats(modelDistributionSource.value, true)

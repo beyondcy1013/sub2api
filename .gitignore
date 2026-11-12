@@ -119,6 +119,8 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+!scripts/tests/
+!scripts/tests/unified-release-backups.spec.sh
 CLAUDE.md
 .claude
 scripts
@@ -136,6 +138,7 @@ vite.config.js
 docs/*
 !docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md
 !docs/UPGRADE_RUNBOOK.md
+!docs/OPS_REVIEW_2026-09-30.md
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md

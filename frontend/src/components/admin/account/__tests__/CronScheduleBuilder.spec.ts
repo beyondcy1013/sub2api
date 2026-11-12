@@ -70,10 +70,14 @@ describe('CronScheduleBuilder', () => {
 
   it('is present in both add and edit scheduled-test forms', () => {
     const panelSource = readFileSync(resolve(__dirname, '../ScheduledTestsPanel.vue'), 'utf8')
-    const builders = panelSource.match(/<CronScheduleBuilder\s+v-model=/g) || []
+    const formSource = readFileSync(resolve(__dirname, '../ScheduledDetectionPlanForm.vue'), 'utf8')
+    // Add and edit both render the shared detection plan form, which owns the
+    // single cron builder bound to the draft.
+    const forms = panelSource.match(/<ScheduledDetectionPlanForm\s+:model-value=/g) || []
+    const builders = formSource.match(/<CronScheduleBuilder\s+v-model=/g) || []
 
-    expect(builders).toHaveLength(2)
-    expect(panelSource).toContain('<CronScheduleBuilder v-model="newPlan.cron_expression" />')
-    expect(panelSource).toContain('<CronScheduleBuilder v-model="editForm.cron_expression" />')
+    expect(forms).toHaveLength(2)
+    expect(builders).toHaveLength(1)
+    expect(formSource).toContain('<CronScheduleBuilder v-model="form.cron_expression" />')
   })
 })

@@ -20,7 +20,7 @@ import subprocess
 import requests
 
 DEFAULT_API_URL = "https://chatgpt.com/backend-api/codex/responses"
-ENV_FILE_PATH = "/home/codes/third_party/sub2api/deploy/sub2api.env"
+ENV_FILE_PATH = "/home/codes/ai/sub2api/deploy/sub2api.env"
 
 def parse_ticket(ticket_str: str):
     try:

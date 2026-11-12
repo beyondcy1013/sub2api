@@ -51,6 +51,8 @@
           :disabled="loadingModels || status === 'connecting'"
           value-key="id"
           label-key="display_name"
+          searchable
+          creatable
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
         />
       </div>
@@ -204,24 +206,25 @@
           {{ t('common.close') }}
         </button>
         <button
-          @click="startTest"
-          :disabled="status === 'connecting' || !selectedModelId"
+          @click="status === 'connecting' ? stopTest() : startTest()"
+          :disabled="!selectedModelId"
           :class="[
             'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-            status === 'connecting' || !selectedModelId
+            !selectedModelId
               ? 'cursor-not-allowed bg-primary-400 text-white'
-              : status === 'success'
-                ? 'bg-green-500 text-white hover:bg-green-600'
-                : status === 'error'
-                  ? 'bg-orange-500 text-white hover:bg-orange-600'
-                  : 'bg-primary-500 text-white hover:bg-primary-600'
+              : status === 'connecting'
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : status === 'success'
+                  ? 'bg-green-500 text-white hover:bg-green-600'
+                  : status === 'error'
+                    ? 'bg-orange-500 text-white hover:bg-orange-600'
+                    : 'bg-primary-500 text-white hover:bg-primary-600'
           ]"
         >
           <Icon
             v-if="status === 'connecting'"
-            name="refresh"
+            name="x"
             size="sm"
-            class="animate-spin"
             :stroke-width="2"
           />
           <Icon v-else-if="status === 'idle'" name="play" size="sm" :stroke-width="2" />
@@ -229,7 +232,7 @@
           <span>
             {{
               status === 'connecting'
-                ? t('admin.accounts.testing')
+                ? t('admin.accounts.stopTest')
                 : status === 'idle'
                   ? t('admin.accounts.startTest')
                   : t('admin.accounts.retry')
@@ -358,7 +361,7 @@ const loadAvailableModels = async () => {
   selectedModelId.value = '' // Reset selection before loading
   availableModels.value = [] // Prevent stale options from another account during reload
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = await adminAPI.accounts.getAvailableModels(props.account.id, { local: true })
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
@@ -412,6 +415,13 @@ const abortStream = () => {
     abortController.abort()
     abortController = null
   }
+}
+
+const stopTest = () => {
+  if (status.value !== 'connecting') return
+  abortStream()
+  addLine(t('admin.accounts.testStopped'), 'text-yellow-400')
+  status.value = 'idle'
 }
 
 const addLine = (text: string, className: string = 'text-gray-300') => {

@@ -237,6 +237,19 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 		}
 	}
 
+	if s.settingService != nil {
+		patterns, _ := s.settingService.GetGlobalModelExcludePatterns(ctx)
+		if len(patterns) > 0 {
+			models = FilterGloballyExcludedModels(patterns, models)
+			for modelID := range catalog.Metadata {
+				if IsModelGloballyExcluded(patterns, modelID) {
+					delete(catalog.Metadata, modelID)
+				}
+			}
+		}
+	}
+	catalog.Models = models
+
 	// Capability enrichment also covers concrete model_mapping targets. Admins may
 	// whitelist models that the live /models list omitted; those still need registry
 	// metadata so Codex catalogs can advertise reasoning and modalities.

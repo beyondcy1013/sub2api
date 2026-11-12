@@ -531,7 +531,100 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 	return len(accounts) > 0, nil
 }
 
-func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+// SelectAccountForAIStudioEndpoints selects an account that is likely to succeed against
+// generativelanguage.googleapis.com (e.g. GET /v1beta/models).
+//
+// Preference order:
+// 1) API key accounts (AI Studio)
+// 2) OAuth accounts without project_id (AI Studio OAuth)
+// 3) OAuth accounts explicitly marked as ai_studio
+// 4) Any remaining Gemini accounts (fallback)
+func (s *GeminiMessagesCompatService) SelectAccountForAIStudioEndpoints(ctx context.Context, groupID *int64) (*Account, error) {
+	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformGemini, true)
+	if err != nil {
+		return nil, fmt.Errorf("query accounts failed: %w", err)
+	}
+	if len(accounts) == 0 {
+		return nil, errors.New("no available Gemini accounts")
+	}
+
+	rank := func(a *Account) int {
+		if a == nil {
+			return 999
+		}
+		switch a.Type {
+		case AccountTypeAPIKey:
+			if strings.TrimSpace(a.GetCredential("api_key")) != "" {
+				return 0
+			}
+			return 9
+		case AccountTypeOAuth:
+			if strings.TrimSpace(a.GetCredential("project_id")) == "" {
+				return 1
+			}
+			if strings.TrimSpace(a.GetCredential("oauth_type")) == "ai_studio" {
+				return 2
+			}
+			// Code Assist OAuth tokens often lack AI Studio scopes for models listing.
+			return 3
+		case AccountTypeServiceAccount:
+			// Vertex service accounts use aiplatform.googleapis.com, not the AI Studio
+			// endpoint (generativelanguage.googleapis.com), so they cannot serve these requests.
+			return 999
+		default:
+			return 10
+		}
+	}
+
+	var selected *Account
+	for i := range accounts {
+		acc := &accounts[i]
+		if selected == nil {
+			selected = acc
+			continue
+		}
+
+		r1, r2 := rank(acc), rank(selected)
+		if r1 < r2 {
+			selected = acc
+			continue
+		}
+		if r1 > r2 {
+			continue
+		}
+
+		if acc.Priority < selected.Priority {
+			selected = acc
+		} else if acc.Priority == selected.Priority {
+			switch {
+			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
+				selected = acc
+			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
+				// keep selected
+			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
+				if acc.Type == AccountTypeOAuth && selected.Type != AccountTypeOAuth {
+					selected = acc
+				}
+			default:
+				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
+					selected = acc
+				}
+			}
+		}
+	}
+
+	if selected == nil {
+		return nil, errors.New("no available Gemini accounts")
+	}
+	return s.hydrateSelectedAccount(ctx, selected)
+}
+
+func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (forwardResult *ForwardResult, forwardErr error) {
+	ctx, finishAccountForward := beginAccountForward(ctx, c, account)
+	defer finishAccountForward(&forwardErr)
+	if accountForwardPaused(ctx) {
+		return nil, accountPausedFailover()
+	}
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -1072,7 +1165,12 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 	return strings.Contains(msg, "thought_signature") || strings.Contains(msg, "signature")
 }
 
-func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
+func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (forwardResult *ForwardResult, forwardErr error) {
+	ctx, finishAccountForward := beginAccountForward(ctx, c, account)
+	defer finishAccountForward(&forwardErr)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()

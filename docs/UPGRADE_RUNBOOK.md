@@ -1,6 +1,6 @@
 # 统一源码双服务升级运行手册
 
-本仓库 `/home/third_party/sub2api` 是 `sub2api.service` 与
+本仓库 `/home/codes/ai/sub2api` 是 `sub2api.service` 与
 `sub2freeApi.service` 的唯一源码和构建来源。两个进程运行同一份嵌入式
 二进制字节，通过 `DEPLOYMENT_PROFILE=main|free` 选择能力；数据库、Redis、
 配置、工作目录、运行用户和 systemd 生命周期仍完全隔离。
@@ -31,11 +31,11 @@ https://github.com/JaxsonWang/cpa-plugin-oai-basispoints——后者是 CPA 插�
 | 端口 | `18381` | `18382` |
 | PostgreSQL | `sub2api` | `sub2freeApi` |
 | Redis | DB `0` | DB `1`, prefix `sub2freeApi` |
-| 工作目录 | `/home/third_party/sub2api/deploy` | `/home/third_party/sub2freeApi/deploy` |
+| 工作目录 | `/home/codes/ai/sub2api/deploy` | `/home/codes/ai/sub2freeApi/deploy` |
 | 环境文件 | `sub2api/deploy/sub2api.env` | `sub2freeApi/deploy/sub2api.env` |
-| 二进制路径 | `/home/third_party/bin/sub2api/sub2api` | `/home/third_party/bin/sub2freeApi/sub2freeApi` |
+| 二进制路径 | `/home/codes/third_party/bin/sub2api/sub2api` | `/home/codes/third_party/bin/sub2freeApi/sub2freeApi` |
 
-`/home/third_party/sub2freeApi` 只保留 free 运行配置、历史和灾难恢复资料，不再
+`/home/codes/ai/sub2freeApi` 只保留 free 运行配置、历史和灾难恢复资料，不再
 作为构建源。禁止从两个仓库分别构建。
 
 ## 禁止事项
@@ -49,99 +49,86 @@ https://github.com/JaxsonWang/cpa-plugin-oai-basispoints——后者是 CPA 插�
 - 三种语言 README 的 sponsor 广告区段属于明确排除的上游内容；功能文档、许可证
   和项目致谢仍正常合并。
 
-## 1. 升级前快照
+## 1. 升级前快照与并行写入者
 
-同时保存 canonical 和 legacy free 仓库的提交历史与工作区：
+先读 `skills/sub2api-ops/SKILL.md`，核对远程、dirty 文件、运行路径与两服务基线。
+检查 `.github/workflows/upstream-sync.yml` 是否仍会定时直接推送 main，记录潜在并行写入者。
+不要在分析或文档任务中运行以下准备脚本，它会修改 Git 状态并发起 fetch/merge。
 
-```bash
-for repo in /home/third_party/sub2api /home/third_party/sub2freeApi; do
-  name=$(basename "$repo")
-  ts=$(date +%Y%m%d-%H%M%S)
-  backup="/home/third_party/upgrade-backups/${name}-${ts}"
-  mkdir -p "$backup"
-  git -C "$repo" branch "backup-pre-upgrade-${ts}" HEAD
-  git -C "$repo" bundle create "$backup/repository.bundle" --all
-  git bundle verify "$backup/repository.bundle"
-  git -C "$repo" status --porcelain=v1 > "$backup/status.txt"
-  git -C "$repo" diff --binary > "$backup/worktree.patch"
-  git -C "$repo" diff --cached --binary > "$backup/index.patch"
-  git -C "$repo" ls-files --others --exclude-standard -z > "$backup/untracked.list"
-done
-```
-
-另行记录两个 service 的 PID、运行二进制 SHA、端口和活动状态。备份在全部上线
-验证完成前不得删除。
-
-## 2. 合并上游
+已授权升级时，从 canonical 仓库运行版本化入口：
 
 ```bash
-cd /home/third_party/sub2api
-git fetch upstream --tags
-git merge --no-ff --no-commit upstream/main
+bash scripts/upgrade-from-fork.sh
 ```
 
-逐文件组合解决冲突，禁止整文件盲选 ours/theirs。对照本地定制清单验证主服务
-粘性调度/迁移、free 余额检测/错误品牌、账号 API key、回收站、clone、表格布局、
-限流恢复和 Redis prefix。保留操作前所有 staged、unstaged、untracked 和 ignored
-本地策略文件。
+它保存两仓库的已验证 bundle、备份分支、index/worktree patch、untracked 与本地策略/技能
+归档和运行基线，并记录准确 stash OID 到 `upgrade-state.env`。检查实际归档清单是否包含
+所有 ignored 策略和技能目录；Git bundle 本身不包含脏文件。备份包含敏感本地材料，
+不得上传到公开仓库。脚本会继续 fetch 并开始不提交的 merge，不是 dry-run。
 
-合并完成后立即删除上游 sponsor 区段；该脚本只处理广告区段，不冻结 README
-其他内容：
+## 2. 分两层解决合并
+
+先只解决 upstream merge，逐块组合上游与本地功能，不整文件 ours/theirs。
+冲突解决后执行 README 清理与检查、冲突标记检查、`git diff --check`，审查后提交 merge。
+不要过早 `git add` 冲突文件丢失 index 的 base/ours/theirs 阶段。
+
+再按状态文件记录的 OID 恢复原工作区：
+
+```bash
+git stash apply --index <recorded-stash-OID>
+```
+
+解决本地工作层的冲突，与升级前清单逐项核对，确认恢复完整后才删除对应 stash。
+不得把 `stash@{0}` 当作稳定身份。恢复必须在最终测试、构建和部署之前完成，
+否则会把未包含本地定制的版本上线。
+
+重新执行 README 广告清理（保留功能文档、许可证和致谢）：
 
 ```bash
 bash scripts/remove-readme-sponsors.sh
 bash scripts/remove-readme-sponsors.sh --check
+git diff --check
 ```
 
-```bash
-git diff --check
-rg -n '^(<<<<<<<|=======|>>>>>>>)' backend frontend/src docs README* || true
-```
+逐项审查 `LOCAL_UPGRADE_CUSTOMIZATIONS.md`，登记“契约、文件、测试、结果”。
+没有文本冲突不等于行为兼容；迁移按完整文件名保留，不能改名已部署的本地迁移。
 
 ## 3. 验证
 
-必须使用 pnpm 9。当前固定入口：
+所有测试/编译通过 webClx 提交；不要在本地另跑一遍全套门禁。使用 pnpm 9，
+由 `scripts/build-unified-release.sh` 选择已安装的 pnpm、corepack 或固定 pnpm 9 fallback，
+不再引用临时 `_npx/<hash>/pnpm.cjs`。局部冲突排查通过 compile-only 请求运行定向测试。
+上游合并最终只排队一次完整门禁：
 
 ```bash
-PNPM9=/home/root/.npm/_npx/8959f4e966f464e2/node_modules/pnpm/bin/pnpm.cjs
+bash scripts/build-unified-release.sh --full
 ```
 
-```bash
-cd /home/third_party/sub2api/backend
-go test -tags unit ./internal/config ./internal/pkg/clienterror \
-  ./internal/handler/dto ./internal/handler/admin ./internal/handler \
-  ./internal/server/middleware ./internal/server/routes ./internal/service \
-  ./internal/repository -count=1
-go test -tags unit ./... -count=1
-
-cd /home/third_party/sub2api/frontend
-node "$PNPM9" vitest run
-node "$PNPM9" typecheck
-node "$PNPM9" build
-```
-
-重点检查 profile/capability、错误品牌、凭据、sticky spillover/reassignment、balance
-worker/settings、回收站、clone、账号表、active-only usage 和 rate-limit 恢复测试。
-
-上游升级属于完整门禁场景。正式构建必须使用
-`bash scripts/build-unified-release.sh --full`，不得使用默认 quick 模式；上面的命令可用于
-合并冲突排查和分段复测，完整构建脚本仍会在冻结源码快照内强制重新执行全套验证。
+此命令在冻结的源码快照内运行 uncached backend unit suite、完整 Vitest、类型检查、
+生产前端与嵌入式 Go 构建。日常小改使用默认 quick；不能把 quick 用于上游升级。
 
 ## 4. 一次构建
 
-通过 webClx 部署 API 排队以下完整构建命令；必须先生成 `frontend/dist`，再只构建一次：
+第三节的完整验证与本节构建属于同一个 webClx 请求，不重复构建。通过部署 API 排队该命令，由脚本先生成 frontend/dist，再构建一次嵌入式二进制：
 
 ```bash
-cd /home/third_party/sub2api
+cd /home/codes/ai/sub2api
 bash scripts/build-unified-release.sh --full
 ```
 
 日常小范围改动的自动部署不带模式参数，因此默认走 quick；本手册描述的上游升级始终显式
 使用 `--full`。构建产物仍为
-`/home/third_party/sub2api/backend/bin/sub2api-unified.new`，并由脚本验证
+`/home/codes/ai/sub2api/backend/bin/sub2api-unified.new`，并由脚本验证
 `embed`、`CGO_ENABLED=0` 和 SHA-256。
 
+部署脚本通过 scripts/lib/unified-release-backups.sh 为每个服务独立创建回滚副本，旧备份归档到 upgrade-backups；定向验证包含条件调用下的健康检查失败返回。webClx 请求应显式携带当前会话 callback（本轮为 `--callback-session jungle-crawdad`），以及排队前采集的旧 SHA、main/free PID 和两个安装审计路径。不得用历史 PID/SHA 代替本次基线。
+
 ## 5. 原子部署两次
+
+上述安装、备份、重启与验证流程已固化为 `bash scripts/deploy-unified-release.sh`：
+排队前自动采集当前磁盘 SHA 与两个服务的 PID 作为前置校验；webClx 请求以
+`--install-cmd bash --install-arg scripts/deploy-unified-release.sh` 携带它。
+`scripts/build-unified-release.sh` 只负责编译验证，单独运行不会部署。
 
 为两个现有二进制分别创建时间戳备份。使用 `install` 写同目录临时文件，再以
 `mv` 原子切换。两次安装的输入必须是同一个 `$BUILD_OUT`。
@@ -156,8 +143,8 @@ bash scripts/build-unified-release.sh --full
 MAIN_PID=$(systemctl show -p MainPID --value sub2api.service)
 FREE_PID=$(systemctl show -p MainPID --value sub2freeApi.service)
 sha256sum \
-  /home/third_party/bin/sub2api/sub2api \
-  /home/third_party/bin/sub2freeApi/sub2freeApi \
+  /home/codes/third_party/bin/sub2api/sub2api \
+  /home/codes/third_party/bin/sub2freeApi/sub2freeApi \
   "/proc/$MAIN_PID/exe" \
   "/proc/$FREE_PID/exe"
 ```
@@ -166,4 +153,4 @@ sha256sum \
 sticky reassignment；free 为 `deployment_profile=free`、只开放 balance check；
 两个数据库名、Redis DB/prefix、工作目录、运行用户和端口均保持固定矩阵。
 
-最后恢复升级前 canonical 用户工作区并与快照清单逐项核对。除非明确授权，不 push。
+原工作区已在第二层合并中恢复，并包含在最终验证的源码内。上线后核对版本/源码快照与构建日志的对应关系；除非明确授权，不 push。推送获授权时仅推 canonical main，远程若已前进先重新评估，不得 force push。

@@ -23,6 +23,7 @@ import (
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	OpenAICodexTicketHarvestScope   *service.CodexTicketHarvestScope `json:"openai_codex_ticket_harvest_scope"`
+	PelicanProbeSettings            *service.PelicanProbeSettings    `json:"pelican_probe_settings"`
 	OpenAICodexTicketStrictResponse *bool                            `json:"openai_codex_ticket_strict_response"`
 	OpenAICodexTicketFailClosed     *bool                            `json:"openai_codex_ticket_fail_closed"`
 	OpenAICodexTicketStrategy       *string                          `json:"openai_codex_ticket_strategy"`
@@ -31,6 +32,7 @@ type UpdateSettingsRequest struct {
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                     `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled *bool                        `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
+	GlobalModelExcludePatterns          []string                     `json:"global_model_exclude_patterns"`
 	PromoCodeEnabled                    bool                         `json:"promo_code_enabled"`
 	PasswordResetEnabled                bool                         `json:"password_reset_enabled"`
 	FrontendURL                         string                       `json:"frontend_url"`
@@ -1556,6 +1558,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled: registrationEmailDomainQuotaEnabled,
+		GlobalModelExcludePatterns:          req.GlobalModelExcludePatterns,
 		PromoCodeEnabled:                    req.PromoCodeEnabled,
 		PasswordResetEnabled:                req.PasswordResetEnabled,
 		FrontendURL:                         req.FrontendURL,
@@ -1884,6 +1887,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAICodexTicketHarvestScope
 			}
 			return previousSettings.OpenAICodexTicketHarvestScope
+		}(),
+		PelicanProbeSettings: func() service.PelicanProbeSettings {
+			if req.PelicanProbeSettings != nil {
+				return *req.PelicanProbeSettings
+			}
+			return previousSettings.PelicanProbeSettings
 		}(),
 		OpenAICodexTicketStrategy: func() string {
 			if req.OpenAICodexTicketStrategy != nil {
@@ -2287,6 +2296,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EmailVerifyEnabled:                                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:                       updatedSettings.RegistrationEmailSuffixWhitelist,
 		RegistrationEmailDomainQuotaEnabled:                    updatedSettings.RegistrationEmailDomainQuotaEnabled,
+		GlobalModelExcludePatterns:                             updatedSettings.GlobalModelExcludePatterns,
 		PromoCodeEnabled:                                       updatedSettings.PromoCodeEnabled,
 		PasswordResetEnabled:                                   updatedSettings.PasswordResetEnabled,
 		FrontendURL:                                            updatedSettings.FrontendURL,
@@ -2457,6 +2467,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(updatedSettings.OpenAICodexTicketStaticProxyURL),
 		OpenAICodexTicketHarvestScope:                          updatedSettings.OpenAICodexTicketHarvestScope,
+		PelicanProbeSettings:                                   updatedSettings.PelicanProbeSettings,
 		OpenAICodexTicketStrategy:                              updatedSettings.OpenAICodexTicketStrategy,
 		OpenAICodexTicketStrictResponse:                        updatedSettings.OpenAICodexTicketStrictResponse,
 		OpenAICodexTicketFailClosed:                            updatedSettings.OpenAICodexTicketFailClosed,

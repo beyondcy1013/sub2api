@@ -86,6 +86,10 @@ const messages: Record<string, string> = {
 	'usage.upstreamResponseModel': 'Upstream response',
 	'usage.modelVariant': 'Possible version variant',
 	'usage.modelMismatch': 'Different model',
+	'usage.status': 'Status',
+	'usage.statusSuccess': 'Success',
+	'usage.statusFailed': 'Failed',
+	'admin.ops.errorLog.details': 'Details',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -912,5 +916,88 @@ describe('admin UsageTable deleted-user badge', () => {
 
     expect(wrapper.text()).not.toContain('Deleted')
     expect(wrapper.text()).toContain('active@test.com')
+  })
+})
+
+const DataTableStubWithStatusAndAccount = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.request_id || row.id">
+        <slot name="cell-account" :row="row" />
+        <slot name="cell-status" :row="row" />
+        <slot name="cell-tokens" :row="row" />
+        <slot name="cell-cost" :row="row" />
+      </div>
+    </div>
+  `,
+}
+
+describe('admin UsageTable status and error handling', () => {
+  it('renders success status badge for 200 row', () => {
+    const row = {
+      request_id: 'req-success-1',
+      status: 'success',
+      status_code: 200,
+      account: { id: 10, name: 'primary-oai' },
+    }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row as any],
+        loading: false,
+        columns: [{ key: 'status', label: 'Status' }, { key: 'account', label: 'Account' }],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStubWithStatusAndAccount,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+    expect(wrapper.text()).toContain('200')
+    expect(wrapper.text()).toContain('Success')
+    expect(wrapper.text()).toContain('primary-oai')
+  })
+
+  it('renders error badge, error message, account name, and emits errorClick for failed row', async () => {
+    const row = {
+      id: -123,
+      error_id: 123,
+      status: 'error',
+      status_code: 400,
+      error_message: "gpt-6.1-sol requires Responses for tool calls; account 'sensenova' only supports Chat Completions",
+      account: { id: 45, name: 'https://token.sensenova.cn' },
+    }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row as any],
+        loading: false,
+        columns: [{ key: 'status', label: 'Status' }, { key: 'account', label: 'Account' }],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStubWithStatusAndAccount,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+    expect(wrapper.text()).toContain('400')
+    expect(wrapper.text()).toContain('Failed')
+    expect(wrapper.text()).toContain('https://token.sensenova.cn')
+    expect(wrapper.text()).toContain("gpt-6.1-sol requires Responses for tool calls; account 'sensenova' only supports Chat Completions")
+
+    const detailBtn = wrapper.find('[data-testid="error-detail-btn"]')
+    expect(detailBtn.exists()).toBe(true)
+    await detailBtn.trigger('click')
+    expect(wrapper.emitted('errorClick')).toEqual([[123]])
+
+    const accountBtn = wrapper.find('[data-testid="account-filter-btn"]')
+    expect(accountBtn.exists()).toBe(true)
+    await accountBtn.trigger('click')
+    expect(wrapper.emitted('accountClick')).toEqual([[45, 'https://token.sensenova.cn']])
   })
 })

@@ -60,7 +60,8 @@ if (typeof globalThis.cancelIdleCallback === 'undefined') {
 // Mock matchMedia (jsdom 未实现;DataTable 等组件依赖它做桌面/移动分支)
 if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   window.matchMedia = ((query: string) => ({
-    matches: true, // 测试默认按桌面视口渲染表格
+    // 测试默认按桌面视口渲染表格:min-width 查询命中,max-width 查询不命中
+    matches: !query.includes('max-width'),
     media: query,
     onchange: null,
     addListener: vi.fn(),

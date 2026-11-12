@@ -9,26 +9,28 @@ description: Use when upgrading sub2api from upstream while preserving local beh
 
 Read these files completely before fetching or merging; they override this skill:
 
-- `/home/third_party/sub2api/AGENTS.md`
-- `/home/third_party/sub2api/docs/UPGRADE_RUNBOOK.md`
-- `/home/third_party/sub2api/docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md`
+- `/home/codes/ai/sub2api/AGENTS.md`
+- `/home/codes/ai/sub2api/docs/UPGRADE_RUNBOOK.md`
+- `/home/codes/ai/sub2api/docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md`
 
-Use `/home/third_party/sub2api` as the only source, merge, test, and build repo.
-Treat `/home/third_party/sub2freeApi` only as the free runtime/config directory
+Use `/home/codes/ai/sub2api` as the only source, merge, test, and build repo.
+Treat `/home/codes/ai/sub2freeApi` only as the free runtime/config directory
 and a historical recovery source. Never merge or build it during an upgrade.
 
 | Profile | Service | Port | PostgreSQL | Redis | Binary |
 | --- | --- | --- | --- | --- | --- |
-| main | `sub2api.service` | 18381 | `sub2api` | DB 0 | `/home/third_party/bin/sub2api/sub2api` |
-| free | `sub2freeApi.service` | 18382 | `sub2freeApi` | DB 1, prefix `sub2freeApi` | `/home/third_party/bin/sub2freeApi/sub2freeApi` |
+| main | `sub2api.service` | 18381 | `sub2api` | DB 0 | `/home/codes/third_party/bin/sub2api/sub2api` |
+| free | `sub2freeApi.service` | 18382 | `sub2freeApi` | DB 1, prefix `sub2freeApi` | `/home/codes/third_party/bin/sub2freeApi/sub2freeApi` |
+
+The maintained ops entry is `skills/sub2api-ops/SKILL.md`. Consult `docs/OPS_REVIEW_2026-09-30.md` for known gaps. Do not run the preparation script during an analysis-only task. Check the upstream-sync workflow for direct writes to origin/main before an authorized upgrade.
 
 ## Prepare Safely
 
 Run the deterministic preparation script from the canonical repo:
 
 ```bash
-cd /home/third_party/sub2api
-bash .codex/skills/sub2api-github-fork-upgrade/scripts/upgrade-from-fork.sh
+cd /home/codes/ai/sub2api
+bash scripts/upgrade-from-fork.sh
 ```
 
 The script:
@@ -60,7 +62,7 @@ git commit -m 'merge: upgrade upstream to vX.Y.Z'
 ```
 
 Only after the merge commit, locate the saved stash by the OID recorded in
-`upgrade-state.env`, pop that exact stash with `--index`, and resolve the local
+`upgrade-state.env`, apply that exact stash with `--index`; retain it until the restored file list is verified, and resolve the local
 worktree layer. Run the README policy again after restoring it. Compare the
 restored status/file list with the pre-upgrade snapshot before continuing.
 
@@ -76,7 +78,7 @@ restored status/file list with the pre-upgrade snapshot before continuing.
   `sub2freeApi:`. Preserve newer side-key values during snapshot rebuilds.
 - `AccountsView.vue`: adopt upstream Teleport/floating-panel positioning while
   retaining enhanced import, free balance settings, local account columns,
-  trash/staging actions, direct text actions, and the fixed 176px truncated
+  trash/staging actions, direct text actions, and the fixed 212px truncated
   name cell. Do not restore the account-name hover tooltip.
 - i18n conflicts: union upstream navigation/accessibility keys with local
   operation keys; do not choose one side wholesale.
@@ -119,19 +121,29 @@ git cat-file blob :2:<path> >/tmp/ours
 git cat-file blob :3:<path> >/tmp/theirs
 ```
 
-If the stages are already gone, rebuild a reviewable merge from Git history:
+If the stages are already gone, preserve the current file and reconstruct a
+candidate in a fresh temporary directory, never directly over the worktree.
+This example is only for the upstream merge layer, before restoring local dirty
+work. Verify the intended refs and repository-relative path first; add/delete
+and rename conflicts need their original path mapping instead of this recipe.
 
 ```bash
-base=$(git merge-base HEAD upstream/main)
-git show "$base:<path>" >/tmp/base
-git show HEAD:<path> ><path>
-git show upstream/main:<path> >/tmp/theirs
-git merge-file -L HEAD -L base -L upstream/main <path> /tmp/base /tmp/theirs
+conflict_path='path/from/repository/root'
+recovery_dir=$(mktemp -d /tmp/sub2api-merge-review.XXXXXX)
+cp -- "$conflict_path" "$recovery_dir/current"
+merge_base=$(git merge-base HEAD upstream/main)
+git show "$merge_base:$conflict_path" >"$recovery_dir/base"
+git show "HEAD:$conflict_path" >"$recovery_dir/candidate"
+git show "upstream/main:$conflict_path" >"$recovery_dir/theirs"
+git merge-file -L HEAD -L base -L upstream/main \
+  "$recovery_dir/candidate" "$recovery_dir/base" "$recovery_dir/theirs"
 ```
 
-This intentionally reopens conflicts so they can be resolved by block; never
-choose a side wholesale. Rerun focused backend and frontend tests after a
-rebuilt merge. A later `git add` is safe only after all conflicts are resolved.
+Stop if any extraction fails. A nonzero merge-file result requires inspection;
+conflicts are expected to need manual resolution. Compare the candidate with
+both the saved current file and the original recovery materials before applying
+reviewed hunks. Never copy the candidate wholesale over partial resolutions.
+A later `git add` is safe only after the full conflict review and relevant tests.
 
 ## README Advertisement Policy
 
@@ -156,13 +168,15 @@ must use the source-based runbook instead of the WebUI binary updater.
 
 ## Verify
 
-Use pnpm 9 through `corepack pnpm`; the old absolute `/home/root/.npm/_npx/.../pnpm.cjs` entrypoint is not stable. Run focused tests while resolving. Before deployment, require:
+Use pnpm 9 through the project build script, never an ephemeral absolute _npx path. Queue focused tests through webClx while resolving. The final upstream-upgrade gate is one `bash scripts/build-unified-release.sh --full` request; the commands below describe its required checks, not a second local full-suite run.
+
+Before deployment, require:
 
 ```bash
-cd /home/third_party/sub2api/backend
+cd /home/codes/ai/sub2api/backend
 go test -tags unit ./... -count=1
 
-cd /home/third_party/sub2api/frontend
+cd /home/codes/ai/sub2api/frontend
 corepack pnpm vitest run
 corepack pnpm typecheck
 ```
@@ -176,7 +190,7 @@ is reproducible.
 
 Read and use `webclx-compile-and-deploy`. Submit one deploy request that runs:
 
-- compile command: `bash scripts/build-unified-release.sh`;
+- compile command: `bash scripts/build-unified-release.sh --full`;
 - required artifact: `backend/bin/sub2api-unified.new`;
 - install command: `bash scripts/deploy-unified-release.sh` with the recorded
   old shared SHA and both baseline PIDs;
@@ -191,6 +205,8 @@ the affected service on failure.
 If webClx returns `queued: true`, wait for its callback; do not poll or submit a
 duplicate request.
 
+Pass the current session callback explicitly (this task: `--callback-session jungle-crawdad`; later tasks must use their own session ID). Capture the old shared SHA and both PIDs before queueing. Preserve the project backup helper: it archives previous backups and creates one verified rollback per service. Preserve explicit failure returns in verify_service: Bash errexit does not propagate inside a function invoked under if !. Run scripts/tests/unified-release-backups.spec.sh through webClx, and independently verify backup paths and hashes after installation.
+
 ## Live Proof And Push
 
 After the callback, independently verify both units, ports, HTTP roots, process
@@ -199,12 +215,12 @@ profiles, database/Redis environment, startup logs, and these four hashes:
 ```bash
 MAIN_PID=$(systemctl show -p MainPID --value sub2api.service)
 FREE_PID=$(systemctl show -p MainPID --value sub2freeApi.service)
-sha256sum /home/third_party/bin/sub2api/sub2api \
-  /home/third_party/bin/sub2freeApi/sub2freeApi \
+sha256sum /home/codes/third_party/bin/sub2api/sub2api \
+  /home/codes/third_party/bin/sub2freeApi/sub2freeApi \
   "/proc/$MAIN_PID/exe" "/proc/$FREE_PID/exe"
 ```
 
-All four hashes must match. Push only canonical `main` after live verification:
+All four hashes must match. Only when the user has authorized pushing, push canonical `main` after live verification:
 
 ```bash
 git push origin main

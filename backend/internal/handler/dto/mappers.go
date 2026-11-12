@@ -740,6 +740,29 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		CacheTTLOverridden:        l.CacheTTLOverridden,
 		BillingMode:               l.BillingMode,
 		CreatedAt:                 l.CreatedAt,
+		Status:                    func() string {
+			if l.Status != "" {
+				return l.Status
+			}
+			if l.StatusCode != nil && *l.StatusCode >= 400 {
+				return "error"
+			}
+			return "success"
+		}(),
+		StatusCode: func() *int {
+			if l.StatusCode != nil {
+				return l.StatusCode
+			}
+			code := 200
+			if l.Status == "error" {
+				code = 500
+			}
+			return &code
+		}(),
+		ErrorID:                   l.ErrorID,
+		ErrorMessage:              l.ErrorMessage,
+		ErrorType:                 l.ErrorType,
+		ErrorPhase:                l.ErrorPhase,
 		User:                      UserFromServiceShallow(l.User),
 		APIKey:                    APIKeyFromService(l.APIKey),
 		Group:                     GroupFromServiceShallow(l.Group),

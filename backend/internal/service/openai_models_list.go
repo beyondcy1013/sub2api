@@ -316,9 +316,14 @@ func (s *OpenAIGatewayService) FetchPinnedOpenAIModelsList(ctx context.Context, 
 			}
 		}
 	}
+	filteredModelIDs := modelIDs
 	if group.ModelAllowlistEnabled() {
-		models = selectModelCatalogEntries(byID, group.ModelAllowlist.FilterForListing(modelIDs))
+		filteredModelIDs = group.ModelAllowlist.FilterForListing(filteredModelIDs)
 	}
+	if s.settingService != nil {
+		filteredModelIDs = s.settingService.FilterGloballyExcludedModels(ctx, filteredModelIDs)
+	}
+	models = selectModelCatalogEntries(byID, filteredModelIDs)
 	body, err := json.Marshal(struct {
 		Object string            `json:"object"`
 		Data   []json.RawMessage `json:"data"`

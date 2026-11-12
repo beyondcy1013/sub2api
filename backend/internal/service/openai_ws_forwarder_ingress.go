@@ -71,6 +71,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	firstClientMessage []byte,
 	hooks *OpenAIWSIngressHooks,
 ) (returnErr error) {
+	ctx, finishAccountForward := beginAccountForward(ctx, c, account)
+	defer finishAccountForward(&returnErr)
+	if accountForwardPaused(ctx) {
+		return accountPausedFailover()
+	}
 	if s == nil {
 		return errors.New("service is nil")
 	}

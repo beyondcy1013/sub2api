@@ -204,6 +204,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		UpstreamModelMismatch: upstreamModelMismatch,
 		StartTime:             startTime,
 		EndTime:               endTime,
+		Status:                strings.TrimSpace(c.Query("status")),
 		ExactTotal:            exactTotal,
 	}
 

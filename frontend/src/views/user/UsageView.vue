@@ -123,6 +123,10 @@
               <label class="input-label">{{ t('admin.usage.billingMode') }}</label>
               <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="applyFilters" />
             </div>
+            <div class="w-full sm:w-auto sm:min-w-[150px]">
+              <label class="input-label">{{ t('usage.status') }}</label>
+              <Select v-model="filters.status" :options="statusOptions" @change="applyFilters" />
+            </div>
           </div>
 
           <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
@@ -365,6 +369,7 @@ const filters = ref<UsageQueryParams>({
   native_compaction_v2: null,
   billing_type: null,
   billing_mode: null,
+  status: 'all',
 })
 
 const pagination = reactive({
@@ -380,6 +385,11 @@ const sortState = reactive({
 const granularityOptions = computed<SelectOption[]>(() => [
   { value: 'day', label: t('admin.dashboard.day') },
   { value: 'hour', label: t('admin.dashboard.hour') },
+])
+const statusOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: t('common.all') },
+  { value: 'success', label: t('usage.statusSuccess') },
+  { value: 'failed', label: t('usage.statusFailed') },
 ])
 const requestTypeOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allTypes') },
@@ -568,6 +578,7 @@ const resetFilters = () => {
     native_compaction_v2: null,
     billing_type: null,
     billing_mode: null,
+    status: 'all',
   }
   granularity.value = getGranularityForRange(range.start, range.end)
   applyFilters()
@@ -716,6 +727,7 @@ const HIDDEN_COLUMNS_KEY = 'user-usage-hidden-columns'
 
 const allColumns = computed<Column[]>(() => [
   { key: 'api_key', label: t('usage.apiKeyFilter'), sortable: false },
+  { key: 'status', label: t('usage.status'), sortable: false },
   { key: 'model', label: t('usage.model'), sortable: true },
   { key: 'reasoning_effort', label: t('usage.reasoningEffort'), sortable: false },
   { key: 'endpoint', label: t('usage.endpoint'), sortable: false },

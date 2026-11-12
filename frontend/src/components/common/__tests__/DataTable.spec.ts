@@ -151,6 +151,37 @@ describe('DataTable', () => {
     expect(cell.attributes('style')).not.toContain('max-width')
   })
 
+  it('keeps the declared width on fixedWidth columns while siblings stay content-sized', () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [
+          { key: 'select', label: 'Select', width: '36px' },
+          { key: 'actions', label: 'Actions', width: '72px', fixedWidth: true },
+          { key: 'name', label: 'Name', width: '212px' }
+        ],
+        data: [{ id: 1, name: 'An account name long enough to widen a dynamic column' }],
+        singleLineCells: true,
+        dynamicColumnWidths: true
+      }
+    })
+
+    const headers = wrapper.findAll('th')
+    const cells = wrapper.get('tbody tr[data-index]').findAll('td')
+
+    // fixedWidth: the 72px actions column is a hard width on both th and td.
+    for (const el of [headers[1], cells[1]]) {
+      expect(el.attributes('style')).toContain('width: 72px')
+      expect(el.attributes('style')).toContain('min-width: 72px')
+      expect(el.attributes('style')).toContain('max-width: 72px')
+    }
+    // Ordinary columns keep the dynamic minimum-only behavior.
+    for (const el of [headers[2], cells[2]]) {
+      expect(el.attributes('style')).toContain('min-width: 212px')
+      expect(el.attributes('style')).not.toContain('max-width')
+      expect(el.attributes('style')).not.toMatch(/(^|;)\s*width:/)
+    }
+  })
+
   it('keeps explicit leading columns fixed with cumulative left offsets', () => {
     const wrapper = mount(DataTable, {
       props: {

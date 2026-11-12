@@ -27,6 +27,12 @@ type createScheduledTestPlanRequest struct {
 	MaxResults             int    `json:"max_results"`
 	AutoRecover            *bool  `json:"auto_recover"`
 	AutoRecoverSchedulable *bool  `json:"auto_recover_schedulable"`
+	Mode                   *string `json:"mode"`
+	AutoPauseOnDowngrade   *bool   `json:"auto_pause_on_downgrade"`
+	RuleIDs                *[]int64 `json:"rule_ids"`
+	RuleStrategy           string  `json:"rule_strategy"`
+	DowngradeAction        string  `json:"downgrade_action"`
+	DowngradeThreshold     *int    `json:"downgrade_threshold"`
 }
 
 type batchScheduledTestPlanRequest struct {
@@ -37,15 +43,27 @@ type batchScheduledTestPlanRequest struct {
 	MaxResults             int     `json:"max_results"`
 	AutoRecover            *bool   `json:"auto_recover"`
 	AutoRecoverSchedulable *bool   `json:"auto_recover_schedulable"`
+	Mode                   *string `json:"mode"`
+	AutoPauseOnDowngrade   *bool   `json:"auto_pause_on_downgrade"`
+	RuleIDs                *[]int64 `json:"rule_ids"`
+	RuleStrategy           string  `json:"rule_strategy"`
+	DowngradeAction        string  `json:"downgrade_action"`
+	DowngradeThreshold     *int    `json:"downgrade_threshold"`
 }
 
 type updateScheduledTestPlanRequest struct {
-	ModelID                string `json:"model_id"`
-	CronExpression         string `json:"cron_expression"`
-	Enabled                *bool  `json:"enabled"`
-	MaxResults             int    `json:"max_results"`
-	AutoRecover            *bool  `json:"auto_recover"`
-	AutoRecoverSchedulable *bool  `json:"auto_recover_schedulable"`
+	ModelID                string  `json:"model_id"`
+	CronExpression         string  `json:"cron_expression"`
+	Enabled                *bool   `json:"enabled"`
+	MaxResults             int     `json:"max_results"`
+	AutoRecover            *bool   `json:"auto_recover"`
+	AutoRecoverSchedulable *bool   `json:"auto_recover_schedulable"`
+	Mode                   *string `json:"mode"`
+	AutoPauseOnDowngrade   *bool   `json:"auto_pause_on_downgrade"`
+	RuleIDs                *[]int64 `json:"rule_ids"`
+	RuleStrategy           string  `json:"rule_strategy"`
+	DowngradeAction        string  `json:"downgrade_action"`
+	DowngradeThreshold     *int    `json:"downgrade_threshold"`
 }
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
@@ -101,6 +119,14 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 	if req.AutoRecoverSchedulable != nil {
 		plan.AutoRecoverSchedulable = *req.AutoRecoverSchedulable
 	}
+	if req.Mode != nil {
+		plan.Mode = service.NormalizeScheduledTestMode(*req.Mode)
+	}
+	if req.AutoPauseOnDowngrade != nil {
+		plan.AutoPauseOnDowngrade = *req.AutoPauseOnDowngrade
+	}
+	applyRuleFields(&plan.RuleIDs, &plan.RuleStrategy, &plan.DowngradeAction, &plan.DowngradeThreshold,
+		req.RuleIDs, req.RuleStrategy, req.DowngradeAction, req.DowngradeThreshold)
 
 	created, err := h.scheduledTestSvc.CreatePlan(c.Request.Context(), plan)
 	if err != nil {
@@ -133,6 +159,14 @@ func (h *ScheduledTestHandler) BatchCreate(c *gin.Context) {
 	if req.AutoRecoverSchedulable != nil {
 		template.AutoRecoverSchedulable = *req.AutoRecoverSchedulable
 	}
+	if req.Mode != nil {
+		template.Mode = service.NormalizeScheduledTestMode(*req.Mode)
+	}
+	if req.AutoPauseOnDowngrade != nil {
+		template.AutoPauseOnDowngrade = *req.AutoPauseOnDowngrade
+	}
+	applyRuleFields(&template.RuleIDs, &template.RuleStrategy, &template.DowngradeAction, &template.DowngradeThreshold,
+		req.RuleIDs, req.RuleStrategy, req.DowngradeAction, req.DowngradeThreshold)
 
 	created, failed, errs := h.scheduledTestSvc.BatchUpsertPlans(c.Request.Context(), req.AccountIDs, template)
 	c.JSON(http.StatusOK, gin.H{
@@ -180,6 +214,14 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 	if req.AutoRecoverSchedulable != nil {
 		existing.AutoRecoverSchedulable = *req.AutoRecoverSchedulable
 	}
+	if req.Mode != nil {
+		existing.Mode = service.NormalizeScheduledTestMode(*req.Mode)
+	}
+	if req.AutoPauseOnDowngrade != nil {
+		existing.AutoPauseOnDowngrade = *req.AutoPauseOnDowngrade
+	}
+	applyRuleFields(&existing.RuleIDs, &existing.RuleStrategy, &existing.DowngradeAction, &existing.DowngradeThreshold,
+		req.RuleIDs, req.RuleStrategy, req.DowngradeAction, req.DowngradeThreshold)
 
 	updated, err := h.scheduledTestSvc.UpdatePlan(c.Request.Context(), existing)
 	if err != nil {
@@ -223,4 +265,22 @@ func (h *ScheduledTestHandler) ListResults(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, results)
+}
+
+// applyRuleFields copies the optional rule-selection/handling fields from the
+// request onto the plan (pointer fields = omitted keeps the current value).
+func applyRuleFields(ruleIDs *[]int64, strategy, action *string, threshold *int,
+	reqRuleIDs *[]int64, reqStrategy, reqAction string, reqThreshold *int) {
+	if reqRuleIDs != nil {
+		*ruleIDs = *reqRuleIDs
+	}
+	if reqStrategy != "" {
+		*strategy = reqStrategy
+	}
+	if reqAction != "" {
+		*action = reqAction
+	}
+	if reqThreshold != nil && *reqThreshold >= 1 {
+		*threshold = *reqThreshold
+	}
 }

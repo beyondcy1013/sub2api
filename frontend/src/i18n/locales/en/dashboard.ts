@@ -388,6 +388,9 @@ export default {
     inboundEndpoint: 'Inbound Endpoint',
     upstreamEndpoint: 'Upstream Endpoint',
     type: 'Type',
+    status: 'Status',
+    statusSuccess: 'Success',
+    statusFailed: 'Failed',
     tokens: 'Tokens',
     cost: 'Cost',
     firstToken: 'First Token',
@@ -473,7 +476,7 @@ export default {
       detailAccuracy: 'Accuracy',
       detailCoordinates: 'Coordinates',
     },
-    tabs: { usage: 'Usage', errors: 'Error Requests', ranking: 'User Ranking' },
+    tabs: { usage: 'Usage', errors: 'Error Requests', ranking: 'User Ranking', accounts: 'Account Stats' },
     errors: {
       time: 'Time', model: 'Model', endpoint: 'Endpoint', status: 'Status',
       category: 'Category', platform: 'Platform', message: 'Message',

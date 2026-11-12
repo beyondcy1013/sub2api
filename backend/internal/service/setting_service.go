@@ -147,6 +147,9 @@ type SettingService struct {
 	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
 	codexRestrictionPolicySF    singleflight.Group
 
+	globalModelExcludePatternsCache atomic.Value // []string
+	globalModelExcludePatternsSF    singleflight.Group
+
 	cyberSessionBlockRuntimeMu    sync.Mutex
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group
@@ -165,6 +168,8 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 	openAIAPIKeyHealthBreakerCache    atomic.Value // *cachedOpenAIAPIKeyHealthBreakerSettings
+	pelicanProbeCache                 atomic.Value // *cachedPelicanProbeSettings
+	requestQualityProbeCache          atomic.Value // *cachedRequestQualityProbeSettings
 
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
@@ -461,4 +466,56 @@ func (s *SettingService) getStringOrDefault(settings map[string]string, key, def
 		return value
 	}
 	return defaultValue
+}
+
+// GetGlobalModelExcludePatterns 读取系统全局模型排除表达式列表。
+func (s *SettingService) GetGlobalModelExcludePatterns(ctx context.Context) ([]string, error) {
+	if s == nil || s.settingRepo == nil {
+		return nil, nil
+	}
+	if val := s.globalModelExcludePatternsCache.Load(); val != nil {
+		if patterns, ok := val.([]string); ok {
+			return patterns, nil
+		}
+	}
+	res, err, _ := s.globalModelExcludePatternsSF.Do("global_model_exclude_patterns", func() (any, error) {
+		raw, err := s.settingRepo.GetValue(ctx, SettingKeyGlobalModelExcludePatterns)
+		if err != nil {
+			return []string(nil), nil
+		}
+		patterns := parseGlobalModelExcludePatterns(raw)
+		s.globalModelExcludePatternsCache.Store(patterns)
+		return patterns, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return nil, nil
+	}
+	return res.([]string), nil
+}
+
+// IsModelGloballyExcluded 检查指定模型名是否命中全局排除表达式。
+func (s *SettingService) IsModelGloballyExcluded(ctx context.Context, model string) bool {
+	if s == nil {
+		return false
+	}
+	patterns, err := s.GetGlobalModelExcludePatterns(ctx)
+	if err != nil || len(patterns) == 0 {
+		return false
+	}
+	return IsModelGloballyExcluded(patterns, model)
+}
+
+// FilterGloballyExcludedModels 返回过滤掉命中全局排除规则后的模型切片。
+func (s *SettingService) FilterGloballyExcludedModels(ctx context.Context, models []string) []string {
+	if s == nil || len(models) == 0 {
+		return models
+	}
+	patterns, err := s.GetGlobalModelExcludePatterns(ctx)
+	if err != nil || len(patterns) == 0 {
+		return models
+	}
+	return FilterGloballyExcludedModels(patterns, models)
 }

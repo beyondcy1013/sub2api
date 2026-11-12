@@ -5370,6 +5370,79 @@
             </div>
           </div>
 
+          <!-- Global Model Filter -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.globalModelFilter.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.globalModelFilter.description") }}
+              </p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t("admin.settings.globalModelFilter.title") }}
+                </label>
+                <div class="mt-2 flex gap-2">
+                  <input
+                    v-model.trim="globalModelExcludePatternDraft"
+                    type="text"
+                    class="input flex-1"
+                    data-testid="global-model-exclude-pattern-input"
+                    :placeholder="t('admin.settings.globalModelFilter.placeholder')"
+                    @keydown.enter.prevent="addGlobalModelExcludePattern"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    data-testid="add-global-model-exclude-pattern-btn"
+                    @click="addGlobalModelExcludePattern"
+                  >
+                    {{ t("admin.settings.globalModelFilter.add") }}
+                  </button>
+                </div>
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.globalModelFilter.hint") }}
+                </p>
+              </div>
+
+              <!-- Tags list -->
+              <div
+                class="rounded-lg border border-gray-200 bg-gray-50/50 p-3 dark:border-dark-700 dark:bg-dark-800/50"
+              >
+                <div
+                  v-if="form.global_model_exclude_patterns && form.global_model_exclude_patterns.length > 0"
+                  class="flex flex-wrap gap-2"
+                >
+                  <span
+                    v-for="(pattern, idx) in form.global_model_exclude_patterns"
+                    :key="idx"
+                    class="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 text-xs font-mono font-medium text-gray-800 shadow-sm ring-1 ring-inset ring-gray-200 dark:bg-dark-700 dark:text-gray-200 dark:ring-dark-600"
+                  >
+                    <span>{{ pattern }}</span>
+                    <button
+                      type="button"
+                      class="rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-600 dark:hover:text-gray-300"
+                      @click="removeGlobalModelExcludePattern(idx)"
+                    >
+                      <Icon name="x" size="xs" class="h-3 w-3" :stroke-width="2" />
+                    </button>
+                  </span>
+                </div>
+                <p
+                  v-else
+                  class="text-xs text-gray-400 dark:text-gray-500"
+                >
+                  {{ t("admin.settings.globalModelFilter.empty") }}
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- Gateway Forwarding Behavior -->
           <div class="card">
             <div
@@ -9350,6 +9423,7 @@ const testEmailAddress = ref("");
 const registrationEmailSuffixWhitelistTags = ref<string[]>([]);
 const registrationEmailSuffixWhitelistDraft = ref("");
 const forwardedClientIpHeaderDraft = ref("");
+const globalModelExcludePatternDraft = ref("");
 const tablePageSizeOptionsInput = ref("10, 20, 50, 100");
 
 // Admin API Key 状态
@@ -10191,6 +10265,8 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_upstream_cost: "",
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
+  // Global model exclude patterns
+  global_model_exclude_patterns: [] as string[],
   // Gateway forwarding behavior
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
@@ -10887,6 +10963,28 @@ function handleForwardedClientIpHeaderPaste(event: ClipboardEvent) {
   }
 }
 
+// Global model exclude patterns helpers
+function addGlobalModelExcludePattern() {
+  const raw = globalModelExcludePatternDraft.value.trim();
+  if (!raw) return;
+  if (!Array.isArray(form.global_model_exclude_patterns)) {
+    form.global_model_exclude_patterns = [];
+  }
+  const parts = raw.split(/[\s,，;\r\n]+/).map((s) => s.trim()).filter(Boolean);
+  for (const part of parts) {
+    if (!form.global_model_exclude_patterns.includes(part)) {
+      form.global_model_exclude_patterns.push(part);
+    }
+  }
+  globalModelExcludePatternDraft.value = "";
+}
+
+function removeGlobalModelExcludePattern(index: number) {
+  if (Array.isArray(form.global_model_exclude_patterns)) {
+    form.global_model_exclude_patterns.splice(index, 1);
+  }
+}
+
 // Quota notify email helpers
 const addQuotaNotifyEmail = () => {
   if (!form.account_quota_notify_emails) {
@@ -11315,6 +11413,11 @@ async function loadSettings() {
       settings.forwarded_client_ip_headers,
     );
     forwardedClientIpHeaderDraft.value = "";
+    form.global_model_exclude_patterns = Array.isArray(settings.global_model_exclude_patterns)
+      ? [...settings.global_model_exclude_patterns]
+      : [];
+    adminSettingsStore.globalModelExcludePatterns = [...form.global_model_exclude_patterns];
+    globalModelExcludePatternDraft.value = "";
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(settings.table_page_size_options)
         ? settings.table_page_size_options
@@ -11862,6 +11965,9 @@ async function saveSettings() {
       fallback_model_openai: form.fallback_model_openai,
       fallback_model_gemini: form.fallback_model_gemini,
       fallback_model_antigravity: form.fallback_model_antigravity,
+      global_model_exclude_patterns: Array.isArray(form.global_model_exclude_patterns)
+        ? [...form.global_model_exclude_patterns]
+        : [],
       grok_default_text_model:
         form.grok_default_text_model.trim() || "grok-4.5",
       grok_cross_client_model_map_enabled:
@@ -12097,6 +12203,11 @@ async function saveSettings() {
       updated.forwarded_client_ip_headers,
     );
     forwardedClientIpHeaderDraft.value = "";
+    if (Array.isArray(updated.global_model_exclude_patterns)) {
+      form.global_model_exclude_patterns = [...updated.global_model_exclude_patterns];
+      adminSettingsStore.globalModelExcludePatterns = [...updated.global_model_exclude_patterns];
+    }
+    globalModelExcludePatternDraft.value = "";
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(updated.table_page_size_options)
         ? updated.table_page_size_options

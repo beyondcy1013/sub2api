@@ -15,6 +15,14 @@ const (
 	AccountTestModeCompact = "compact"
 	// AccountTestModePelican drives the Pelican IQ test / downgrade detection probe.
 	AccountTestModePelican = "pelican"
+	// AccountTestModeCandy drives the numeric capability probe (candy-bag
+	// worst-case question with a fixed expected answer). It runs as the second
+	// stage of scheduled pelican runs and is also usable standalone.
+	AccountTestModeCandy = "candy"
+	// AccountTestModeRule drives one user-defined degradation rule probe: the
+	// rule prompt is sent verbatim without model mapping, with neutral
+	// instructions and default streaming (no pelican evaluation).
+	AccountTestModeRule = "rule_probe"
 )
 
 func normalizeAccountTestMode(mode string) string {
@@ -23,6 +31,10 @@ func normalizeAccountTestMode(mode string) string {
 		return AccountTestModeCompact
 	case AccountTestModePelican:
 		return AccountTestModePelican
+	case AccountTestModeCandy:
+		return AccountTestModeCandy
+	case AccountTestModeRule:
+		return AccountTestModeRule
 	default:
 		return AccountTestModeDefault
 	}

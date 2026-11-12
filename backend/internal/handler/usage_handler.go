@@ -217,6 +217,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 			BillingMode:        billingMode,
 			StartTime:          startPtr,
 			EndTime:            endPtr,
+			Status:             strings.TrimSpace(c.Query("status")),
 		},
 		StartTime: derefTime(startPtr),
 		EndTime:   derefTime(endPtr),

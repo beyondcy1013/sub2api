@@ -535,6 +535,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				if strings.Contains(trimmed, "kiro_") {
+					trimmed = string(stripAnthropicVendorUsageFields([]byte(trimmed)))
+					line = "data: " + trimmed
+				}
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
@@ -543,7 +547,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
-				parseSSEUsagePassthrough(data, usage)
+				parseSSEUsagePassthrough(trimmed, usage)
 			} else {
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
@@ -620,6 +624,56 @@ func extractAnthropicSSEDataLine(line string) (string, bool) {
 		start++
 	}
 	return line[start:], true
+}
+
+// stripAnthropicVendorUsageFields removes non-standard vendor keys (such as
+// "kiro_*") from usage and message.usage objects in Anthropic responses to
+// preserve standard Claude API specification compliance for downstream clients.
+func stripAnthropicVendorUsageFields(data []byte) []byte {
+	if len(data) == 0 || !bytes.Contains(data, []byte("kiro_")) {
+		return data
+	}
+	// Check root usage (non-streaming responses and SSE message_delta events)
+	if usage := gjson.GetBytes(data, "usage"); usage.Exists() && usage.IsObject() {
+		var toDelete []string
+		usage.ForEach(func(key, value gjson.Result) bool {
+			k := key.String()
+			if strings.HasPrefix(k, "kiro_") {
+				toDelete = append(toDelete, "usage."+k)
+			}
+			return true
+		})
+		for _, path := range toDelete {
+			data, _ = sjson.DeleteBytes(data, path)
+		}
+	}
+	// Check message.usage (SSE message_start events)
+	if msgUsage := gjson.GetBytes(data, "message.usage"); msgUsage.Exists() && msgUsage.IsObject() {
+		var toDelete []string
+		msgUsage.ForEach(func(key, value gjson.Result) bool {
+			k := key.String()
+			if strings.HasPrefix(k, "kiro_") {
+				toDelete = append(toDelete, "message.usage."+k)
+			}
+			return true
+		})
+		for _, path := range toDelete {
+			data, _ = sjson.DeleteBytes(data, path)
+		}
+	}
+	// Also strip any top-level kiro_ keys if present
+	var topDelete []string
+	gjson.ParseBytes(data).ForEach(func(key, value gjson.Result) bool {
+		k := key.String()
+		if strings.HasPrefix(k, "kiro_") {
+			topDelete = append(topDelete, k)
+		}
+		return true
+	})
+	for _, path := range topDelete {
+		data, _ = sjson.DeleteBytes(data, path)
+	}
+	return data
 }
 
 // parseSSEUsagePassthrough 从 Anthropic SSE data 行提取 usage（包级函数：
@@ -859,6 +913,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	if err != nil {
 		return nil, err
 	}
+	body = stripAnthropicVendorUsageFields(body)
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)

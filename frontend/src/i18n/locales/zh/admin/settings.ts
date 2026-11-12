@@ -497,6 +497,14 @@ export default {
         saved: 'OpenCode Go 用量刷新设置已保存',
         saveFailed: '保存 OpenCode Go 用量刷新设置失败'
       },
+      globalModelFilter: {
+        title: '全局大模型过滤器',
+        description: '配置全局排除的大模型规则（支持 * 通配符，如 *thinking*、*pro*、gemini-2.5*）。命中的模型将对网关 /v1/models 隐藏、禁止在账号中添加或映射、上游同步时自动过滤、网关调用时直接拦截拒绝。',
+        placeholder: '输入模型名称或通配表达式，例如 *thinking* 或 gpt-3.5*',
+        add: '添加',
+        empty: '暂无全局排除规则',
+        hint: '规则不区分大小写，支持 provider 前缀与斜杠/冒号切分。修改并保存后立即对网关生效。',
+      },
       gatewayForwarding: {
         title: '请求转发行为',
         description: '控制请求转发到上游 OAuth 账号时的行为',

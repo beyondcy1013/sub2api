@@ -951,17 +951,19 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 		}
 
-		// 兼容 Kimi cached_tokens → cache_read_input_tokens
+		// 兼容 Kimi cached_tokens → cache_read_input_tokens 及剥除 kiro_* 供应商专有字段
 		if eventType == "message_start" {
 			if msg, ok := event["message"].(map[string]any); ok {
 				if u, ok := msg["usage"].(map[string]any); ok {
 					eventChanged = reconcileCachedTokens(u) || eventChanged
+					eventChanged = stripVendorUsageKeys(u) || eventChanged
 				}
 			}
 		}
 		if eventType == "message_delta" {
 			if u, ok := event["usage"].(map[string]any); ok {
 				eventChanged = reconcileCachedTokens(u) || eventChanged
+				eventChanged = stripVendorUsageKeys(u) || eventChanged
 			}
 		}
 
@@ -1406,6 +1408,7 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	if err != nil {
 		return nil, err
 	}
+	body = stripAnthropicVendorUsageFields(body)
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -1507,4 +1510,20 @@ func reconcileCachedTokens(usage map[string]any) bool {
 	}
 	usage["cache_read_input_tokens"] = cached
 	return true
+}
+
+// stripVendorUsageKeys 移除 usage 中的非标准供应商专有字段（如 kiro_*），
+// 保证向下游输出标准 Claude Messages 响应。
+func stripVendorUsageKeys(usage map[string]any) bool {
+	if usage == nil {
+		return false
+	}
+	changed := false
+	for k := range usage {
+		if strings.HasPrefix(k, "kiro_") {
+			delete(usage, k)
+			changed = true
+		}
+	}
+	return changed
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CANONICAL_REPO="/home/codes/third_party/sub2api"
-LEGACY_REPO="/home/codes/third_party/sub2freeApi"
+CANONICAL_REPO="/home/codes/ai/sub2api"
+LEGACY_REPO="/home/codes/ai/sub2freeApi"
 REQUESTED_REPO="${1:-$CANONICAL_REPO}"
 
 if [ "$(realpath "$REQUESTED_REPO")" != "$CANONICAL_REPO" ]; then

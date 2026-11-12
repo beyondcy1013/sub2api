@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
 import accountsViewSource from '../AccountsView.vue?raw'
@@ -104,10 +104,10 @@ const DataTableStub = {
 }
 
 const AccountTestModalStub = {
-  props: ['show', 'account'],
+  props: ['show', 'accounts'],
   template: `
-    <div v-if="show && account" data-test="account-test-modal">
-      {{ account.name }}
+    <div v-if="show && accounts[0]" data-test="account-test-modal">
+      {{ accounts[0].name }}
     </div>
   `
 }
@@ -180,8 +180,10 @@ const AccountActionMenuStub = {
   `
 }
 
+const mountedWrappers: VueWrapper[] = []
+
 function mountView() {
-  return mount(AccountsView, {
+  const wrapper = mount(AccountsView, {
     global: {
       stubs: {
         AppLayout: { template: '<div><slot /></div>' },
@@ -219,6 +221,8 @@ function mountView() {
       }
     }
   })
+  mountedWrappers.push(wrapper)
+  return wrapper
 }
 
 describe('admin AccountsView recycle-bin deletion', () => {
@@ -253,6 +257,17 @@ describe('admin AccountsView recycle-bin deletion', () => {
     getAllGroups.mockResolvedValue([])
     deleteAccount.mockResolvedValue({ message: 'deleted' })
     permanentDelete.mockResolvedValue({ message: 'permanently deleted' })
+  })
+
+  afterEach(() => {
+    for (const wrapper of mountedWrappers.splice(0)) {
+      try {
+        wrapper.unmount()
+      } catch {
+        // already unmounted by the test itself
+      }
+    }
+    vi.useRealTimers()
   })
 
   it('moves an account from staging into recoverable deleted staging after confirmation', async () => {
@@ -304,8 +319,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     const row = wrapper.get('[data-test="account-row-42"]')
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
-      'admin.accounts.testConnection',
-      'admin.accounts.pelicanAction',
+      'admin.accounts.accountTesting.action',
       'admin.accounts.restoreDeleted',
       'common.more'
     ])
@@ -363,7 +377,10 @@ describe('admin AccountsView recycle-bin deletion', () => {
     await flushPromises()
 
     await wrapper.get('[data-test="bulk-account-filter"]').setValue('notes needle')
-    await flushPromises()
+    // Drain the trailing debounced reload so it cannot leak into later tests.
+    await vi.waitFor(() => {
+      expect(listAccounts).toHaveBeenCalledTimes(2)
+    })
 
     expect(listAccounts).toHaveBeenLastCalledWith(
       1,
@@ -383,8 +400,7 @@ describe('admin AccountsView recycle-bin deletion', () => {
     // Staging mode keeps the shared edit/test/more actions and swaps recycle for restore.
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
-      'admin.accounts.testConnection',
-      'admin.accounts.pelicanAction',
+      'admin.accounts.accountTesting.action',
       'admin.accounts.restore',
       'common.more'
     ])
@@ -398,9 +414,8 @@ describe('admin AccountsView recycle-bin deletion', () => {
     const row = wrapper.get('[data-test="account-row-42"]')
     expect(row.findAll('button').map(button => button.text())).toEqual([
       'common.edit',
-      'admin.accounts.testConnection',
+      'admin.accounts.accountTesting.action',
       '打票',
-      'admin.accounts.pelicanAction',
       'admin.accounts.recycle',
       'common.more'
     ])

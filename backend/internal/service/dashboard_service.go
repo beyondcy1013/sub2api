@@ -416,6 +416,14 @@ func (s *DashboardService) GetUserBreakdownStats(ctx context.Context, startTime,
 	return stats, nil
 }
 
+func (s *DashboardService) GetAccountBreakdownStats(ctx context.Context, startTime, endTime time.Time, dim usagestats.AccountBreakdownDimension, limit int) ([]usagestats.AccountBreakdownItem, error) {
+	stats, err := s.usageRepo.GetAccountBreakdownStats(ctx, startTime, endTime, dim, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get account breakdown stats: %w", err)
+	}
+	return stats, nil
+}
+
 func (s *DashboardService) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*usagestats.BatchUserUsageStats, error) {
 	stats, err := s.usageRepo.GetBatchUserUsageStats(ctx, userIDs, startTime, endTime)
 	if err != nil {

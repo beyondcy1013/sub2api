@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -49,6 +50,7 @@ type OpenAIGatewayHandler struct {
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
 	cfg                        *config.Config
+	requestQualityProbe        *service.RequestQualityProbeService
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -304,6 +306,17 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 	return openAIResponsesRequiredCapability(imageIntent, platform)
 }
 
+// gpt-6.1-sol tool calls cannot be converted to Chat Completions. Require a
+// Responses-capable account before scheduling so a CC-only account is not
+// selected and rejected later in the forwarding path.
+func openAIResponsesToolCallRequiresResponses(model string, body []byte, platform string) bool {
+	if platform != service.PlatformOpenAI || !openai.IsGPT61SolModelSpelling(model) {
+		return false
+	}
+	return len(gjson.GetBytes(body, "tools").Array()) > 0 ||
+		len(gjson.GetBytes(body, "functions").Array()) > 0
+}
+
 func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return true
@@ -382,6 +395,10 @@ func NewOpenAIGatewayHandler(
 		maxAccountSwitches:       maxAccountSwitches,
 		cfg:                      cfg,
 	}
+}
+
+func (h *OpenAIGatewayHandler) SetRequestQualityProbeService(svc *service.RequestQualityProbeService) {
+	h.requestQualityProbe = svc
 }
 
 // Responses handles OpenAI Responses API endpoint
@@ -654,7 +671,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 仅对 OpenAI 平台生效：Grok 生图走独立的 forwardGrokResponses 路径，不应被过滤。
 	// 复用前置权限与并发阶段在未修改 body 上确认的显式生图意图，避免大 tools 请求重复扫描。
 	// 该判断已排除 Codex 被动 image_gen namespace，避免 CC-only 账号被误过滤（#4476）。
-	needsResponses := nativeV2 || legacyCompact
+	needsResponses := nativeV2 || legacyCompact || openAIResponsesToolCallRequiresResponses(reqModel, body, requestPlatform)
 	requiredCapability := openAIResponsesRequiredCapabilityForRequest(imageIntent, needsResponses, requestPlatform)
 
 	// 分组利润控制：请求级装配定价上下文——pricingAt 固定本请求的
@@ -764,6 +781,31 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		reqLog.Debug("openai.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
+
+		if h.requestQualityProbe != nil {
+			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, forwardModel); !ok {
+				failedAccountIDs[account.ID] = struct{}{}
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+					selection.ReleaseFunc = nil
+				}
+				lastFailoverErr = &service.UpstreamFailoverError{
+					StatusCode:       http.StatusBadGateway,
+					Stage:            service.GatewayFailureStageInference,
+					Scope:            service.GatewayFailureScopeAccount,
+					Reason:           "request_quality_probe_failed",
+					ClientStatusCode: http.StatusBadGateway,
+					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, forwardModel, reason),
+				}
+				reqLog.Warn("openai.account_skipped_quality_probe_failed",
+					zap.Int64("account_id", account.ID),
+					zap.String("account_name", account.Name),
+					zap.String("model", forwardModel),
+					zap.String("reason", reason),
+				)
+				continue
+			}
+		}
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
@@ -986,6 +1028,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}
 		}
 		if result != nil {
+			if h.requestQualityProbe != nil && openAIForwardSucceededForScheduling(result) {
+				h.requestQualityProbe.TouchRecentSuccess(account.ID, forwardModel)
+			}
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
@@ -1361,6 +1406,31 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
+		if h.requestQualityProbe != nil {
+			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, currentRoutingModel); !ok {
+				failedAccountIDs[account.ID] = struct{}{}
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+					selection.ReleaseFunc = nil
+				}
+				lastFailoverErr = &service.UpstreamFailoverError{
+					StatusCode:       http.StatusBadGateway,
+					Stage:            service.GatewayFailureStageInference,
+					Scope:            service.GatewayFailureScopeAccount,
+					Reason:           "request_quality_probe_failed",
+					ClientStatusCode: http.StatusBadGateway,
+					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, currentRoutingModel, reason),
+				}
+				reqLog.Warn("openai_messages.account_skipped_quality_probe_failed",
+					zap.Int64("account_id", account.ID),
+					zap.String("account_name", account.Name),
+					zap.String("model", currentRoutingModel),
+					zap.String("reason", reason),
+				)
+				continue
+			}
+		}
+
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
@@ -1543,6 +1613,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if result != nil {
+			if h.requestQualityProbe != nil {
+				h.requestQualityProbe.TouchRecentSuccess(account.ID, currentRoutingModel)
+			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, nil)
@@ -2524,11 +2597,22 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
-	// 分组级模型白名单：首帧校验客户端模型，不通过则关闭连接并标记运维原因。
+	// 分组级模型白名单与全局模型排除：首帧校验客户端模型，不通过则关闭连接并标记运维原因。
 	// 必须在合成路由解析和上游模型映射之前执行。
 	// 与 HTTP 准入一致：帧内重复 model 键/大小写变体可能被上游按末值绑定，
 	// 全部候选值逐一校验，任一未命中即拒绝。
-	if blocked := blockedModelAllowlistCandidate(apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", firstMessage)); blocked != "" {
+	firstFrameCandidates := requestmodel.FromBodyCandidates("", "application/json", firstMessage)
+	if h.gatewayService != nil && h.gatewayService.SettingService() != nil {
+		for _, candidate := range firstFrameCandidates {
+			if h.gatewayService.SettingService().IsModelGloballyExcluded(c.Request.Context(), candidate) {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+				middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available", candidate))
+				return
+			}
+		}
+	}
+	if blocked := blockedModelAllowlistCandidate(apiKey.Group, firstFrameCandidates); blocked != "" {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 		middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
@@ -3006,6 +3090,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 帧内重复 model 键/大小写变体/嵌套 session.model 额外逐一校验，
 				// 防止候选集非空时掩盖被轮换掉的禁用模型。
 				candidates := append([]string{model}, requestmodel.FromBodyCandidates("", "application/json", payload)...)
+				if h.gatewayService != nil && h.gatewayService.SettingService() != nil {
+					for _, candidate := range candidates {
+						if h.gatewayService.SettingService().IsModelGloballyExcluded(c.Request.Context(), candidate) {
+							service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+							middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+							return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available", candidate), nil)
+						}
+					}
+				}
 				if blocked := blockedModelAllowlistCandidate(apiKey.Group, candidates); blocked != "" {
 					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 					middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)

@@ -293,7 +293,7 @@ export function appendAuthSourceDefaultsToUpdateRequest(
   payload: UpdateSettingsRequest,
   authSourceDefaults: AuthSourceDefaultsState,
 ): UpdateSettingsRequest {
-  const target = payload as Record<string, unknown>;
+  const target = payload as unknown as Record<string, unknown>;
 
   for (const source of AUTH_SOURCE_TYPES) {
     const current = authSourceDefaults[source];
@@ -607,6 +607,7 @@ export interface SystemSettings {
   grok_default_text_model: string;
   grok_cross_client_model_map_enabled: boolean;
   grok_default_base_url_mode: string;
+  global_model_exclude_patterns: string[];
 
   // Per-platform account auto-pause thresholds (100 = disabled)
   account_scheduling_thresholds: AccountSchedulingThresholdsMap;
@@ -651,6 +652,7 @@ export interface SystemSettings {
   openai_codex_ticket_fail_closed: boolean;
   openai_codex_ticket_strategy?: 'fixed' | 'standby';
   openai_codex_ticket_harvest_scope?: { mode: 'all' | 'selected'; group_ids: number[]; account_policy: 'schedulable_only' | 'prioritize_schedulable' };
+  pelican_probe_settings?: { candy_enabled: boolean; candy_prompt: string; candy_expected_answer: number };
   openai_codex_ticket_strict_response?: boolean;
   openai_codex_ticket_harvest_proxy_url: string;
   openai_codex_ticket_static_proxy_url?: string;
@@ -960,6 +962,7 @@ export interface UpdateSettingsRequest {
   grok_default_text_model?: string;
   grok_cross_client_model_map_enabled?: boolean;
   grok_default_base_url_mode?: string;
+  global_model_exclude_patterns?: string[];
   account_scheduling_thresholds?: AccountSchedulingThresholdsMap;
   enable_identity_patch?: boolean;
   identity_patch_prompt?: string;
@@ -991,6 +994,7 @@ export interface UpdateSettingsRequest {
   openai_codex_ticket_strategy?: 'fixed' | 'standby';
   openai_codex_ticket_harvest_scope?: { mode: 'all' | 'selected'; group_ids: number[]; account_policy: 'schedulable_only' | 'prioritize_schedulable' };
   openai_codex_ticket_harvest_proxy_url?: string;
+  pelican_probe_settings?: { candy_enabled: boolean; candy_prompt: string; candy_expected_answer: number };
   openai_codex_ticket_use_saved_static_proxy?: boolean;
   openai_codex_ticket_strict_response?: boolean;
   openai_codex_ticket_models?: string[];

@@ -308,7 +308,7 @@ func (s *BalanceCheckService) checkAccountBalance(ctx context.Context, account *
 }
 
 func (s *BalanceCheckService) updateBalanceAfterCheck(ctx context.Context, accountID int64, balance float64, checkType string) {
-	updates := map[string]any{"balance": balance}
+	updates := map[string]any{"balance": balance, "balance_updated_at": time.Now().UTC().Format(time.RFC3339)}
 	if checkType != "" {
 		updates[BalanceCheckTypeExtraKey] = checkType
 	}

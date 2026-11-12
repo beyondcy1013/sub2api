@@ -34,6 +34,7 @@ type AdminHandlers struct {
 	Plugin                 *admin.PluginHandler
 	APIKey                 *admin.AdminAPIKeyHandler
 	ScheduledTest          *admin.ScheduledTestHandler
+	DegradationRule        *admin.DegradationRuleHandler
 	ScheduledAccountAction *admin.ScheduledAccountActionHandler
 	Channel                *admin.ChannelHandler
 	ChannelMonitor         *admin.ChannelMonitorHandler

@@ -149,6 +149,36 @@ describe('OpsSystemLogTable host support', () => {
     expect((label!.find('input').element as HTMLInputElement).checked).toBe(false)
   })
 
+  it('queries the correlated request at its original time without a timezone shift', async () => {
+    const start = '2026-10-14T00:25:00.000Z'
+    const end = '2026-10-14T00:35:00.000Z'
+    const wrapper = mount(OpsSystemLogTable, {
+      props: { initialQuery: { request_id: 'req-failed', start_time: start, end_time: end } },
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } }
+    })
+    await flushPromises()
+    expect(mockListSystemLogs).toHaveBeenCalledWith(expect.objectContaining({
+      request_id: 'req-failed', start_time: start, end_time: end
+    }))
+    wrapper.unmount()
+  })
+
+  it('shows a log API error instead of an empty list or stale rows', async () => {
+    const wrapper = mount(OpsSystemLogTable, {
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('api-node-1')
+    mockListSystemLogs.mockRejectedValueOnce(new Error('system logs unavailable'))
+    const searchButton = wrapper.findAll('button').find(button => button.text() === 'admin.ops.systemLogs.search')!
+    await searchButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('system logs unavailable')
+    expect(wrapper.text()).not.toContain('api-node-1')
+    expect(wrapper.text()).not.toContain('admin.ops.systemLogs.empty')
+    wrapper.unmount()
+  })
+
   it.each([
     ['zh', zhLocale],
     ['en', enLocale],

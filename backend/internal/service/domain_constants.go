@@ -734,6 +734,9 @@ const (
 
 	// Web Search Emulation
 	SettingKeyWebSearchEmulationConfig = "web_search_emulation_config" // JSON 配置
+
+	// 全局大模型排除表达式列表（JSON 数组格式，支持通配符 *）
+	SettingKeyGlobalModelExcludePatterns = "global_model_exclude_patterns"
 )
 
 // SettingKeyDefaultPlatformQuotas —— 系统全局：每用户 × 平台日/周/月 USD 上限（JSON）。

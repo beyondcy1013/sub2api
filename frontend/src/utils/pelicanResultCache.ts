@@ -16,6 +16,9 @@ export interface PelicanCachedResult {
     name: string
     type?: string
   }
+  testMode?: 'default' | 'compact' | 'pelican'
+  images?: string[]
+  logs?: string[]
   status: 'success' | 'downgraded' | 'failed'
   result?: PelicanTestResult
   responseModel?: string
@@ -52,6 +55,9 @@ function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
       name: stored.accountName || String(stored.accountId),
       type: stored.accountType
     },
+    testMode: stored.testMode,
+    images: stored.images,
+    logs: stored.logs,
     status: stored.status,
     result: stored.result,
     responseModel: stored.responseModel,
@@ -70,6 +76,9 @@ function toStoredResult(item: PelicanCachedResult): StoredPelicanResult {
     accountId: item.account.id,
     accountName: item.account.name,
     accountType: item.account.type,
+    testMode: item.testMode,
+    images: item.images,
+    logs: item.logs,
     status: item.status,
     result: item.result,
     responseModel: item.responseModel,

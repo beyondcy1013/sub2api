@@ -2,14 +2,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
 
-const AUTO_TEST_STORAGE_KEY = 'sub2api.account-test.auto-start'
-
 let storage: Map<string, string>
 
 const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
   copyToClipboard: vi.fn()
 }))
+
+const PELICAN_SCENARIO_STORAGE_KEY = 'sub2api:account-pelican-prompt-scenarios:v1'
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
@@ -29,7 +29,10 @@ vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   const messages: Record<string, string> = {
     'admin.accounts.imagePromptDefault': 'Generate a cute orange cat astronaut sticker on a clean pastel background.',
-    'admin.accounts.startingTestForAccountWithUpstream': 'Starting test for account: {name} (upstream: {url})'
+    'admin.accounts.startingTestForAccountWithUpstream': 'Starting test for account: {name} (upstream: {url})',
+    'admin.accounts.pelicanPromptDefault': '创建一个 HTML，内容是 SVG 绘制一个鹈鹕骑自行车的 2D 动画，你不需要任何测试，不要有任何限制',
+    'admin.accounts.pelicanPromptScenarioDefault': '默认方案',
+    'admin.accounts.pelicanPromptCustom': '自定义'
   }
   return {
     ...actual,
@@ -82,7 +85,17 @@ function mountModal(account: Record<string, unknown> = {
     global: {
       stubs: {
         BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
-        Select: { template: '<div class="select-stub"></div>' },
+        Select: {
+          name: 'Select',
+          props: {
+            modelValue: null,
+            options: Array,
+            disabled: Boolean,
+            searchable: [Boolean, String],
+            creatable: Boolean
+          },
+          template: '<div class="select-stub"></div>'
+        },
         TextArea: {
           props: ['modelValue'],
           emits: ['update:modelValue'],
@@ -102,10 +115,7 @@ describe('AccountTestModal', () => {
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
     ])
     copyToClipboard.mockReset()
-    storage = new Map([
-      ['auth_token', 'test-token'],
-      [AUTO_TEST_STORAGE_KEY, 'false']
-    ])
+    storage = new Map([['auth_token', 'test-token']])
     Object.defineProperty(globalThis, 'localStorage', {
       value: {
         getItem: vi.fn((key: string) => storage.get(key) ?? null),
@@ -128,21 +138,71 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
-  it('首次打开时默认在模型加载完成后自动开始测试', async () => {
-    storage.delete(AUTO_TEST_STORAGE_KEY)
-
+  it('打开弹窗不自动测试，点击开始测试才发起请求', async () => {
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })
     await flushPromises()
     await flushPromises()
 
-    expect(wrapper.get('[data-test="account-test-auto-start"]').element).toMatchObject({ checked: true })
+    expect(global.fetch).not.toHaveBeenCalled()
+
+    const buttons = wrapper.findAll('button')
+    const startButton = buttons.find((button) => button.text().includes('admin.accounts.startTest'))
+    expect(startButton).toBeTruthy()
+
+    await startButton!.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
     expect(global.fetch).toHaveBeenCalledTimes(1)
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toMatchObject({
       model_id: 'gemini-3.1-flash-image'
     })
     expect(wrapper.emitted('test-succeeded')?.[0]?.[0]).toMatchObject({ id: 42 })
+  })
+
+  it('测试中点击按钮可停止测试并恢复可重试状态', async () => {
+    global.fetch = vi.fn().mockImplementation((_url: string, init: any) =>
+      Promise.resolve({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: () =>
+              new Promise((_resolve, reject) => {
+                init.signal?.addEventListener('abort', () => {
+                  reject(new DOMException('Aborted', 'AbortError'))
+                })
+              })
+          })
+        }
+      })
+    ) as any
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    const startButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.accounts.startTest'))
+    expect(startButton).toBeTruthy()
+    await startButton!.trigger('click')
+    await flushPromises()
+
+    expect((wrapper.vm as any).status).toBe('connecting')
+
+    const stopButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.accounts.stopTest'))
+    expect(stopButton).toBeTruthy()
+    await stopButton!.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect((wrapper.vm as any).status).toBe('idle')
+    expect(wrapper.emitted('test-succeeded')).toBeUndefined()
+    expect(wrapper.emitted('test-failed')).toBeUndefined()
   })
 
   it('即使 API 帮助函数已解包响应信封，仍渲染可用模型', async () => {
@@ -152,7 +212,11 @@ describe('AccountTestModal', () => {
 
     const selectedModelId = (wrapper.vm as any).selectedModelId
     expect(selectedModelId).toBe('gemini-3.1-flash-image')
-    expect(getAvailableModels).toHaveBeenCalledWith(42)
+    expect(getAvailableModels).toHaveBeenCalledWith(42, { local: true })
+
+    const modelSelect = wrapper.findAllComponents({ name: 'Select' })[0]
+    expect(modelSelect.props('searchable')).toBe(true)
+    expect(modelSelect.props('creatable')).toBe(true)
   })
 
   it('测试失败时不发送成功事件', async () => {
@@ -171,25 +235,6 @@ describe('AccountTestModal', () => {
     expect(wrapper.emitted('test-succeeded')).toBeUndefined()
     expect(wrapper.emitted('test-failed')?.[0]?.[0]).toMatchObject({ id: 42 })
     expect(wrapper.emitted('test-failed')?.[0]?.[1]).toBe('upstream failed')
-  })
-
-  it('切换自动测试后立即保存，并在下次打开时使用该配置', async () => {
-    const wrapper = mountModal()
-    await wrapper.setProps({ show: true })
-    await flushPromises()
-
-    const autoTest = wrapper.get('[data-test="account-test-auto-start"]')
-    expect((autoTest.element as HTMLInputElement).checked).toBe(false)
-    await autoTest.setValue(true)
-
-    expect(localStorage.setItem).toHaveBeenCalledWith(AUTO_TEST_STORAGE_KEY, 'true')
-
-    await wrapper.setProps({ show: false })
-    await wrapper.setProps({ show: true })
-    await flushPromises()
-    await flushPromises()
-
-    expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {
@@ -392,6 +437,113 @@ describe('AccountTestModal', () => {
       has_html: true,
       downgraded: false,
       response_model: 'gpt-5.6-sol'
+    })
+  })
+
+  it('custom numeric questions send the chosen evaluator and answer without an HTML requirement', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'gpt-6.1-sol', display_name: 'GPT-6.1 Sol' }])
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse(['data: {"type":"test_complete","success":true}\n'])) as any
+    const wrapper = mountModal({ id: 42, name: 'aws-autoapi-remote', platform: 'openai', type: 'apikey', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    ;(wrapper.vm as any).testMode = 'pelican'
+    ;(wrapper.vm as any).pelicanPrompt = '只回答数字：最少取多少颗糖果？'
+    ;(wrapper.vm as any).probeEvaluator = 'numeric'
+    ;(wrapper.vm as any).probeExpectedAnswer = ''
+    await (wrapper.vm as any).startTest()
+    expect(global.fetch).not.toHaveBeenCalled()
+    ;(wrapper.vm as any).probeExpectedAnswer = '21'
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toMatchObject({
+      mode: 'pelican', evaluator: 'numeric', expected_answer: 21, prompt: '只回答数字：最少取多少颗糖果？'
+    })
+  })
+
+  it('测智模式加载共享预设方案并默认选中上次使用的方案', async () => {
+    storage.set(PELICAN_SCENARIO_STORAGE_KEY, JSON.stringify({
+      scenarios: [
+        { id: 'default', name: '默认方案', prompt: '默认鹈鹕提示词' },
+        { id: 'sc-2', name: '骑独轮车的鹈鹕', prompt: '绘制一个骑独轮车的鹈鹕动画' }
+      ],
+      selectedId: 'sc-2'
+    }))
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' }
+    ])
+
+    const wrapper = mountModal({
+      id: 42,
+      name: 'OpenAI OAuth',
+      platform: 'openai',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    ;(wrapper.vm as any).testMode = 'pelican'
+    await flushPromises()
+
+    expect((wrapper.vm as any).pelicanPrompt).toBe('绘制一个骑独轮车的鹈鹕动画')
+
+    const scenarioSelect = wrapper.findAllComponents({ name: 'Select' })[2]
+    expect(scenarioSelect.props('modelValue')).toBe('sc-2')
+    expect(scenarioSelect.props('options')).toEqual([
+      { value: 'default', label: '默认方案' },
+      { value: 'sc-2', label: '骑独轮车的鹈鹕' },
+      { value: '', label: '自定义' }
+    ])
+  })
+
+  it('选择预设实时填充文本框，手动编辑切为自定义并按编辑内容发起测试', async () => {
+    storage.set(PELICAN_SCENARIO_STORAGE_KEY, JSON.stringify({
+      scenarios: [
+        { id: 'sc-1', name: '默认方案', prompt: '预设方案一提示词' },
+        { id: 'sc-2', name: '骑独轮车的鹈鹕', prompt: '绘制一个骑独轮车的鹈鹕动画' }
+      ],
+      selectedId: 'sc-2'
+    }))
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 42,
+      name: 'OpenAI OAuth',
+      platform: 'openai',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    ;(wrapper.vm as any).testMode = 'pelican'
+    await flushPromises()
+
+    ;(wrapper.vm as any).selectedPelicanScenarioId = 'sc-1'
+    await flushPromises()
+    expect((wrapper.vm as any).pelicanPrompt).toBe('预设方案一提示词')
+    expect(JSON.parse(storage.get(PELICAN_SCENARIO_STORAGE_KEY)!).selectedId).toBe('sc-1')
+
+    const promptInput = wrapper.find('textarea.textarea-stub')
+    await promptInput.setValue('实时输入的临时提示词')
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedPelicanScenarioId).toBe('')
+
+    ;(wrapper.vm as any).selectedModelId = 'gpt-5.6-sol'
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toMatchObject({
+      model_id: 'gpt-5.6-sol',
+      prompt: '实时输入的临时提示词',
+      mode: 'pelican'
     })
   })
 })

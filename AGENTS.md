@@ -4,37 +4,37 @@ Local deployment rules for this project.
 
 ## Unified Source Ownership
 
-- `/home/third_party/sub2api` is the only source and build directory for both
+- `/home/codes/ai/sub2api` is the only source and build directory for both
   `sub2api.service` and `sub2freeApi.service`.
 - Build the embedded frontend/server once and install the same artifact bytes
   to both existing executable paths.
 - `sub2api.service` must set `DEPLOYMENT_PROFILE=main`;
   `sub2freeApi.service` must set `DEPLOYMENT_PROFILE=free`.
-- `/home/third_party/sub2freeApi` remains the free runtime/config directory and
+- `/home/codes/ai/sub2freeApi` remains the free runtime/config directory and
   a historical recovery source. Do not build a second binary from it.
 - Source consolidation never permits database, Redis, config, user, working
   directory, port, or service lifecycle consolidation.
 
 ## Service Identity
 
-- Project path: `/home/third_party/sub2api`
+- Project path: `/home/codes/ai/sub2api`
 - Systemd unit: `sub2api.service`
 - Runtime user/group: `sub2api:sub2api`
-- Working directory: `/home/third_party/sub2api/deploy`
-- Environment file: `/home/third_party/sub2api/deploy/sub2api.env`
-- Executable path: `/home/third_party/bin/sub2api/sub2api`
-- Writable data path: `/home/third_party/sub2api/deploy/data`
+- Working directory: `/home/codes/ai/sub2api/deploy`
+- Environment file: `/home/codes/ai/sub2api/deploy/sub2api.env`
+- Executable path: `/home/codes/third_party/bin/sub2api/sub2api`
+- Writable data path: `/home/codes/ai/sub2api/deploy/data`
 - HTTP port: `18381`
 
 ## Binary Backup Policy
 
-- `/home/third_party/bin/sub2api/` keeps at most 1 binary backup at all times
-  (parent `/home/third_party/AGENTS.md` 二进制备份保留规则 applies and cannot be
-  relaxed by project rules).
-- Before installing a new backup, delete all existing `sub2api.bak.*`,
-  `sub2api.backup*`, and `sub2api.bak-*` files in that directory.
-- After every deploy, converge to exactly the newest 1 backup and report the
-  retained filename plus the number removed.
+- `/home/codes/third_party/bin/sub2api/` keeps at most 1 binary backup at all times
+  (this project retains the one-backup-per-runtime-directory rule).
+- Before installing a new backup, archive all existing `sub2api.bak.*`,
+  `sub2api.backup*`, and `sub2api.bak-*` files from that directory under
+  `/home/codes/third_party/upgrade-backups/`; they are never deleted outright.
+- After every deploy, each runtime directory retains exactly the newest 1
+  backup; report the retained filename, the archived count, and zero deletions.
 - Long-term version history belongs in Git tags or release archives, not in
   the bin directory.
 
@@ -79,15 +79,16 @@ This service must use the main account database/config:
 
 - PostgreSQL database: `sub2api`
 - Redis DB: `0`
-- Config file: `/home/third_party/sub2api/deploy/data/config.yaml`
+- Config file: `/home/codes/ai/sub2api/deploy/data/config.yaml`
 
-Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/third_party/bin/sub2freeApi/sub2freeApi`.
+Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/codes/third_party/bin/sub2freeApi/sub2freeApi`.
 
 ## Upgrade Procedure
 
-- Canonical step-by-step runbook: [docs/UPGRADE_RUNBOOK.md](docs/UPGRADE_RUNBOOK.md) (`/home/third_party/sub2api/docs/UPGRADE_RUNBOOK.md`).
+- Canonical step-by-step runbook: [docs/UPGRADE_RUNBOOK.md](docs/UPGRADE_RUNBOOK.md) (`/home/codes/ai/sub2api/docs/UPGRADE_RUNBOOK.md`).
 - Behavioral preservation checklist: [docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md](docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md).
 - Read both documents before fetching, merging, resolving conflicts, building, deploying, or pushing an upgrade.
+- Project ops entry point: [skills/sub2api-ops/SKILL.md](skills/sub2api-ops/SKILL.md); source audit and unresolved operational risks: [docs/OPS_REVIEW_2026-09-30.md](docs/OPS_REVIEW_2026-09-30.md). These documents distinguish current behavior from proposed fixes.
 - Merge only `upstream/main`. `origin/main` is the customized fork backup and is only a push target.
 - Never use the WebUI binary updater for this customized deployment.
 - README sponsor advertisements are intentionally excluded. After every merge,
@@ -102,11 +103,33 @@ Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/third_party/
 ## Deploy Checklist
 
 - Unless the user explicitly requests no deployment, finish every code-change task by automatically running the unified dual-service build, deployment, and live verification before the final response.
+- Deployment is a two-script flow. `bash scripts/build-unified-release.sh`
+  only compiles and verifies; it stops after writing
+  `backend/bin/sub2api-unified.new` and never touches the services. The
+  install, dual-service restart, backup rotation, and live verification are
+  `bash scripts/deploy-unified-release.sh` (auto-reads the current disk SHA
+  and both service PIDs as preconditions). Never treat the build script's
+  exit as a completed deployment.
+- Default path: queue the build through the webClx deploy API so compile and
+  install stay coupled and audited:
+
+```bash
+bash /home/root/.zcode/skills/webclx-compile-and-deploy/scripts/request-webclx-deploy-api.sh \
+  --cmd bash --arg scripts/build-unified-release.sh \
+  --install-cmd bash --install-arg scripts/deploy-unified-release.sh \
+  --audit-path /home/codes/third_party/bin/sub2api/sub2api \
+  --audit-path /home/codes/third_party/bin/sub2freeApi/sub2freeApi \
+  --source-terminal-name '<fresh unique terminal from /api/terminal/sessions?all=true>' \
+  --note 'sub2api 例行编译并部署'
+```
+
+  Manual two-script execution (build, then deploy) remains the documented
+  fallback when the webClx API is unavailable.
 - Routine code-change deployments use `bash scripts/build-unified-release.sh`
   with no mode flag. Its default `quick` mode reuses Go test-cache results,
   skips the duplicate full Vitest run, and still performs the exact-snapshot
   backend suite, TypeScript typecheck, Vite production build, embedded Go
-  build, source-integrity checks, and install audit. Run task-focused backend
+  build, and source-integrity checks. Run task-focused backend
   and frontend tests before queueing this fast deployment. The frozen build
   copy uses the stable, `flock`-guarded
   `/data/cargo-target/sub2api-unified-source` workspace so unchanged Go test
@@ -124,8 +147,8 @@ Do not point this service at `sub2freeApi`, Redis DB `1`, or `/home/third_party/
   mode audit. Unknown or conflicting build-mode arguments must fail closed.
 
 1. Build the canonical frontend and `-tags embed` Go binary exactly once.
-2. Atomically install the same bytes to `/home/third_party/bin/sub2api/sub2api`
-   and `/home/third_party/bin/sub2freeApi/sub2freeApi`, retaining independent backups.
+2. Atomically install the same bytes to `/home/codes/third_party/bin/sub2api/sub2api`
+   and `/home/codes/third_party/bin/sub2freeApi/sub2freeApi`, retaining independent backups.
 3. Keep main on database `sub2api`, Redis DB `0`, port `18381`, profile `main`;
    keep free on database `sub2freeApi`, Redis DB `1`, scheduler prefix
    `sub2freeApi`, port `18382`, profile `free`.
@@ -178,7 +201,7 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
   - The `Column` interface in `frontend/src/components/common/types.ts` has an optional `width?: string` property.
   - The `DataTable` component in `frontend/src/components/common/DataTable.vue` applies `column.width` as `width` + `minWidth` + `maxWidth` by default, and as `minWidth` only when `dynamicColumnWidths` is enabled.
   - `AccountsView.vue` enables `DataTable`'s `compact-rows` mode. Desktop loading and data cells use `py-0.5` (2px top/bottom padding); other tables retain the default spacing.
-  - Direct account actions remain single-line `h-6` text buttons with visible labels, `px-2` horizontal padding, and an explicit `220px` operation-column minimum so all four actions remain reachable without relying on tooltips.
+  - Direct desktop account actions remain single-line h-6 text buttons with visible labels and px-2 padding; the desktop actions minimum remains 220px. Below 1024px the actions column is fixed at 72px and each row exposes one labeled actions trigger opening AccountActionMenu in MobileActionSheet. All existing actions and confirmations remain reachable. Android still pins only the 36px selection column.
   - Do NOT revert these columns to their upstream positions or remove the width properties.
 - Preserve every local commit and dirty file during upgrades. Follow [docs/UPGRADE_RUNBOOK.md](docs/UPGRADE_RUNBOOK.md) and audit [docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md](docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md); do not use the WebUI binary updater for this customized build.
 - **OpenAI sticky-session concurrency spillover must be preserved**:
@@ -199,8 +222,8 @@ curl -fsS http://127.0.0.1:18382/ >/dev/null
 - After upstream upgrades, verify with:
 
 ```bash
-cd /home/third_party/sub2api/backend && go test -tags unit ./internal/handler/dto ./internal/service
-cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/__tests__/EditAccountModal.spec.ts
+cd /home/codes/ai/sub2api/backend && go test -tags unit ./internal/handler/dto ./internal/service
+cd /home/codes/ai/sub2api/frontend && pnpm vitest run src/components/account/__tests__/EditAccountModal.spec.ts
 ```
 
 ## Account Usage Window Table Contract
@@ -239,7 +262,7 @@ cd /home/third_party/sub2api/frontend && pnpm vitest run src/components/account/
 - Focused regression verification:
 
 ```bash
-cd /home/third_party/sub2api/frontend
+cd /home/codes/ai/sub2api/frontend
 pnpm vitest run \
   src/components/account/__tests__/UsageProgressBar.spec.ts \
   src/components/account/__tests__/AccountUsageCell.spec.ts \
@@ -285,7 +308,7 @@ pnpm vitest run \
 - Focused regression verification:
 
 ```bash
-cd /home/third_party/sub2api/frontend
+cd /home/codes/ai/sub2api/frontend
 pnpm vitest run \
   src/components/admin/account/__tests__/enhancedImport.spec.ts \
   src/components/admin/account/__tests__/EnhancedImportDataModal.spec.ts
@@ -312,7 +335,7 @@ pnpm vitest run \
   - Ordinary edits must preserve the server-owned `deleted` marker. Duplicating a deleted/staged row must not copy either lifecycle marker to the new account.
   - Migration `191_convert_account_soft_delete_to_deleted_staging.sql` restores legacy soft-deleted rows and saved group bindings, clears `deleted_at`, and marks them `extra.deleted=true`.
   - The permanent-delete repository, service, and API remain protected so they accept only deleted-staging or legacy soft-deleted rows. The deleted-staging (回收站) account-management view exposes `彻底删除` both as an explicitly confirmed per-row action inside `AccountActionMenu.vue` (via the `permanent-delete` event) and as a batch action for selected rows including all-result selections; ordinary and first-level archived views must not expose it.
-- `AccountTestModal.vue` defaults `自动测试` to enabled, waits for the default model to load before starting, and persists checkbox changes in browser storage under `sub2api.account-test.auto-start`.
+- The administrator `components/admin/account/AccountTestModal.vue` loads the local model catalog on open and starts a connection test only after the operator clicks Start. Keep the stoppable AbortController flow and creatable model selector; do not restore the removed auto-start preference. See the matching section in `docs/LOCAL_UPGRADE_CUSTOMIZATIONS.md`.
 - After a successful direct connection test, an account whose status is not `active` or whose scheduling is paused prompts the operator before recovery. Confirmation performs full runtime-state recovery, activates an inactive account when needed, and enables scheduling; already active and schedulable accounts do not prompt.
 - After a definite failed direct connection test, an account that is not already `error` prompts the operator whether to mark it as failed. Confirming uses the dedicated `mark-failed` API to set `status=error`, save the test error message, and disable scheduling; already-error accounts only refresh. Automatic failure-window observations remain unchanged and do not write `status=error` before their configured threshold.
 - Account names stay inside the fixed-width, fixed-height name cell with two-line truncation and overflow clipping. Do not restore the name-triggered hover tooltip that teleports content outside the cell.

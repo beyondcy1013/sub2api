@@ -1,18 +1,21 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="accountStates.length > 1 ? t('admin.accounts.pelicanBatchTitle') : t('admin.accounts.pelicanAction')"
+    :title="t('admin.accounts.accountTesting.title')"
     width="extra-wide"
     @close="handleClose"
   >
-    <div class="space-y-4">
+    <div class="space-y-2.5">
       <!-- Description & Config Bar -->
-      <div class="rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-dark-700 dark:bg-dark-800/40">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700">
+      <div class="rounded-xl border border-gray-200 bg-gray-50/50 p-3 dark:border-dark-700 dark:bg-dark-800/40">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-2 dark:border-dark-700">
           <div class="max-w-2xl">
             <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
-              {{ t('admin.accounts.pelicanBatchDesc') }}
+              {{ t('admin.accounts.accountTesting.description') }}
             </div>
+            <p v-if="scenarioError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">
+              {{ t('admin.accounts.accountTesting.syncError') }} {{ scenarioError }}
+            </p>
             <div class="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
               <span>
                 {{ t('admin.accounts.pelicanAccountsCount', { selected: accountStates.length, total: candidateAccounts.length || accountStates.length }) }}
@@ -26,59 +29,39 @@
                 <span>{{ t('admin.accounts.pelicanSelectAccounts') }} ({{ selectedAccountIds.size }})</span>
               </button>
             </div>
+            <div v-if="accountStates.length > 0" class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs" data-test="top-selected-accounts">
+              <div
+                v-for="item in accountStates"
+                :key="item.account.id"
+                class="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs shadow-xs dark:border-dark-700 dark:bg-dark-800"
+              >
+                <span class="font-semibold text-gray-900 dark:text-gray-100" :title="item.account.name">{{ item.account.name }}</span>
+                <span class="uppercase text-[11px] text-gray-400">{{ item.account.type }}</span>
+                <span class="text-gray-300 dark:text-dark-600">•</span>
+                <span class="text-[11px] text-gray-500 dark:text-gray-400">ID: {{ item.account.id }}</span>
+                <span v-if="item.responseModel || item.selectedModel" class="rounded bg-gray-100 px-1 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-300">
+                  {{ item.responseModel || item.selectedModel }}
+                </span>
+                <span v-if="item.testedAt" class="text-[10px] text-gray-400">
+                  {{ t('admin.accounts.pelicanCachedAt', { time: formatTestedAt(item.testedAt) }) }}
+                </span>
+              </div>
+            </div>
 
           </div>
           <div class="flex items-center gap-2">
-            <button
-              v-if="!isRunning"
-              @click="startAllTests"
-              :disabled="accountStates.length === 0"
-              class="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-50"
-            >
-              <Icon name="play" size="sm" />
-              <span>{{ t('admin.accounts.pelicanTestAll') }}</span>
-            </button>
-            <button
-              v-if="!isRunning"
-              type="button"
-              data-test="pelican-mark-downgraded-batch"
-              :disabled="accountStates.length === 0 || isBatchMarking"
-              @click="markSelectedAccounts(true)"
-              class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
-              :title="t('admin.accounts.pelicanMarkDowngraded')"
-            >
-              <Icon name="exclamationTriangle" size="xs" />
-              <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkDowngraded') }}</span>
-            </button>
-            <button
-              v-if="!isRunning"
-              type="button"
-              data-test="pelican-mark-normal-batch"
-              :disabled="accountStates.length === 0 || isBatchMarking"
-              @click="markSelectedAccounts(false)"
-              class="flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 shadow-sm transition hover:bg-green-100 disabled:opacity-50 dark:border-green-700/60 dark:bg-green-950/30 dark:text-green-300 dark:hover:bg-green-900/40"
-              :title="t('admin.accounts.pelicanMarkNormal')"
-            >
-              <Icon name="checkCircle" size="xs" />
-              <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkNormal') }}</span>
-            </button>
-            <button
-              type="button"
-              data-test="pelican-history-toggle"
-              class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
-              :title="t('admin.accounts.pelicanHistory')"
-              @click="toggleHistoryPanel"
-            >
-              <span>{{ t('admin.accounts.pelicanHistory') }} ({{ allCachedPelicanResults.length }})</span>
-            </button>
-            <button
-              type="button"
-              class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
-              :title="t('admin.accounts.pelicanClearCache')"
-              @click="handleClearCache"
-            >
-              <span>{{ t('admin.accounts.pelicanClearCache') }}</span>
-            </button>
+            <details class="relative" data-test="account-test-more">
+              <summary class="cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 text-xs dark:border-dark-600">{{ t('admin.accounts.accountTesting.more') }}</summary>
+              <div class="absolute right-0 z-10 mt-1 w-48 space-y-1 rounded-lg border bg-white p-2 shadow-lg dark:border-dark-600 dark:bg-dark-800">
+                <button v-for="downgraded in [true, false]" :key="String(downgraded)" type="button"
+                  :data-test="downgraded ? 'pelican-mark-downgraded-batch' : 'pelican-mark-normal-batch'"
+                  :disabled="isRunning || !accountStates.length || isBatchMarking"
+                  class="block w-full rounded px-2 py-2 text-left text-xs disabled:opacity-50"
+                  @click="markSelectedAccounts(downgraded)">
+                  {{ t(downgraded ? 'admin.accounts.pelicanMarkDowngraded' : 'admin.accounts.pelicanMarkNormal') }}
+                </button>
+              </div>
+            </details>
             <button
               v-if="isRunning"
               @click="stopAllTests"
@@ -90,67 +73,34 @@
           </div>
         </div>
 
-        <!-- Controls: Model Selection, Prompt Scenario & Reasoning Effort -->
-        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-12 items-end">
+        <div class="mt-2 space-y-2">
+          <label v-if="supportsCompact" class="flex items-center gap-2 text-xs">
+            <input v-model="compactTest" data-test="account-test-compact" type="checkbox" :disabled="isRunning" />
+            {{ t('admin.accounts.openai.testModeCompact') }}
+          </label>
+          <TextArea v-if="hasImageModel" v-model="imagePrompt" :disabled="isRunning || compactTest" :rows="2" :label="t('admin.accounts.imagePromptLabel')" />
+        </div>
+        <!-- Controls: Model Selection & Reasoning Effort -->
+        <div class="mt-2.5 grid grid-cols-1 gap-3 sm:grid-cols-12 items-start">
           <!-- Model preset plus free-form model id input. -->
-          <div class="sm:col-span-2 md:col-span-6 space-y-1">
+          <div class="col-span-1 sm:col-span-8 space-y-1">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.pelicanModel') }}
             </label>
-            <div class="flex gap-2">
-              <select
-                v-model="selectedModel"
-                :disabled="isRunning"
-                :aria-label="t('admin.accounts.pelicanModel')"
-                class="w-40 shrink-0 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-              >
-                <option value="">{{ t('admin.accounts.pelicanModelDefault') }}</option>
-                <option v-for="m in globalModelOptions" :key="m.id" :value="m.id">
-                  {{ pelicanModelOptionLabel(m) }}
-                </option>
-              </select>
-              <input
-                v-model="selectedModel"
-                data-test="pelican-model-input"
-                type="text"
-                list="pelican-model-presets"
-                :disabled="isRunning"
-                :placeholder="t('admin.accounts.pelicanModelPlaceholder')"
-                :aria-label="t('admin.accounts.pelicanModelPlaceholder')"
-                autocomplete="off"
-                class="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-              />
-              <datalist id="pelican-model-presets">
-                <option v-for="m in globalModelOptions" :key="`input-${m.id}`" :value="m.id">{{ pelicanModelOptionLabel(m) }}</option>
-              </datalist>
-            </div>
+            <AccountTestModelPicker v-model="selectedModel" :options="accountConfiguredModels" :datalist-options="modelDatalistOptions" :disabled="isRunning" free-input native list-id="pelican-model-presets" @update:model-value="rememberSelectedModel" />
             <p class="text-[11px] text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.pelicanModelOverridePlaceholder') }}
             </p>
           </div>
 
-          <!-- Prompt Scenario Dropdown -->
-          <div class="sm:col-span-1 md:col-span-3">
-            <select
-              v-model="selectedPromptId"
-              :aria-label="t('admin.accounts.pelicanPromptScenario')"
-              :disabled="isRunning"
-              class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
-            >
-              <option v-for="scenario in promptScenarios" :key="scenario.id" :value="scenario.id">
-                {{ pelicanPromptOptionLabel(scenario.prompt) }}
-              </option>
-            </select>
-          </div>
-
           <!-- Reasoning Effort -->
-          <div class="sm:col-span-1 md:col-span-3 space-y-1">
+          <div class="col-span-1 sm:col-span-4 space-y-1" :class="{'opacity-40 pointer-events-none select-none': compactTest}">
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.pelicanEffort') }}
             </label>
             <select
               v-model="reasoningEffort"
-              :disabled="isRunning"
+              :disabled="isRunning || compactTest"
               class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
             >
               <option value="low">{{ t('admin.accounts.pelicanEffortLow') }}</option>
@@ -160,9 +110,7 @@
               <option value="max">{{ t('admin.accounts.pelicanEffortMax') }}</option>
             </select>
           </div>
-
         </div>
-
         <!-- Account Picker Panel -->
         <div v-if="showAccountPicker" class="mt-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-800">
           <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-100 dark:border-dark-700">
@@ -178,7 +126,7 @@
             <div class="flex items-center gap-2 text-xs">
               <button
                 type="button"
-                @click="selectAllAccounts"
+                :disabled="isRunning" @click="selectAllAccounts"
                 class="text-primary-600 hover:text-primary-700 dark:text-primary-400 font-medium"
               >
                 {{ t('admin.accounts.pelicanSelectAll') }}
@@ -186,7 +134,7 @@
               <span class="text-gray-300 dark:text-dark-600">|</span>
               <button
                 type="button"
-                @click="clearAllAccounts"
+                :disabled="isRunning" @click="clearAllAccounts"
                 class="text-gray-500 hover:text-gray-700 dark:text-gray-400 font-medium"
               >
                 {{ t('admin.accounts.pelicanClearSelection') }}
@@ -201,7 +149,7 @@
             >
               <input
                 type="checkbox"
-                :checked="selectedAccountIds.has(acc.id)"
+                :disabled="isRunning" :checked="selectedAccountIds.has(acc.id)"
                 @change="toggleAccountSelection(acc)"
                 class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
               />
@@ -211,17 +159,31 @@
           </div>
         </div>
 
-        <!-- Customizable Prompt editor (always visible for immediate preview) -->
-        <div class="mt-3">
-          <div class="pt-3 border-t border-gray-100 dark:border-dark-700">
+        <!-- Capability prompt editor -->
+        <div class="mt-2.5" :class="{'opacity-40 pointer-events-none select-none': compactTest}">
+          <div class="pt-2 border-t border-gray-100 dark:border-dark-700">
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div class="text-xs font-medium text-gray-700 dark:text-gray-300">
-                {{ t('admin.accounts.pelicanPromptLabel') }}
+              <div class="flex min-w-0 flex-1 items-center gap-2">
+                <label for="account-test-question" class="shrink-0 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.accounts.pelicanPromptLabel') }}
+                </label>
+                <select
+                  id="account-test-question"
+                  data-test="account-test-question"
+                  v-model="selectedPromptId"
+                  :aria-label="t('admin.accounts.pelicanPromptScenario')"
+                  :disabled="isRunning || scenariosBusy || !promptScenarios.length || compactTest"
+                  class="min-w-0 flex-1 max-w-md rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+                >
+                  <option v-for="scenario in promptScenarios" :key="scenario.id" :value="scenario.id">
+                    {{ scenario.prompt }}
+                  </option>
+                </select>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  :disabled="isRunning || promptScenarios.length >= 20"
+                  :disabled="isRunning || scenariosBusy || compactTest"
                   class="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
                   @click="addPromptScenario"
                 >
@@ -230,9 +192,10 @@
                 </button>
                 <button
                   type="button"
-                  :disabled="isRunning || promptScenarios.length <= 1"
+                  data-test="pelican-prompt-delete"
+                  :disabled="isRunning || scenariosBusy || !selectedPromptScenario || compactTest"
                   class="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/30"
-                  @click="deletePromptScenario"
+                  @click="openDeleteScenarioDialog"
                 >
                   <Icon name="trash" size="xs" />
                   <span>{{ t('admin.accounts.pelicanPromptDelete') }}</span>
@@ -240,7 +203,7 @@
                 <button
                   type="button"
                   data-test="pelican-prompt-save"
-                  :disabled="isRunning || !promptDirty"
+                  :disabled="isRunning || scenariosBusy || isKeywordQuestion || (!promptDirty && !selectedPromptId.startsWith('prompt-')) || compactTest"
                   class="inline-flex items-center gap-1 rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-primary-500 disabled:opacity-50"
                   @click="savePromptScenario"
                 >
@@ -251,13 +214,68 @@
             </div>
             <TextArea
               v-model="customPrompt"
-              :disabled="isRunning"
-              rows="3"
-              class="text-xs"
+              :disabled="isRunning || scenariosBusy || isKeywordQuestion || compactTest"
+              :rows="2"
+              class="text-xs max-h-20"
+              textarea-class="min-h-[44px] max-h-20 text-xs py-1.5 leading-relaxed"
               :placeholder="t('admin.accounts.pelicanPromptPlaceholder')"
             />
+            <div class="mt-2 flex flex-wrap items-center gap-3">
+              <label class="flex items-center gap-1.5 text-xs">
+                <span class="text-gray-600 dark:text-gray-400">{{ t('admin.accounts.accountTesting.evaluator') }}:</span>
+                <span v-if="isKeywordQuestion" class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.accountTesting.keywordQuestion') }}</span>
+                <select v-else v-model="probeEvaluator" data-test="account-test-evaluator" :disabled="isRunning || scenariosBusy || compactTest" class="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300">
+                  <option v-for="value in (['auto', 'html', 'numeric', 'reply'] as const)" :key="value" :value="value">{{ t(`admin.accounts.probeEvaluator${{auto:'Auto',html:'Html',numeric:'Numeric',reply:'Reply'}[value]}`) }}</option>
+                </select>
+              </label>
+              <label v-if="probeEvaluator === 'numeric'" class="flex items-center gap-1.5 text-xs">
+                <span class="text-gray-600 dark:text-gray-400">{{ t('admin.accounts.probeExpectedAnswer') }}:</span>
+                <input v-model="probeExpectedAnswer" data-test="account-test-expected-answer" type="number" step="1" :disabled="isRunning || compactTest" class="w-24 rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300" />
+              </label>
+              <p v-if="validationError" role="alert" class="text-xs text-red-600">{{ validationError }}</p>
+            </div>
           </div>
         </div>
+      </div>
+
+      <!-- Results Header Bar: Results label, progress stats, history toggle & clear cache -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div class="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+          <span class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.accounts.pelicanResultColumn') }}</span>
+          <template v-if="isRunning || completedCount > 0">
+            <span>完成: {{ completedCount }} / {{ accountStates.length }}</span>
+            <span class="text-green-600 font-medium">{{ t('admin.accounts.accountTesting.passed') }}: {{ normalCount }}</span>
+            <span v-if="downgradedCount > 0" class="text-amber-600 font-medium">疑似降智: {{ downgradedCount }}</span>
+            <span v-if="failedCount > 0" class="text-red-600 font-medium">失败: {{ failedCount }}</span>
+          </template>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            data-test="pelican-history-toggle"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+            :title="t('admin.accounts.pelicanHistory')"
+            @click="toggleHistoryPanel"
+          >
+            <span>{{ t('admin.accounts.pelicanHistory') }} ({{ allCachedPelicanResults.length }})</span>
+          </button>
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700"
+            :disabled="isRunning" :title="t('admin.accounts.pelicanClearCache')"
+            @click="handleClearCache"
+          >
+            <span>{{ t('admin.accounts.pelicanClearCache') }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Overall progress bar when testing -->
+      <div v-if="isRunning || completedCount > 0" class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+        <div
+          class="h-full bg-primary-600 transition-all duration-300"
+          :style="{ width: `${accountStates.length ? (completedCount / accountStates.length) * 100 : 0}%` }"
+        />
       </div>
 
       <!-- History scoped to selected account IDs, never account type/model -->
@@ -312,7 +330,7 @@
                 data-test="pelican-global-history-entry"
                 class="w-full rounded-md border-b border-gray-100 px-1 py-2 text-left text-[11px] transition last:border-b-0 lg:grid lg:grid-cols-[minmax(72px,84px)_minmax(78px,92px)_minmax(58px,64px)_minmax(66px,74px)_minmax(112px,124px)] lg:items-center lg:gap-2 dark:border-dark-700"
                 :class="isHistoryPreview(entry) ? 'bg-primary-50/60 dark:bg-primary-950/20' : 'hover:bg-gray-50 dark:hover:bg-dark-700/60'"
-                @click="historyPreview = entry"
+                @click="historyPreview = entry; mobilePreviewSource = false"
               >
                 <span class="min-w-0">
                   <span class="block truncate font-medium text-gray-800 dark:text-gray-200" :title="entry.account.name">
@@ -322,17 +340,17 @@
                     {{ formatTestedAt(entry.testedAt) }}
                   </span>
                 </span>
-                <span class="truncate text-gray-700 dark:text-gray-300">
+                <span class="whitespace-pre-wrap break-words text-gray-700 dark:text-gray-300">
                   {{ entry.responseModel || '-' }}
                 </span>
-                <span class="flex min-w-0 items-center gap-1">
-                  <span class="inline-block size-1.5 shrink-0 rounded-full" :class="historyStatusDotClass(entry)" />
-                  <span class="truncate" :class="historyResultTextClass(entry)" :title="historyResultText(entry)">
+                <span class="flex min-w-0 items-start gap-1">
+                  <span class="mt-1 inline-block size-1.5 shrink-0 rounded-full" :class="historyStatusDotClass(entry)" />
+                  <span class="whitespace-pre-wrap break-words" :class="historyResultTextClass(entry)" :title="historyResultText(entry)">
                     {{ historyResultText(entry) }}
                   </span>
                 </span>
-                <span class="truncate text-gray-500 dark:text-gray-400" :title="entry.prompt || t('admin.accounts.pelicanPromptMissing')">
-                  {{ pelicanPromptOptionLabel(entry.prompt || '', 10) || t('admin.accounts.pelicanPromptMissing') }}
+                <span class="whitespace-pre-wrap break-words text-gray-500 dark:text-gray-400" :title="entry.prompt || t('admin.accounts.pelicanPromptMissing')">
+                  {{ entry.prompt || t('admin.accounts.pelicanPromptMissing') }}
                 </span>
                 <span class="truncate rounded-full px-1.5 py-0.5 text-[10px] font-medium" :class="historyStatusClass(entry)">
                   {{ historyStatusLabel(entry) }}
@@ -344,7 +362,7 @@
           <div v-if="historyPreview" class="min-w-0 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="min-w-0">
-                <div class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <div class="whitespace-pre-wrap break-words text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {{ historyPreview.account.name }}
                 </div>
                 <div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
@@ -388,8 +406,24 @@
                 </div>
               </div>
             </div>
+            <div v-if="historyPreviewHtml" role="tablist" class="mt-2 flex gap-1 border-b border-gray-200 dark:border-dark-600">
+              <button
+                v-for="tab in (['preview', 'source'] as const)"
+                :key="tab"
+                type="button"
+                role="tab"
+                :data-test="`pelican-history-tab-${tab}`"
+                :aria-selected="mobilePreviewSource === (tab === 'source')"
+                :class="mobilePreviewSource === (tab === 'source') ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 dark:text-gray-400'"
+                class="border-b-2 px-3 py-2 text-xs font-medium"
+                @click="mobilePreviewSource = tab === 'source'"
+              >
+                {{ t(tab === 'preview' ? 'admin.accounts.pelicanPreviewTab' : 'admin.accounts.pelicanSourceTab') }}
+              </button>
+            </div>
             <div
               v-if="historyPreviewHtml"
+              v-show="!mobilePreviewSource"
               class="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-600"
             >
               <iframe
@@ -398,49 +432,24 @@
                 :srcdoc="pelicanPreviewDocument(historyPreviewHtml)"
                 sandbox="allow-scripts"
                 class="h-[56vh] min-h-[320px] w-full border-0"
-                :class="mobilePreviewSource ? 'hidden lg:block' : ''"
                 title="Pelican History Preview"
               />
             </div>
-            <button
-              v-if="historyPreviewHtml"
-              type="button"
-              data-test="pelican-mobile-preview-toggle"
-              class="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700 lg:hidden"
-              @click="mobilePreviewSource = !mobilePreviewSource"
-            >
-              {{ mobilePreviewSource ? t('admin.accounts.pelicanPreviewTab') : t('admin.accounts.pelicanSourceTab') }}
-            </button>
             <div class="mt-2 space-y-1">
               <div class="text-xs font-medium">{{ t('admin.accounts.pelicanPromptColumn') }}</div>
-              <pre data-test="pelican-history-prompt" class="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs dark:bg-dark-900/50 lg:max-h-48">{{ historyPreview.prompt || t('admin.accounts.pelicanPromptMissing') }}</pre>
+              <pre data-test="pelican-history-prompt" class="whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs dark:bg-dark-900/50">{{ historyPreview.prompt || t('admin.accounts.pelicanPromptMissing') }}</pre>
             </div>
             <details
               :key="`source:${historyPreview.account.id}:${historyPreview.testedAt}`"
               data-test="pelican-history-source"
-              :open="!historyPreviewHtml"
+              :open="!historyPreviewHtml || mobilePreviewSource"
+              v-show="!historyPreviewHtml || mobilePreviewSource"
               class="mt-2 space-y-1"
             >
               <summary class="cursor-pointer text-xs font-medium">{{ t('admin.accounts.pelicanResultColumn') }} / {{ t('admin.accounts.pelicanSourceTab') }}</summary>
-              <pre data-test="pelican-history-output" class="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200 lg:max-h-64">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
+              <pre data-test="pelican-history-output" class="whitespace-pre-wrap break-words rounded bg-gray-900 p-2 text-xs text-gray-200">{{ historyPreview.output || historyPreview.result?.html || historyPreview.error || historyPreview.reason || t('admin.accounts.pelicanHistoryContentMissing') }}</pre>
             </details>
           </div>
-        </div>
-      </div>
-
-      <!-- Overall progress bar when testing -->
-      <div v-if="isRunning || completedCount > 0" class="flex items-center justify-between text-xs text-gray-500">
-        <div class="flex items-center gap-3">
-          <span>完成: {{ completedCount }} / {{ accountStates.length }}</span>
-          <span class="text-green-600 font-medium">未降智: {{ normalCount }}</span>
-          <span class="text-amber-600 font-medium">疑似降智: {{ downgradedCount }}</span>
-          <span v-if="failedCount > 0" class="text-red-600 font-medium">失败: {{ failedCount }}</span>
-        </div>
-        <div class="h-2 w-48 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
-          <div
-            class="h-full bg-primary-600 transition-all duration-300"
-            :style="{ width: `${accountStates.length ? (completedCount / accountStates.length) * 100 : 0}%` }"
-          />
         </div>
       </div>
 
@@ -463,7 +472,7 @@
       <!-- Results Grid (Dynamic columns & expanded heights based on account count) -->
       <div
         v-else
-        class="grid max-h-[72vh] gap-4 overflow-y-auto p-1"
+        class="grid max-h-[58vh] gap-3.5 overflow-y-auto p-1"
         :class="gridColsClass"
       >
         <div
@@ -480,7 +489,7 @@
         >
           <!-- Card Header -->
           <div class="flex items-start justify-between gap-2 border-b border-gray-100 pb-2 dark:border-dark-700">
-            <div class="min-w-0">
+            <div v-if="accountStates.length > 1" class="min-w-0">
               <div class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100" :title="item.account.name">
                 {{ item.account.name }}
               </div>
@@ -488,8 +497,8 @@
                 <span class="uppercase">{{ item.account.type }}</span>
                 <span>•</span>
                 <span>ID: {{ item.account.id }}</span>
-                <span v-if="item.responseModel" class="rounded bg-gray-100 px-1 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-300">
-                  {{ item.responseModel }}
+                <span v-if="item.responseModel || item.selectedModel" class="rounded bg-gray-100 px-1 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-300">
+                  {{ item.responseModel || item.selectedModel }}
                 </span>
                 <span v-if="item.testedAt" class="text-[10px]">
                   {{ t('admin.accounts.pelicanCachedAt', { time: formatTestedAt(item.testedAt) }) }}
@@ -503,7 +512,7 @@
                 v-if="item.status === 'idle'"
                 class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-dark-700 dark:text-gray-400"
               >
-                {{ isRunning ? t('admin.accounts.pelicanStatusQueued') : t('admin.accounts.pelicanStatusReady') }}
+                {{ item.cancelled ? t('admin.accounts.testStopped') : isRunning ? t('admin.accounts.pelicanStatusQueued') : t('admin.accounts.pelicanStatusReady') }}
               </span>
               <span
                 v-else-if="item.status === 'running'"
@@ -517,7 +526,7 @@
                 class="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-300"
               >
                 <Icon name="checkCircle" size="xs" />
-                {{ t('admin.accounts.pelicanStatusSuccess') }}
+                {{ item.testMode === 'default' || item.testMode === 'compact' ? t('admin.accounts.detection.connection.success') : t('admin.accounts.pelicanStatusSuccess') }}
               </span>
               <span
                 v-else-if="item.status === 'downgraded'"
@@ -550,10 +559,11 @@
             </button>
           </div>
 
+            <DetectionResultSummary v-if="item.status !== 'idle' || item.cancelled" :status="item.cancelled ? 'cancelled' : item.status === 'downgraded' ? 'success' : item.status" :capability="isCapabilityResult(item)" :downgraded="item.status === 'downgraded'" :reason="item.reason" :error="item.error" :model="item.responseModel" :latency-ms="item.elapsedMs" :outcomes="item.ruleOutcomes" class="p-3" />
           <!-- Historical Results -->
           <div
             v-if="expandedHistoryAccountIds.has(item.account.id) && getCachedPelicanHistory(item.account.id).length > 0"
-            class="mt-2 max-h-36 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-900/40"
+            class="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-900/40"
           >
             <button
               v-for="(entry, index) in getCachedPelicanHistory(item.account.id)"
@@ -568,7 +578,7 @@
                   class="inline-block size-1.5 shrink-0 rounded-full"
                   :class="entry.status === 'success' ? 'bg-green-500' : entry.status === 'downgraded' ? 'bg-amber-500' : 'bg-red-500'"
                 />
-                <span class="truncate text-gray-700 dark:text-gray-300" :title="entry.reason || entry.error">
+                <span class="whitespace-pre-wrap break-words text-gray-700 dark:text-gray-300" :title="entry.reason || entry.error">
                   {{ entry.responseModel || entry.reason || entry.error || t('admin.accounts.pelicanAction') }}
                 </span>
               </span>
@@ -576,41 +586,42 @@
             </button>
           </div>
 
-          <!-- Per-account model catalog: never reuse another account's model list -->
-          <div class="mt-2 space-y-1">
-            <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-300">
-              {{ t('admin.accounts.pelicanAccountModel') }}
-            </label>
-            <select
-              v-model="item.selectedModel"
-              :data-test="`pelican-account-model-${item.account.id}`"
-              :disabled="isRunning || item.modelsLoading"
-              :aria-label="`${item.account.name} ${t('admin.accounts.pelicanModel')}`"
-              class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-700 focus:border-primary-500 focus:outline-none disabled:opacity-60 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300"
+          <div v-if="item.status !== 'idle' || item.cancelled" role="tablist" :aria-label="t('admin.accounts.pelicanResultColumn')" class="mt-2 flex shrink-0 gap-1 border-b border-gray-200 dark:border-dark-600">
+            <button
+              v-for="tab in resultTabs(item)"
+              :key="tab"
+              type="button"
+              role="tab"
+              :data-test="`pelican-card-tab-${tab}`"
+              :aria-selected="item.activeTab === tab"
+              :class="item.activeTab === tab ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'"
+              class="border-b-2 px-3 py-2 text-xs font-medium"
+              @click="item.activeTab = tab"
             >
-              <option value="">
-                {{ item.modelsLoading
-                  ? t('admin.accounts.pelicanModelsLoading')
-                  : (item.availableModels || []).length
-                    ? `${t('admin.accounts.pelicanModelDefault')} · ${pelicanModelOptionLabel((item.availableModels || [])[0])}`
-                    : t('admin.accounts.pelicanModelsUnavailable')
-                }}
-              </option>
-              <option v-for="model in (item.availableModels || [])" :key="model.id" :value="model.id">
-                {{ pelicanModelOptionLabel(model) }}
-              </option>
-            </select>
+              {{ resultTabLabel(tab) }}
+            </button>
           </div>
 
           <!-- Card Content / Preview -->
           <div class="my-2 flex flex-1 flex-col justify-center">
+            <div v-if="item.activeTab === 'details'" class="space-y-2 rounded-lg bg-gray-50 p-3 text-xs dark:bg-dark-900/50">
+              <div>{{ t('admin.accounts.accountTesting.type') }}: {{ t(isCapabilityResult(item) ? 'admin.accounts.accountTesting.capability' : 'admin.accounts.accountTesting.connection') }}</div>
+              <div>{{ t('admin.accounts.pelicanModel') }}: {{ item.responseModel || item.selectedModel || '-' }}</div>
+              <div>{{ t('admin.accounts.pelicanPromptColumn') }}:</div>
+              <pre class="whitespace-pre-wrap break-words">{{ item.prompt || '-' }}</pre>
+              <pre class="whitespace-pre-wrap break-words">{{ item.logs?.join('\n') || '-' }}</pre>
+            </div>
+            <pre v-else-if="item.activeTab === 'output'" data-test="account-test-output" class="whitespace-pre-wrap break-words rounded-lg bg-gray-900 p-3 font-mono text-xs text-gray-200">{{ item.streamingContent || item.reason || item.error || (item.cancelled ? t('admin.accounts.testStopped') : (item.status === 'running' ? '' : t('admin.accounts.detection.connection.success'))) }}</pre>
+            <div v-else-if="item.images?.length && item.activeTab === 'preview'" class="grid gap-2">
+              <a v-for="url in item.images" :key="url" :href="url" target="_blank" rel="noopener noreferrer"><img :src="url" :alt="t('admin.accounts.imagePromptLabel')" class="max-h-96 rounded-lg object-contain" /></a>
+            </div>
             <!-- Animation iframe preview with enlarged responsive height -->
             <div
-              v-if="item.result?.has_html && item.activeTab === 'preview'"
+              v-else-if="hasItemHtml(item) && item.activeTab === 'preview'"
               class="group/preview relative overflow-hidden rounded-lg border border-gray-200 bg-white shadow-inner dark:border-dark-600"
             >
               <iframe
-                :srcdoc="pelicanPreviewDocument(item.result.html || '')"
+                :srcdoc="pelicanPreviewDocument(getItemHtml(item))"
                 sandbox="allow-scripts"
                 class="w-full border-0 transition-all duration-200"
                 :class="previewHeightClass"
@@ -630,37 +641,37 @@
             </div>
 
             <!-- HTML Source view -->
-            <div v-else-if="item.result?.has_html && item.activeTab === 'source'" class="relative">
+            <div v-else-if="hasItemHtml(item) && item.activeTab === 'source'" class="relative">
               <pre
-                class="overflow-y-auto rounded-lg bg-gray-900 p-2.5 font-mono text-[11px] text-gray-200"
-                :class="previewHeightClass"
-              ><code>{{ item.result.html }}</code></pre>
+                data-test="pelican-card-source"
+                class="whitespace-pre-wrap break-words rounded-lg bg-gray-900 p-2.5 font-mono text-[11px] text-gray-200"
+              ><code>{{ getItemHtml(item) }}</code></pre>
             </div>
 
             <!-- Streaming / Output preview while running -->
             <div
               v-else-if="item.status === 'running'"
-              class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400 dark:border-dark-700"
-              :class="previewHeightClass"
+              class="flex flex-col rounded-lg border border-dashed border-gray-200 p-4 text-left text-xs text-gray-400 dark:border-dark-700"
             >
               <Icon name="refresh" size="lg" class="mb-2 animate-spin text-primary-500" />
-              <div class="line-clamp-4 font-mono text-[11px] text-gray-500 dark:text-gray-400">
-                {{ item.streamingContent || t('admin.accounts.connectingToApi') }}
+              <div data-test="pelican-streaming-output" class="w-full whitespace-pre-wrap break-words font-mono text-[11px] text-gray-500 dark:text-gray-400">
+                {{ item.streamingContent }}
               </div>
             </div>
 
             <!-- Downgraded or failed message without HTML -->
             <div
               v-else-if="item.status === 'downgraded' || item.status === 'failed'"
-              class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 p-4 text-center text-xs text-gray-500 dark:border-dark-700"
-              :class="previewHeightClass"
+              class="flex flex-col rounded-lg border border-dashed border-gray-200 p-4 text-left text-xs text-gray-500 dark:border-dark-700"
             >
               <Icon :name="item.status === 'downgraded' ? 'exclamationTriangle' : 'xCircle'" size="md" :class="item.status === 'downgraded' ? 'text-amber-500' : 'text-red-500'" class="mb-1" />
-              <span class="font-medium text-gray-700 dark:text-gray-300">{{ item.reason || item.error || t('admin.accounts.pelicanNoHtml') }}</span>
-              <p v-if="item.streamingContent" class="mt-1 line-clamp-4 font-mono text-[11px] text-gray-400">
+              <span class="whitespace-pre-wrap break-words font-medium text-gray-700 dark:text-gray-300">{{ item.reason || item.error || t('admin.accounts.pelicanNoHtml') }}</span>
+              <p v-if="item.streamingContent" data-test="pelican-streaming-output" class="mt-1 w-full whitespace-pre-wrap break-words font-mono text-[11px] text-gray-400">
                 {{ item.streamingContent }}
               </p>
             </div>
+
+            <pre v-else-if="item.status === 'success'" data-test="account-test-output" class="whitespace-pre-wrap break-words rounded-lg bg-gray-900 p-3 text-xs text-gray-200">{{ item.streamingContent || item.reason || t('admin.accounts.detection.connection.success') }}</pre>
 
             <!-- Idle / Queued placeholder -->
             <div
@@ -688,17 +699,10 @@
           <!-- Card Footer Actions -->
           <div class="mt-auto flex flex-wrap items-start justify-between gap-x-2 gap-y-2 border-t border-gray-100 pt-2 text-xs dark:border-dark-700 lg:flex-nowrap lg:items-center lg:justify-between">
             <div class="flex items-center gap-1.5">
-              <template v-if="item.result?.has_html">
+              <template v-if="item.streamingContent || item.result?.has_html">
                 <button
                   type="button"
-                  @click="item.activeTab = item.activeTab === 'preview' ? 'source' : 'preview'"
-                  class="rounded px-2 py-0.5 text-[11px] font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                >
-                  {{ item.activeTab === 'preview' ? t('admin.accounts.pelicanSourceTab') : t('admin.accounts.pelicanPreviewTab') }}
-                </button>
-                <button
-                  type="button"
-                  @click="copyToClipboard(item.result.html || '', t('admin.accounts.outputCopied'))"
+                  @click="copyToClipboard(item.result?.html || item.streamingContent || '', t('admin.accounts.outputCopied'))"
                   class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                   :title="t('admin.accounts.copyOutput')"
                 >
@@ -706,7 +710,7 @@
                 </button>
                 <button
                   type="button"
-                  @click="openLightbox(item)"
+                  v-if="item.result?.has_html" @click="openLightbox(item)"
                   class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                   :title="t('admin.accounts.pelicanZoomIn')"
                 >
@@ -719,8 +723,10 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-1 lg:flex-nowrap">
+              <button v-if="accountStates.length > 1 && item.status === 'success' && (item.account.status !== 'active' || !item.account.schedulable)" type="button" class="rounded px-2 py-1 text-xs text-primary-600" @click="emit('test-succeeded', item.account)">{{ t('admin.accounts.recoverState') }}</button>
+              <button v-if="accountStates.length > 1 && item.status === 'failed' && item.account.status !== 'error'" type="button" class="rounded px-2 py-1 text-xs text-red-600" @click="emit('test-failed', item.account, item.error || 'Test failed')">{{ t('admin.accounts.markAsFailed') }}</button>
               <!-- Manual mark buttons: available whenever not running -->
-              <template v-if="item.status !== 'running'">
+              <template v-if="item.status !== 'running' && isCapabilityResult(item)">
                 <button
                   type="button"
                   :disabled="manualMarkingIds.has(item.account.id)"
@@ -800,14 +806,19 @@
           <div class="flex items-center gap-2">
             <button
               type="button"
-              @click="lightboxTab = lightboxTab === 'preview' ? 'source' : 'preview'"
+              v-for="tab in (['preview', 'source'] as const)"
+              :key="tab"
+              role="tab"
+              :aria-selected="lightboxTab === tab"
+              :data-test="`pelican-lightbox-tab-${tab}`"
+              @click="lightboxTab = tab"
               class="rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700"
             >
-              {{ lightboxTab === 'preview' ? t('admin.accounts.pelicanSourceTab') : t('admin.accounts.pelicanPreviewTab') }}
+              {{ t(tab === 'preview' ? 'admin.accounts.pelicanPreviewTab' : 'admin.accounts.pelicanSourceTab') }}
             </button>
             <button
               type="button"
-              @click="copyToClipboard(lightboxItem.result?.html || '', t('admin.accounts.outputCopied'))"
+              @click="copyToClipboard(getItemHtml(lightboxItem), t('admin.accounts.outputCopied'))"
               class="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-dark-600 dark:text-gray-200 dark:hover:bg-dark-700"
             >
               <Icon name="copy" size="xs" />
@@ -819,7 +830,7 @@
         <!-- Lightbox Content -->
         <div v-if="lightboxTab === 'preview'" class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-inner dark:border-dark-600">
           <iframe
-            :srcdoc="pelicanPreviewDocument(lightboxItem.result?.html || '')"
+            :srcdoc="pelicanPreviewDocument(getItemHtml(lightboxItem))"
             sandbox="allow-scripts"
             class="h-[65vh] w-full border-0"
             loading="lazy"
@@ -827,7 +838,7 @@
           />
         </div>
         <div v-else class="relative">
-          <pre class="h-[65vh] overflow-y-auto rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-200"><code>{{ lightboxItem.result?.html }}</code></pre>
+          <pre class="whitespace-pre-wrap break-words rounded-xl bg-gray-900 p-4 font-mono text-xs text-gray-200"><code>{{ getItemHtml(lightboxItem) }}</code></pre>
         </div>
       </div>
       <template #footer>
@@ -858,36 +869,14 @@
           <button
             v-if="!isRunning"
             @click="startAllTests"
-            :disabled="accountStates.length === 0"
+            :disabled="accountStates.length === 0 || scenariosBusy"
             class="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-500 disabled:opacity-50"
           >
             <Icon name="play" size="sm" />
-            <span>{{ t('admin.accounts.pelicanTestAll') }}</span>
+            <span>{{ t('admin.accounts.accountTesting.start', { count: accountStates.length }) }}</span>
           </button>
           <button
-            v-if="!isRunning"
-            type="button"
-            :disabled="accountStates.length === 0 || isBatchMarking"
-            @click="markSelectedAccounts(true)"
-            class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40"
-            :title="t('admin.accounts.pelicanMarkDowngraded')"
-          >
-            <Icon name="exclamationTriangle" size="xs" />
-            <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkDowngraded') }}</span>
-          </button>
-          <button
-            v-if="!isRunning"
-            type="button"
-            :disabled="accountStates.length === 0 || isBatchMarking"
-            @click="markSelectedAccounts(false)"
-            class="flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 shadow-sm transition hover:bg-green-100 disabled:opacity-50 dark:border-green-700/60 dark:bg-green-950/30 dark:text-green-300 dark:hover:bg-green-900/40"
-            :title="t('admin.accounts.pelicanMarkNormal')"
-          >
-            <Icon name="checkCircle" size="xs" />
-            <span>{{ isBatchMarking ? t('admin.accounts.pelicanMarkingStatus') : t('admin.accounts.pelicanMarkNormal') }}</span>
-          </button>
-          <button
-            v-else
+            v-if="isRunning"
             @click="stopAllTests"
             class="flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-500"
           >
@@ -897,13 +886,27 @@
         </div>
       </div>
     </template>
+    <ConfirmDialog
+      :show="showDeleteScenarioDialog"
+      :title="t('admin.accounts.pelicanPromptDelete')"
+      :message="t('admin.accounts.pelicanPromptDeleteConfirm')"
+      :confirm-text="t('common.delete')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmDeletePromptScenario"
+      @cancel="showDeleteScenarioDialog = false"
+    />
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import AccountTestModelPicker from './AccountTestModelPicker.vue'
+import DetectionResultSummary from './DetectionResultSummary.vue'
+import type { DegradationRule, RuleOutcome } from '@/types'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
@@ -915,6 +918,7 @@ import {
   loadPelicanPromptScenarios,
   savePelicanPromptScenarios
 } from '@/utils/pelicanPromptScenarios'
+import { loadPelicanModelHistory, rememberPelicanModel } from '@/utils/pelicanModelHistory'
 import {
   clearPelicanResultCache,
   getAllCachedPelicanResults,
@@ -926,6 +930,7 @@ import {
   type PelicanUserRating
 } from '@/utils/pelicanResultCache'
 import { adminAPI } from '@/api'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import type { Account } from '@/types'
 
 interface PelicanModel {
@@ -938,16 +943,20 @@ const props = withDefaults(
     show: boolean
     accounts: Account[]
     allAccounts?: Account[]
+    initialMode?: 'default' | 'pelican'
     autoStart?: boolean
   }>(),
   {
     allAccounts: () => [],
+    initialMode: 'default',
     autoStart: false
   }
 )
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'test-succeeded', account: Account): void
+  (e: 'test-failed', account: Account, error: string): void
   (e: 'updated', payload: { id: number; downgraded: boolean }): void
   (e: 'running-change', running: boolean): void
 }>()
@@ -965,10 +974,15 @@ interface PelicanAccountState {
   error?: string
   elapsedMs?: number
   testedAt?: number
-  activeTab: 'preview' | 'source'
+  activeTab: 'preview' | 'source' | 'output' | 'details'
+  testMode?: 'default' | 'compact' | 'pelican'
+  images?: string[]
+  logs?: string[]
+  cancelled?: boolean
   selectedModel?: string
   availableModels?: PelicanModel[]
   modelsLoading?: boolean
+  ruleOutcomes?: RuleOutcome[] | null
   result?: {
     has_html: boolean
     html?: string
@@ -986,23 +1000,134 @@ type PelicanStateWithModels = PelicanAccountState & {
 
 // 全局值仅在非空时批量覆盖；空值表示每个账号使用自身目录中的默认模型。
 const selectedModel = ref('')
-const reasoningEffort = ref('low')
+const pelicanModelHistory = ref(loadPelicanModelHistory())
+const compactTest = ref(false)
+const probeEvaluator = ref('auto')
+const probeExpectedAnswer = ref('')
+const validationError = ref('')
+const imagePrompt = ref(t('admin.accounts.imagePromptDefault'))
+const supportsCompact = computed(() => accountStates.value.length > 0 && accountStates.value.every(item => item.account.platform === 'openai'))
+const isImageModel = (item: PelicanAccountState) => {
+  const model = (selectedModel.value.trim() || item.selectedModel || '').toLowerCase()
+  return (item.account.platform === 'openai' && model.startsWith('gpt-image-'))
+    || ((item.account.platform === 'gemini' || (item.account.platform === 'antigravity' && item.account.type === 'apikey')) && model.startsWith('gemini-') && model.includes('-image'))
+}
+const hasImageModel = computed(() => accountStates.value.some(isImageModel))
+const isCapabilityResult = (item: PelicanAccountState) => item.testMode ? item.testMode === 'pelican' : testMode.value === 'pelican'
+const getItemHtml = (item: PelicanAccountState | null | undefined): string => {
+  if (!item) return ''
+  return item.result?.html?.trim() || extractPelicanPreviewHtml(item.streamingContent || '')
+}
+const hasItemHtml = (item: PelicanAccountState | null | undefined): boolean => {
+  return !!getItemHtml(item)
+}
+const resultTabs = (item: PelicanAccountState): PelicanAccountState['activeTab'][] => hasItemHtml(item)
+  ? ['preview', 'source', 'output', 'details'] : item.images?.length ? ['preview', 'output', 'details'] : ['output', 'details']
+const resultTabLabel = (tab: PelicanAccountState['activeTab']) => t({preview:'admin.accounts.pelicanPreviewTab',source:'admin.accounts.pelicanSourceTab',output:'admin.accounts.accountTesting.output',details:'admin.accounts.accountTesting.details'}[tab])
+const REASONING_EFFORT_STORAGE_KEY = 'sub2api:account-pelican-reasoning-effort:v1'
+const reasoningEffort = ref(localStorage.getItem(REASONING_EFFORT_STORAGE_KEY) || 'low')
+watch(reasoningEffort, val => {
+  if (val) localStorage.setItem(REASONING_EFFORT_STORAGE_KEY, val)
+})
+const detectionRules = ref<DegradationRule[]>([])
+const scenariosBusy = ref(false)
+const scenarioError = ref('')
+const scenarioFromRule = (rule: DegradationRule) => ({
+  id: `rule-${rule.id}`, name: rule.name, prompt: rule.prompt,
+  evaluator: rule.params?.probe_evaluator || (rule.evaluator === 'html_document' ? 'html' as const
+    : rule.evaluator === 'numeric_answer' ? 'numeric' as const : 'reply' as const),
+  expectedAnswer: rule.evaluator === 'numeric_answer' ? rule.params?.expected_answer ?? 0 : undefined
+})
+const scenarioRequest = (scenario: (typeof promptScenarios.value)[number]) => {
+  const evaluator = scenario.evaluator || 'auto'
+  const html = evaluator === 'html' || (evaluator === 'auto' && /html|svg|鹈鹕.*(绘制|动画)/i.test(scenario.prompt))
+  const name = scenario.name?.trim() || pelicanPromptOptionLabel(scenario.prompt, 40) || t('admin.accounts.pelicanPromptScenarioDefault')
+  return {
+    name, prompt: scenario.prompt, enabled: false,
+    evaluator: evaluator === 'numeric' ? 'numeric_answer' as const : html ? 'html_document' as const : 'refusal_only' as const,
+    params: { probe_evaluator: evaluator, ...(evaluator === 'numeric' ? { expected_answer: scenario.expectedAnswer } : {}) }
+  }
+}
+const persistScenarios = () => savePelicanPromptScenarios({ scenarios: promptScenarios.value, selectedId: selectedPromptId.value })
+const loadDegradationRules = async () => {
+  if (scenariosBusy.value || isRunning.value) return
+  scenariosBusy.value = true
+  scenarioError.value = ''
+  try {
+    const rules = await adminAPI.degradationRules.list()
+    // Old browser-only questions are uploaded once. Never re-import a cached
+    // server ID: a question deleted on another device must stay deleted.
+    const local = promptScenarios.value.filter(item => !item.id.startsWith('rule-'))
+    const migrated = new Map<string, string>()
+    for (const item of local) {
+      if (!item.prompt.trim() || (item.id === 'default' && item.prompt === t('admin.accounts.pelicanPromptDefault') && (!item.evaluator || item.evaluator === 'auto'))) continue
+      const req = scenarioRequest(item)
+      let rule = rules.find(rule => rule.prompt.trim() === req.prompt.trim() && rule.evaluator === req.evaluator
+        && (req.evaluator !== 'numeric_answer' || (rule.params?.expected_answer ?? 0) === req.params.expected_answer))
+      if (!rule) {
+        try {
+          rule = await adminAPI.degradationRules.create(req)
+          rules.push(rule)
+        } catch (createError) {
+          console.error('Failed to migrate local scenario:', item, createError)
+          continue
+        }
+      }
+      migrated.set(item.id, `rule-${rule.id}`)
+    }
+    detectionRules.value = rules
+    const previous = selectedPromptId.value
+    const dirty = promptDirty.value
+    promptScenarios.value = [...rules.map(scenarioFromRule), ...local.filter(item => !migrated.has(item.id))]
+    if (!promptScenarios.value.length) {
+      promptScenarios.value = [{ id: 'default', name: t('admin.accounts.pelicanPromptScenarioDefault'), prompt: t('admin.accounts.pelicanPromptDefault') }]
+    }
+    selectedPromptId.value = migrated.get(previous) || (promptScenarios.value.some(item => item.id === previous) ? previous : (promptScenarios.value[0]?.id || ''))
+    if (!dirty && previous === selectedPromptId.value) applySelectedScenario()
+    persistScenarios()
+  } catch (error) { scenarioError.value = extractApiErrorMessage(error) }
+  finally { scenariosBusy.value = false }
+}
 const accountModelOptions = ref(new Map<number, PelicanModel[]>())
 const accountModelsLoading = ref(new Set<number>())
 
-const globalModelOptions = computed(() => {
+const accountConfiguredModels = computed<PelicanModel[]>(() => {
   const merged = new Map<string, PelicanModel>()
-  for (const models of accountModelOptions.value.values()) {
-    for (const model of models) {
-      if (!merged.has(model.id)) merged.set(model.id, model)
+  const states = accountStates.value.length > 0
+    ? accountStates.value
+    : candidateAccounts.value.map(acc => ({ account: acc } as PelicanAccountState))
+
+  for (const item of states) {
+    const models = (item as PelicanStateWithModels).availableModels?.length
+      ? (item as PelicanStateWithModels).availableModels
+      : accountModelOptions.value.get(item.account.id) || []
+    for (const m of models) {
+      if (m.id && !merged.has(m.id)) {
+        merged.set(m.id, m)
+      }
     }
   }
   return [...merged.values()].sort((a, b) => a.id.localeCompare(b.id))
 })
 
-const pelicanModelOptionLabel = (model?: PelicanModel) => (
-  model?.display_name?.trim() || model?.id || ''
-)
+const modelDatalistOptions = computed<PelicanModel[]>(() => {
+  const merged = new Map<string, PelicanModel>()
+  for (const model of accountConfiguredModels.value) {
+    merged.set(model.id, model)
+  }
+  for (const id of pelicanModelHistory.value) {
+    if (!merged.has(id)) {
+      merged.set(id, { id })
+    }
+  }
+  return [...merged.values()].sort((a, b) => a.id.localeCompare(b.id))
+})
+
+const rememberSelectedModel = () => {
+  const model = selectedModel.value.trim()
+  if (!model) return
+  pelicanModelHistory.value = rememberPelicanModel(model)
+}
 
 const ensureAccountModels = async (item: PelicanAccountState) => {
   const state = item as PelicanStateWithModels
@@ -1013,13 +1138,13 @@ const ensureAccountModels = async (item: PelicanAccountState) => {
   accountModelsLoading.value = loading
   state.modelsLoading = true
   try {
-    const models = await adminAPI.accounts.getAvailableModels(accountID)
+    const models = await adminAPI.accounts.getAvailableModels(accountID, { local: true })
     const normalized = (models || [])
       .map(model => ({
         id: String(model?.id || '').trim(),
         display_name: String(model?.display_name || '').trim()
       }))
-      .filter(model => model.id)
+      .filter(model => model.id.length > 0)
     const options = new Map(accountModelOptions.value)
     options.set(accountID, normalized)
     accountModelOptions.value = options
@@ -1048,6 +1173,7 @@ const hydrateAccountRuntime = async (item: PelicanAccountState) => {
   if (!state.availableModels.length && !state.modelsLoading) {
     await ensureAccountModels(state)
   }
+  if (!state.selectedModel) state.selectedModel = state.availableModels[0]?.id || ''
 }
 
 const isRunning = ref(false)
@@ -1058,42 +1184,75 @@ const promptState = loadPelicanPromptScenarios(
   t('admin.accounts.pelicanPromptDefault')
 )
 const promptScenarios = ref(promptState.scenarios)
-const selectedPromptId = ref(promptState.selectedId)
-const customPrompt = ref(promptState.scenarios.find(item => item.id === selectedPromptId.value)?.prompt || '')
+const selectedPromptId = ref(
+  promptState.selectedId && promptScenarios.value.some(item => item.id === promptState.selectedId)
+    ? promptState.selectedId
+    : (promptScenarios.value[0]?.id || '')
+)
+probeEvaluator.value = promptState.scenarios.find(item => item.id === promptState.selectedId)?.evaluator || 'auto'
+probeExpectedAnswer.value = String(promptState.scenarios.find(item => item.id === promptState.selectedId)?.expectedAnswer ?? '')
+const customPrompt = ref(promptState.scenarios.find(item => item.id === selectedPromptId.value)?.prompt || 'hi')
 
 const selectedPromptScenario = computed(() =>
   promptScenarios.value.find(item => item.id === selectedPromptId.value)
 )
-const promptDirty = computed(() =>
-  customPrompt.value !== (selectedPromptScenario.value?.prompt || '')
-)
-
-const updateSelectedScenario = (mutator: (scenario: (typeof promptScenarios.value)[number]) => void) => {
-  const scenario = promptScenarios.value.find(item => item.id === selectedPromptId.value)
-  if (!scenario) return
-  mutator(scenario)
-  savePelicanPromptScenarios({
-    scenarios: promptScenarios.value,
-    selectedId: selectedPromptId.value
-  })
-}
-
-watch(selectedPromptId, value => {
-  const scenario = promptScenarios.value.find(item => item.id === value)
-  if (!scenario) return
-  customPrompt.value = scenario.prompt
+const selectedSharedRule = computed(() => detectionRules.value.find(rule => selectedPromptId.value === `rule-${rule.id}`))
+const isKeywordQuestion = computed(() => selectedSharedRule.value?.evaluator === 'contains_keywords')
+const activeRuleIds = computed(() => {
+  if (isKeywordQuestion.value && selectedSharedRule.value) return [selectedSharedRule.value.id]
+  return []
+})
+const promptDirty = computed(() => {
+  if (!selectedPromptScenario.value) return !!customPrompt.value.trim()
+  return customPrompt.value !== (selectedPromptScenario.value?.prompt || '')
+    || probeEvaluator.value !== (selectedPromptScenario.value?.evaluator || 'auto')
+    || String(probeExpectedAnswer.value) !== (selectedPromptScenario.value?.expectedAnswer == null ? '' : String(selectedPromptScenario.value.expectedAnswer))
 })
 
-const savePromptScenario = () => {
-  if (isRunning.value || !promptDirty.value) return
-  const prompt = customPrompt.value
-  updateSelectedScenario(scenario => {
-    scenario.prompt = prompt
-    scenario.name = pelicanPromptOptionLabel(prompt, 40)
-  })
+const applySelectedScenario = () => {
+  const scenario = selectedPromptScenario.value
+  if (!scenario) return
+  customPrompt.value = scenario.prompt
+  probeEvaluator.value = scenario.evaluator || 'auto'
+  probeExpectedAnswer.value = scenario.expectedAnswer == null ? '' : String(scenario.expectedAnswer)
+}
+watch(selectedPromptId, () => { applySelectedScenario(); persistScenarios() })
+const testMode = computed(() => compactTest.value ? 'default' : 'pelican')
+watch(testMode, () => { validationError.value = '' })
+
+const savePromptScenario = async () => {
+  if (isRunning.value || scenariosBusy.value || isKeywordQuestion.value || (!promptDirty.value && selectedPromptId.value.startsWith('rule-'))) return
+  if (!customPrompt.value.trim()) { scenarioError.value = t('admin.accounts.accountTesting.emptyQuestion'); return }
+  if (probeEvaluator.value === 'numeric' && (!String(probeExpectedAnswer.value).trim() || !Number.isSafeInteger(Number(probeExpectedAnswer.value)))) {
+    validationError.value = t('admin.accounts.probeExpectedAnswer'); return
+  }
+  const current = selectedPromptScenario.value
+  scenariosBusy.value = true
+  scenarioError.value = ''
+  try {
+    const draft = {
+      id: current?.id || `prompt-${Date.now()}`,
+      prompt: customPrompt.value,
+      name: pelicanPromptOptionLabel(customPrompt.value, 40),
+      evaluator: probeEvaluator.value as 'auto' | 'html' | 'numeric' | 'reply',
+      expectedAnswer: probeEvaluator.value === 'numeric' ? Number(probeExpectedAnswer.value) : undefined
+    }
+    const req = scenarioRequest(draft)
+    const existing = current ? detectionRules.value.find(rule => current.id === `rule-${rule.id}`) : undefined
+    const rule = existing ? await adminAPI.degradationRules.update(existing.id, { ...req, enabled: existing.enabled, params: { ...existing.params, ...req.params } })
+      : await adminAPI.degradationRules.create(req)
+    const index = current ? promptScenarios.value.findIndex(item => item.id === current.id) : -1
+    if (index < 0) promptScenarios.value.push(scenarioFromRule(rule))
+    else promptScenarios.value.splice(index, 1, scenarioFromRule(rule))
+    detectionRules.value = [...detectionRules.value.filter(item => item.id !== rule.id), rule]
+    selectedPromptId.value = `rule-${rule.id}`
+    persistScenarios()
+  } catch (error) { scenarioError.value = extractApiErrorMessage(error) }
+  finally { scenariosBusy.value = false }
 }
 
 const addPromptScenario = () => {
+  if (isRunning.value || scenariosBusy.value) return
   const id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const prompt = t('admin.accounts.pelicanPromptDefault')
   promptScenarios.value.push({
@@ -1102,18 +1261,53 @@ const addPromptScenario = () => {
     prompt
   })
   selectedPromptId.value = id
-  customPrompt.value = prompt
+  applySelectedScenario()
   savePelicanPromptScenarios({ scenarios: promptScenarios.value, selectedId: id })
 }
 
-const deletePromptScenario = () => {
-  if (promptScenarios.value.length <= 1) return
+const deletePromptScenario = async () => {
+  if (isRunning.value || scenariosBusy.value || !selectedPromptId.value) return
   const index = promptScenarios.value.findIndex(item => item.id === selectedPromptId.value)
   if (index < 0) return
-  promptScenarios.value.splice(index, 1)
-  const nextScenario = promptScenarios.value[Math.min(index, promptScenarios.value.length - 1)]
-  selectedPromptId.value = nextScenario.id
-  customPrompt.value = nextScenario.prompt
+  scenariosBusy.value = true
+  scenarioError.value = ''
+  try {
+    const rule = detectionRules.value.find(item => selectedPromptId.value === `rule-${item.id}`)
+    const ruleId = rule ? rule.id : (selectedPromptId.value.startsWith('rule-') ? parseInt(selectedPromptId.value.slice(5), 10) : null)
+    if (ruleId != null && !isNaN(ruleId)) {
+      try {
+        await adminAPI.degradationRules.delete(ruleId)
+      } catch (err: unknown) {
+        console.warn('Failed to delete degradation rule on server:', err)
+      }
+      detectionRules.value = detectionRules.value.filter(item => item.id !== ruleId)
+    }
+  } catch (error) {
+    scenarioError.value = extractApiErrorMessage(error)
+  } finally {
+    promptScenarios.value.splice(index, 1)
+    if (promptScenarios.value.length > 0) {
+      const nextIndex = Math.min(index, promptScenarios.value.length - 1)
+      selectedPromptId.value = promptScenarios.value[nextIndex].id
+    } else {
+      selectedPromptId.value = ''
+      customPrompt.value = ''
+    }
+    persistScenarios()
+    scenariosBusy.value = false
+  }
+}
+
+const showDeleteScenarioDialog = ref(false)
+
+const openDeleteScenarioDialog = () => {
+  if (isRunning.value || scenariosBusy.value || !selectedPromptScenario.value || compactTest.value) return
+  showDeleteScenarioDialog.value = true
+}
+
+const confirmDeletePromptScenario = async () => {
+  showDeleteScenarioDialog.value = false
+  await deletePromptScenario()
 }
 const accountStates = ref<PelicanAccountState[]>([])
 const selectedAccountIds = ref<Set<number>>(new Set())
@@ -1179,28 +1373,54 @@ const filteredCandidateAccounts = computed(() => {
   )
 })
 
-const toCachedResult = (item: PelicanAccountState): PelicanCachedResult => ({
-  account: {
-    id: item.account.id,
-    name: item.account.name,
-    type: item.account.type
-  },
-  status: item.status === 'idle' || item.status === 'running' ? 'failed' : item.status,
-  result: item.result ? { ...item.result } : undefined,
-  prompt: item.prompt,
-  output: item.streamingContent,
-  responseModel: item.responseModel,
-  reason: item.reason,
-  error: item.error,
-  elapsedMs: item.elapsedMs,
-  testedAt: item.testedAt ?? Date.now()
-})
+const toCachedResult = (item: PelicanAccountState): PelicanCachedResult => {
+  const html = getItemHtml(item)
+  return {
+    account: {
+      id: item.account.id,
+      name: item.account.name,
+      type: item.account.type
+    },
+    status: item.status === 'idle' || item.status === 'running' ? 'failed' : item.status,
+    result: (item.result || html) ? {
+      has_html: !!html,
+      html: html || undefined,
+      downgraded: item.result?.downgraded ?? (item.status === 'downgraded'),
+      reason: item.result?.reason ?? (item.reason || ''),
+      response_model: item.result?.response_model ?? item.responseModel
+    } : undefined,
+    testMode: item.testMode,
+    images: item.images,
+    logs: item.logs,
+    prompt: item.prompt,
+    output: item.streamingContent,
+    responseModel: item.responseModel,
+    reason: item.reason,
+    error: item.error,
+    elapsedMs: item.elapsedMs,
+    testedAt: item.testedAt ?? Date.now()
+  }
+}
 
 const applyCachedResult = (item: PelicanAccountState, cached: PelicanCachedResult) => {
+  item.cancelled = false
+  item.testMode = cached.testMode || 'pelican'
+  item.images = cached.images
+  item.logs = cached.logs
   item.status = cached.status
   item.prompt = cached.prompt
   item.streamingContent = cached.output || cached.result?.html || ''
   item.result = cached.result ? { ...cached.result } : undefined
+  const html = item.result?.html?.trim() || extractPelicanPreviewHtml(item.streamingContent)
+  if (html) {
+    if (!item.result) {
+      item.result = { has_html: true, html, downgraded: item.status === 'downgraded', reason: item.reason || '', response_model: cached.responseModel }
+    } else {
+      item.result.has_html = true
+      item.result.html = html
+    }
+  }
+  item.activeTab = (html || cached.images?.length) ? 'preview' : 'output'
   item.responseModel = cached.responseModel
   item.reason = cached.reason
   item.error = cached.error
@@ -1212,6 +1432,9 @@ const hydrateFromCache = (item: PelicanAccountState): boolean => {
   const cached = getCachedPelicanResult(item.account.id)
   if (!cached) return false
   applyCachedResult(item, cached)
+  if (cached.responseModel) {
+    item.selectedModel = cached.responseModel
+  }
   return true
 }
 
@@ -1237,7 +1460,7 @@ const toggleHistoryPanel = () => {
 }
 
 const historyStatusLabel = (entry: PelicanCachedResult) => {
-  if (entry.status === 'success') return t('admin.accounts.pelicanStatusSuccess')
+  if (entry.status === 'success') return t(entry.testMode === 'default' || entry.testMode === 'compact' ? 'admin.accounts.detection.connection.success' : 'admin.accounts.pelicanStatusSuccess')
   if (entry.status === 'downgraded') return t('admin.accounts.pelicanStatusDowngraded')
   return t('admin.accounts.pelicanStatusFailed')
 }
@@ -1259,7 +1482,7 @@ const historyStatusDotClass = (entry: PelicanCachedResult) => {
 }
 
 const historyResultText = (entry: PelicanCachedResult) => {
-  if (entry.status === 'success') return t('admin.accounts.pelicanStatusSuccess')
+  if (entry.status === 'success') return t(entry.testMode === 'default' || entry.testMode === 'compact' ? 'admin.accounts.detection.connection.success' : 'admin.accounts.pelicanStatusSuccess')
   if (entry.status === 'downgraded') return t('admin.accounts.pelicanStatusDowngraded')
   return entry.error || entry.reason || t('admin.accounts.pelicanStatusFailed')
 }
@@ -1306,14 +1529,17 @@ const selectHistoryResult = (item: PelicanAccountState, index: number) => {
 const formatTestedAt = (testedAt: number) => new Date(testedAt).toLocaleString()
 
 const handleClearCache = () => {
+  if (isRunning.value) return
   clearPelicanResultCache()
   expandedHistoryAccountIds.value = new Set()
   showHistoryPanel.value = false
   historyPreview.value = null
   for (const item of accountStates.value) {
     item.status = 'idle'
+    item.cancelled = false
     item.streamingContent = ''
     item.result = undefined
+  item.ruleOutcomes = undefined
     item.responseModel = undefined
     item.reason = undefined
     item.error = undefined
@@ -1325,6 +1551,7 @@ const handleClearCache = () => {
 }
 
 const toggleAccountSelection = (acc: Account) => {
+  if (isRunning.value) return
   if (selectedAccountIds.value.has(acc.id)) {
     selectedAccountIds.value.delete(acc.id)
     accountStates.value = accountStates.value.filter(s => s.account.id !== acc.id)
@@ -1343,6 +1570,7 @@ const toggleAccountSelection = (acc: Account) => {
 }
 
 const selectAllAccounts = () => {
+  if (isRunning.value) return
   for (const acc of filteredCandidateAccounts.value) {
     selectedAccountIds.value.add(acc.id)
   }
@@ -1350,6 +1578,7 @@ const selectAllAccounts = () => {
 }
 
 const clearAllAccounts = () => {
+  if (isRunning.value) return
   selectedAccountIds.value.clear()
   accountStates.value = []
 }
@@ -1473,7 +1702,9 @@ watch(
       if (!reasoningEffort.value) {
         reasoningEffort.value = 'low'
       }
-      const targetAccounts = accounts && accounts.length > 0 ? accounts : props.allAccounts.slice(0, 1)
+      if (!isRunning.value) { applySelectedScenario(); void loadDegradationRules() }
+      const targetAccounts = accounts || []
+      showAccountPicker.value = false
 
       if (isRunning.value) {
         const existingIds = new Set(accountStates.value.map(item => item.account.id))
@@ -1508,6 +1739,36 @@ watch(
         }
       }
 
+      if (targetAccounts.length === 1) {
+        const singleAcc = targetAccounts[0]
+        const cached = getCachedPelicanResult(singleAcc.id)
+        if (cached) {
+          if (cached.responseModel) {
+            selectedModel.value = cached.responseModel
+          }
+          if (cached.prompt) {
+            const matchedScenario = promptScenarios.value.find(s => s.prompt.trim() === cached.prompt?.trim())
+            if (matchedScenario) {
+              selectedPromptId.value = matchedScenario.id
+              applySelectedScenario()
+            } else {
+              customPrompt.value = cached.prompt
+            }
+          }
+          if (cached.testMode) {
+            compactTest.value = (cached.testMode === 'compact')
+          }
+        } else {
+          if (!selectedModel.value.trim() && pelicanModelHistory.value.length > 0) {
+            selectedModel.value = pelicanModelHistory.value[0]
+          }
+        }
+      } else if (targetAccounts.length > 1) {
+        if (!selectedModel.value.trim() && pelicanModelHistory.value.length > 0) {
+          selectedModel.value = pelicanModelHistory.value[0]
+        }
+      }
+
       // 默认不在打开弹窗时直接开始，需在弹出窗口中选择好大模型后点击“开始测智”手动开始
       if (props.autoStart && targetAccounts.length > 0) {
         setTimeout(() => {
@@ -1531,6 +1792,7 @@ watch(
 )
 
 const handleClose = () => {
+  rememberSelectedModel()
   closeLightbox()
   showAccountPicker.value = false
   emit('close')
@@ -1538,35 +1800,68 @@ const handleClose = () => {
 
 async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal) {
   const overrideModel = selectedModel.value?.trim() || ''
+  if (overrideModel) rememberSelectedModel()
   const testModel = overrideModel || item.selectedModel?.trim() || ''
   if (!testModel) {
+    item.testMode = testMode.value
+    item.result = undefined
+    item.reason = undefined
+    item.streamingContent = ''
+    item.activeTab = 'output'
     item.status = 'failed'
     item.error = t('admin.accounts.pelicanModelsUnavailable')
     return
   }
-  const testPrompt = customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
-  item.prompt = testPrompt
+  const capability = !isImageModel(item) && testMode.value === 'pelican'
+  const requestMode = capability ? 'pelican' : compactTest.value && supportsCompact.value ? 'compact' : 'default'
+  const sharedRules = capability && isKeywordQuestion.value
+  const testPrompt = !capability
+    ? (isImageModel(item) ? imagePrompt.value.trim() : '')
+    : customPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault')
+  const selectedRulePrompt = isKeywordQuestion.value ? selectedSharedRule.value?.prompt : undefined
+  const effectiveTestPrompt = selectedRulePrompt || testPrompt
+  item.cancelled = false
+  item.testMode = requestMode
+  item.images = []
+  item.logs = []
+  item.activeTab = 'output'
+  item.prompt = effectiveTestPrompt
   item.status = 'running'
   item.streamingContent = ''
   item.error = undefined
   item.reason = undefined
   item.result = undefined
+  item.ruleOutcomes = undefined
   item.responseModel = testModel
   item.testedAt = undefined
   item.elapsedMs = undefined
   const startAt = Date.now()
 
   try {
+    if (sharedRules) {
+      const result = await adminAPI.accounts.runQualityRules(item.account.id, testModel, activeRuleIds.value, signal)
+      item.streamingContent = result.response_text
+      item.responseModel = result.response_model || testModel
+      item.ruleOutcomes = result.rule_results
+      item.reason = result.downgrade_reason
+      item.error = result.error_message || undefined
+      item.status = result.status !== 'success' ? 'failed' : result.downgraded ? 'downgraded' : 'success'
+      const html = extractPelicanPreviewHtml(result.response_text)
+      item.result = {has_html:!!html,html,downgraded:result.downgraded,reason:result.downgrade_reason,response_model:result.response_model}
+      return
+    }
     const requestBody: {
       model_id: string
       prompt: string
       mode: string
       reasoning_effort?: string
+      evaluator?: string
+      expected_answer?: number
     } = {
       model_id: testModel,
       prompt: testPrompt,
-      mode: 'pelican',
-      reasoning_effort: reasoningEffort.value || 'low'
+      mode: requestMode,
+      ...(capability ? {reasoning_effort: reasoningEffort.value || 'low', evaluator: probeEvaluator.value, ...(probeEvaluator.value === 'numeric' ? {expected_answer: Number(probeExpectedAnswer.value)} : {})} : {})
     }
     const url = buildApiUrl(`/admin/accounts/${item.account.id}/test`)
     const response = await fetch(url, {
@@ -1592,73 +1887,76 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
     const decoder = new TextDecoder()
     let buffer = ''
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6).trim()
-          if (jsonStr) {
-            try {
-              const event = JSON.parse(jsonStr)
-              if (event.type === 'test_start' && event.model) {
-                item.responseModel = event.model
-              } else if (event.type === 'content' && event.text) {
-                item.streamingContent += event.text
-              } else if (event.type === 'pelican_result' && event.data) {
-                item.result = event.data
-                item.responseModel = event.data.response_model || item.responseModel
-                item.reason = event.data.reason
-                if (event.data.downgraded) {
-                  item.status = 'downgraded'
-                } else {
-                  item.status = 'success'
-                }
-              } else if (event.type === 'error') {
-                item.error = event.error || 'Test failed'
-                if (item.status !== 'downgraded' && item.status !== 'success') {
-                  item.status = 'failed'
-                }
-              }
-            } catch (e) {
-              console.error('Failed to parse SSE event in pelican batch test:', e)
-            }
-          }
-        }
+    const handleLine = (line: string) => {
+      if (!line.startsWith('data:')) return
+      const jsonStr = line.slice(5).trim()
+      if (!jsonStr || jsonStr === '[DONE]') return
+      let event
+      try { event = JSON.parse(jsonStr) } catch { return }
+      if (event.type === 'test_start' && event.model) item.responseModel = event.model
+      else if (event.type === 'content' && event.text) item.streamingContent += event.text
+      else if (event.type === 'status' && event.text) item.logs!.push(event.text)
+      else if (event.type === 'image' && event.image_url) item.images!.push(event.image_url)
+      else if (capability && event.type === 'pelican_result' && event.data) {
+        item.result = event.data
+        item.responseModel = event.data.response_model || item.responseModel
+        item.reason = event.data.reason
+        item.status = event.data.downgraded ? 'downgraded' : 'success'
+        item.activeTab = (event.data.has_html || hasItemHtml(item)) ? 'preview' : 'output'
+      } else if (event.type === 'error' || (event.type === 'test_complete' && event.success === false && !item.result)) {
+        item.error = event.error || 'Test failed'
+        if (!item.result) item.status = 'failed'
+      } else if (!capability && event.type === 'test_complete' && event.success === true && !item.error) {
+        item.status = 'success'
+        if (item.images?.length || hasItemHtml(item)) item.activeTab = 'preview'
       }
+    }
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) handleLine(line)
+      }
+      buffer += decoder.decode()
+      if (buffer.trim()) handleLine(buffer)
+    } finally {
+      reader.releaseLock?.()
     }
 
     if (item.status === 'running') {
-      if (item.result) {
-        item.status = item.result.downgraded ? 'downgraded' : 'success'
-      } else {
-        item.status = 'failed'
-        item.error = 'No test result returned'
-      }
+      item.status = 'failed'
+      item.error = 'No test result returned'
     }
   } catch (err: unknown) {
     if (signal.aborted) {
       item.status = 'idle'
       return
     }
-    item.status = 'failed'
-    item.error = err instanceof Error ? err.message : 'Unknown error'
+    // pelican_result 到达后流尾部再断开（如末尾大事件传输被切断）不应推翻已判定的结论。
+    if (item.status === 'running') {
+      item.status = 'failed'
+      item.error = extractApiErrorMessage(err, 'Test failed')
+    }
   } finally {
     item.elapsedMs = Date.now() - startAt
-    if (signal.aborted) item.status = 'idle'
+    if (signal.aborted) {
+      item.cancelled = true
+      item.status = 'idle'
+    }
     if (item.status !== 'idle') {
+      if (item.result?.has_html) item.activeTab = 'preview'
+      if (accountStates.value.length === 1 && item.status === 'success') emit('test-succeeded', item.account)
+      else if (accountStates.value.length === 1 && item.status === 'failed') emit('test-failed', item.account, item.error || 'Test failed')
       item.testedAt = Date.now()
       setCachedPelicanResult({
         ...toCachedResult(item),
-        prompt: testPrompt
+      prompt: effectiveTestPrompt
       })
-      try {
+      if (capability && (item.status === 'success' || item.status === 'downgraded')) try {
         await adminAPI.accounts.updateDowngradedFlag(
           item.account.id,
           item.status === 'downgraded'
@@ -1676,7 +1974,17 @@ async function testSingleAccount(item: PelicanAccountState, signal: AbortSignal)
 }
 
 async function runSingleTest(item: PelicanAccountState) {
-  if (accountControllers.has(item.account.id)) return
+  if (scenariosBusy.value || accountControllers.has(item.account.id)) return
+  if (testMode.value === 'pelican' && probeEvaluator.value === 'numeric'
+    && (!String(probeExpectedAnswer.value).trim() || !Number.isSafeInteger(Number(probeExpectedAnswer.value)))) {
+    validationError.value = t('admin.accounts.probeExpectedAnswer')
+    return
+  }
+  validationError.value = ''
+  if (item.modelsLoading && !selectedModel.value.trim() && !item.selectedModel?.trim()) {
+    await ensureAccountModels(item as PelicanStateWithModels)
+  }
+  if (!selectedModel.value.trim() && !item.selectedModel?.trim()) return
   const controller = new AbortController()
   accountControllers.set(item.account.id, controller)
   isRunning.value = true

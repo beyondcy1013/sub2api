@@ -540,6 +540,13 @@ type OpenAIGatewayService struct {
 
 type OpenAIGatewayOption func(*OpenAIGatewayService)
 
+func (s *OpenAIGatewayService) SettingService() *SettingService {
+	if s == nil {
+		return nil
+	}
+	return s.settingService
+}
+
 func (s *OpenAIGatewayService) SetCodexHarvestService(harvest *CodexHarvestService) {
 	s.codexHarvest = harvest
 }

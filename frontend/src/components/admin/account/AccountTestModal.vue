@@ -45,14 +45,7 @@
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.accounts.selectTestModel') }}
         </label>
-        <Select
-          v-model="selectedModelId"
-          :options="availableModels"
-          :disabled="loadingModels || status === 'connecting'"
-          value-key="id"
-          label-key="display_name"
-          :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
-        />
+        <AccountTestModelPicker v-model="selectedModelId" :options="availableModels" :disabled="status === 'connecting'" :loading="loadingModels" />
       </div>
 
       <div v-if="isOpenAIAccount" class="space-y-1.5">
@@ -67,14 +60,26 @@
       </div>
 
       <div v-if="testMode === 'pelican'" class="space-y-1.5">
+        <div class="space-y-1.5">
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.accounts.pelicanPromptScenario') }}
+          </label>
+          <Select
+            v-model="selectedPelicanScenarioId"
+            :options="pelicanScenarioOptions"
+            :disabled="status === 'connecting'"
+          />
+        </div>
         <TextArea
           v-model="pelicanPrompt"
           :label="t('admin.accounts.pelicanPromptLabel')"
           :placeholder="t('admin.accounts.pelicanPromptPlaceholder')"
-          :hint="t('admin.accounts.pelicanTestHint')"
+          :hint="t('admin.accounts.directProbeHint')"
           :disabled="status === 'connecting'"
           rows="3"
         />
+        <Select v-model="probeEvaluator" :options="probeEvaluatorOptions" :disabled="status === 'connecting'" />
+        <input v-if="probeEvaluator === 'numeric'" v-model="probeExpectedAnswer" type="number" step="1" :placeholder="t('admin.accounts.probeExpectedAnswer')" :disabled="status === 'connecting'" class="input w-full" />
       </div>
 
       <div v-if="supportsImageTest" class="space-y-1.5">
@@ -88,11 +93,13 @@
         />
       </div>
 
+      <DetectionResultSummary v-if="status !== 'idle'" :status="status" :capability="testMode === 'pelican'" :downgraded="pelicanResult?.downgraded" :reason="pelicanResult?.reason" :error="errorMessage" :model="selectedModelId" />
       <!-- Terminal Output -->
       <div class="group relative">
         <div
           ref="terminalRef"
-          class="max-h-[240px] min-h-[120px] overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-4 font-mono text-sm dark:border-gray-800 dark:bg-black"
+          class="min-h-[120px] whitespace-pre-wrap break-words rounded-xl border border-gray-700 bg-gray-900 p-4 font-mono text-sm dark:border-gray-800 dark:bg-black"
+          :class="testMode === 'pelican' ? '' : 'max-h-[240px] overflow-y-auto'"
         >
           <!-- Status Line -->
           <div v-if="status === 'idle'" class="flex items-center gap-2 text-gray-500">
@@ -243,7 +250,7 @@
 
         <!-- Source Code View -->
         <div v-else-if="pelicanResult.has_html && pelicanActiveTab === 'source'" class="relative">
-          <pre class="max-h-60 overflow-y-auto rounded-lg bg-gray-900 p-3 font-mono text-xs text-gray-200"><code>{{ pelicanResult.html }}</code></pre>
+          <pre class="whitespace-pre-wrap break-words rounded-lg bg-gray-900 p-3 font-mono text-xs text-gray-200"><code>{{ pelicanResult.html }}</code></pre>
           <button
             type="button"
             @click="copyToClipboard(pelicanResult.html || '', t('admin.accounts.outputCopied'))"
@@ -339,17 +346,7 @@
     </div>
 
     <template #footer>
-      <div class="flex w-full flex-wrap items-center justify-between gap-3">
-        <label class="flex cursor-pointer items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-          <input
-            v-model="autoStartTest"
-            type="checkbox"
-            data-test="account-test-auto-start"
-            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-            @change="persistAutoStartTest"
-          />
-          <span>{{ t('admin.accounts.autoTest') }}</span>
-        </label>
+      <div class="flex w-full flex-wrap items-center justify-end gap-3">
         <div class="flex items-center gap-3">
           <button
             @click="handleClose"
@@ -358,24 +355,25 @@
             {{ t('common.close') }}
           </button>
           <button
-            @click="startTest"
-            :disabled="status === 'connecting' || !selectedModelId"
+            @click="status === 'connecting' ? stopTest() : startTest()"
+            :disabled="!selectedModelId"
             :class="[
               'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-              status === 'connecting' || !selectedModelId
+              !selectedModelId
                 ? 'cursor-not-allowed bg-primary-400 text-white'
-                : status === 'success'
-                  ? 'bg-green-500 text-white hover:bg-green-600'
-                  : status === 'error'
-                    ? 'bg-orange-500 text-white hover:bg-orange-600'
-                    : 'bg-primary-500 text-white hover:bg-primary-600'
+                : status === 'connecting'
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : status === 'success'
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : status === 'error'
+                      ? 'bg-orange-500 text-white hover:bg-orange-600'
+                      : 'bg-primary-500 text-white hover:bg-primary-600'
             ]"
           >
             <Icon
               v-if="status === 'connecting'"
-              name="refresh"
+              name="x"
               size="sm"
-              class="animate-spin"
               :stroke-width="2"
             />
             <Icon v-else-if="status === 'idle'" name="play" size="sm" :stroke-width="2" />
@@ -383,7 +381,7 @@
             <span>
               {{
                 status === 'connecting'
-                  ? t('admin.accounts.testing')
+                  ? t('admin.accounts.stopTest')
                   : status === 'idle'
                     ? t('admin.accounts.startTest')
                     : t('admin.accounts.retry')
@@ -408,11 +406,17 @@ import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import { pelicanPreviewDocument } from '@/utils/pelicanPreviewDocument'
+import {
+  loadPelicanPromptScenarios,
+  savePelicanPromptScenarios,
+  type PelicanPromptScenario
+} from '@/utils/pelicanPromptScenarios'
+import AccountTestModelPicker from './AccountTestModelPicker.vue'
+import DetectionResultSummary from './DetectionResultSummary.vue'
 import type { Account, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
-const AUTO_TEST_STORAGE_KEY = 'sub2api.account-test.auto-start'
 
 interface OutputLine {
   text: string
@@ -444,6 +448,14 @@ const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const pelicanPrompt = ref('')
+const probeEvaluator = ref('auto')
+const probeExpectedAnswer = ref('')
+const probeEvaluatorOptions = computed(() => [
+  { value: 'auto', label: t('admin.accounts.probeEvaluatorAuto') },
+  { value: 'reply', label: t('admin.accounts.probeEvaluatorReply') },
+  { value: 'numeric', label: t('admin.accounts.probeEvaluatorNumeric') },
+  { value: 'html', label: t('admin.accounts.probeEvaluatorHtml') }
+])
 const pelicanActiveTab = ref<'preview' | 'source'>('preview')
 const showPelicanLightbox = ref(false)
 const pelicanResult = ref<{
@@ -458,27 +470,41 @@ let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
 const testMode = ref<'default' | 'compact' | 'pelican'>('default')
-const readAutoStartTest = () => {
-  try {
-    return localStorage.getItem(AUTO_TEST_STORAGE_KEY) !== 'false'
-  } catch {
-    return true
-  }
-}
-const autoStartTest = ref(readAutoStartTest())
-const persistAutoStartTest = () => {
-  try {
-    localStorage.setItem(AUTO_TEST_STORAGE_KEY, String(autoStartTest.value))
-  } catch (error) {
-    console.warn('Failed to persist account auto-test preference:', error)
-  }
-}
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') },
   { value: 'pelican', label: t('admin.accounts.openai.testModePelican') }
 ])
+
+// 与批量鹈鹕测智弹窗共享同一份 localStorage 预设方案。
+const pelicanScenarios = ref<PelicanPromptScenario[]>([])
+const selectedPelicanScenarioId = ref('')
+
+const pelicanScenarioOptions = computed(() => [
+  ...pelicanScenarios.value.map(scenario => ({ value: scenario.id, label: scenario.name })),
+  { value: '', label: t('admin.accounts.pelicanPromptCustom') }
+])
+
+const selectedPelicanScenario = computed(() =>
+  pelicanScenarios.value.find(scenario => scenario.id === selectedPelicanScenarioId.value) || null
+)
+
+watch(selectedPelicanScenarioId, (id) => {
+  const scenario = pelicanScenarios.value.find(item => item.id === id)
+  if (scenario) {
+    pelicanPrompt.value = scenario.prompt
+    savePelicanPromptScenarios({ scenarios: pelicanScenarios.value, selectedId: id })
+  }
+})
+
+// 手动编辑提示词即离开预设，进入自定义输入；与预设内容一致时不触发。
+watch(pelicanPrompt, (value) => {
+  const scenario = selectedPelicanScenario.value
+  if (scenario && value !== scenario.prompt) {
+    selectedPelicanScenarioId.value = ''
+  }
+})
 
 function displayConfiguredUpstreamURL(account: Account): string {
   const configuredURL = account.custom_base_url_enabled
@@ -544,22 +570,20 @@ watch(
   () => props.show,
   async (newVal) => {
     if (newVal && props.account) {
-      const openedAccountId = props.account.id
       testPrompt.value = ''
       testMode.value = 'default'
-      pelicanPrompt.value = t('admin.accounts.pelicanPromptDefault')
+      const scenarioState = loadPelicanPromptScenarios(
+        t('admin.accounts.pelicanPromptScenarioDefault'),
+        t('admin.accounts.pelicanPromptDefault')
+      )
+      pelicanScenarios.value = scenarioState.scenarios
+      selectedPelicanScenarioId.value = scenarioState.selectedId
+      pelicanPrompt.value = scenarioState.scenarios.find(item => item.id === scenarioState.selectedId)?.prompt
+        || t('admin.accounts.pelicanPromptDefault')
       pelicanResult.value = null
       pelicanActiveTab.value = 'preview'
       resetState()
       await loadAvailableModels()
-      if (
-        props.show &&
-        props.account?.id === openedAccountId &&
-        autoStartTest.value &&
-        selectedModelId.value
-      ) {
-        await startTest()
-      }
     } else {
       abortStream()
     }
@@ -568,7 +592,7 @@ watch(
 
 watch(testMode, (newMode) => {
   if (newMode === 'pelican' && !pelicanPrompt.value.trim()) {
-    pelicanPrompt.value = t('admin.accounts.pelicanPromptDefault')
+    pelicanPrompt.value = selectedPelicanScenario.value?.prompt || t('admin.accounts.pelicanPromptDefault')
   }
 })
 
@@ -587,7 +611,7 @@ const loadAvailableModels = async () => {
   try {
     // axios unwraps the standard {code,data} envelope in the response
     // interceptor, so the API helper already returns the model array here.
-    const payload = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const payload = await adminAPI.accounts.getAvailableModels(props.account.id, { local: true })
     const models = Array.isArray(payload) ? payload : []
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
@@ -646,6 +670,13 @@ const abortStream = () => {
   }
 }
 
+const stopTest = () => {
+  if (status.value !== 'connecting') return
+  abortStream()
+  addLine(t('admin.accounts.testStopped'), 'text-yellow-400')
+  status.value = 'idle'
+}
+
 const addLine = (text: string, className: string = 'text-gray-300') => {
   outputLines.value.push({ text, class: className })
   scrollToBottom()
@@ -661,6 +692,11 @@ const scrollToBottom = async () => {
 const startTest = async () => {
   if (!props.account || !selectedModelId.value) return
 
+  if (testMode.value === 'pelican' && probeEvaluator.value === 'numeric'
+    && (!String(probeExpectedAnswer.value).trim() || !Number.isSafeInteger(Number(probeExpectedAnswer.value)))) {
+    addLine(t('admin.accounts.probeExpectedAnswer'), 'text-red-400')
+    return
+  }
   resetState()
   status.value = 'connecting'
   const upstreamURL = displayConfiguredUpstreamURL(props.account)
@@ -681,6 +717,8 @@ const startTest = async () => {
     const requestBody: {
       model_id: string
       prompt: string
+      evaluator?: string
+      expected_answer?: number
       mode?: 'default' | 'compact' | 'pelican'
     } = {
       model_id: selectedModelId.value,
@@ -690,6 +728,11 @@ const startTest = async () => {
     }
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
+    }
+
+    if (testMode.value === 'pelican') {
+      requestBody.evaluator = probeEvaluator.value
+      if (probeEvaluator.value === 'numeric') requestBody.expected_answer = Number(probeExpectedAnswer.value)
     }
 
     // Use the configured API base; EventSource does not support POST.
@@ -748,7 +791,7 @@ const startTest = async () => {
         }
       }
     }
-    if (testSucceeded && props.account) {
+    if (testSucceeded && !testFailed && !pelicanResult.value?.downgraded && props.account) {
       emit('test-succeeded', props.account)
     } else if (testFailed && props.account) {
       emit('test-failed', props.account, errorMessage.value || 'Test failed')

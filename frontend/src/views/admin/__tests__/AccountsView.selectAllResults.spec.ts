@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
 
@@ -111,45 +111,60 @@ const AccountTableActionsStub = {
   `
 }
 
-const mountView = () => mount(AccountsView, {
-  global: {
-    stubs: {
-      AppLayout: { template: '<div><slot /></div>' },
-      TablePageLayout: {
-        template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
-      },
-      DataTable: {
-        props: ['data'],
-        template: '<div data-test="data-table"><div v-for="row in data" :key="row.id"><slot name="cell-select" :row="row" /></div></div>'
-      },
-      Pagination: true,
-      ConfirmDialog: true,
-      AccountTableActions: AccountTableActionsStub,
-      AccountTableFilters: AccountTableFiltersStub,
-      AccountBulkActionsBar: AccountBulkActionsBarStub,
-      AccountActionMenu: true,
-      ImportDataModal: true,
-      ReAuthAccountModal: true,
-      AccountTestModal: true,
-      AccountStatsModal: true,
-      ScheduledTestsPanel: true,
-      SyncFromCrsModal: true,
-      TempUnschedStatusModal: true,
-      ErrorPassthroughRulesModal: true,
-      TLSFingerprintProfilesModal: true,
-      CreateAccountModal: true,
-      EditAccountModal: true,
-      BulkEditAccountModal: true,
-      PlatformTypeBadge: true,
-      AccountCapacityCell: true,
-      AccountStatusIndicator: true,
-      AccountTodayStatsCell: true,
-      AccountGroupsCell: true,
-      AccountUsageCell: true,
-      Icon: true
+// Every mounted wrapper is tracked so afterEach can unmount them all before
+// restoreAllMocks — useTableLoader clears its debounced reload timer on unmount,
+// which prevents a residual 300ms reload from hitting the reset list mock.
+const mountedWrappers = new Set<VueWrapper>()
+
+const mountView = () => {
+  const wrapper = mount(AccountsView, {
+    global: {
+      stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        TablePageLayout: {
+          template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+        },
+        DataTable: {
+          props: ['data'],
+          template: '<div data-test="data-table"><div v-for="row in data" :key="row.id"><slot name="cell-select" :row="row" /></div></div>'
+        },
+        Pagination: true,
+        ConfirmDialog: true,
+        AccountTableActions: AccountTableActionsStub,
+        AccountTableFilters: AccountTableFiltersStub,
+        AccountBulkActionsBar: AccountBulkActionsBarStub,
+        AccountActionMenu: true,
+        ImportDataModal: true,
+        ReAuthAccountModal: true,
+        AccountTestModal: true,
+        AccountStatsModal: true,
+        ScheduledTestsPanel: true,
+        SyncFromCrsModal: true,
+        TempUnschedStatusModal: true,
+        ErrorPassthroughRulesModal: true,
+        TLSFingerprintProfilesModal: true,
+        CreateAccountModal: true,
+        EditAccountModal: true,
+        BulkEditAccountModal: true,
+        PlatformTypeBadge: true,
+        AccountCapacityCell: true,
+        AccountStatusIndicator: true,
+        AccountTodayStatsCell: true,
+        AccountGroupsCell: true,
+        AccountUsageCell: true,
+        Icon: true
+      }
     }
+  })
+  mountedWrappers.add(wrapper)
+  // Make unmount idempotent so per-test unmount() calls and the afterEach
+  // sweep cannot double-unmount (which warns) or leave trackers stale.
+  const rawUnmount = wrapper.unmount.bind(wrapper)
+  wrapper.unmount = () => {
+    if (mountedWrappers.delete(wrapper)) rawUnmount()
   }
-})
+  return wrapper
+}
 
 describe('admin AccountsView select all filtered results', () => {
   beforeEach(() => {
@@ -174,7 +189,13 @@ describe('admin AccountsView select all filtered results', () => {
     getAllGroups.mockResolvedValue([])
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Unmount before restoreAllMocks so any still-armed debounced reload is
+    // cancelled by useTableLoader's onUnmounted cleanup instead of firing a
+    // call into a reset mock (response.items undefined crash).
+    for (const wrapper of mountedWrappers) wrapper.unmount()
+    mountedWrappers.clear()
+    await flushPromises()
     vi.restoreAllMocks()
   })
 
@@ -275,5 +296,28 @@ describe('admin AccountsView select all filtered results', () => {
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('20')
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('false')
     expect(showError).toHaveBeenCalledWith('admin.accounts.bulkActions.selectAllFailed')
+  })
+
+  it('cancels an armed debounced reload when the view unmounts', async () => {
+    listAccounts.mockResolvedValue({ items: makeAccounts(3), total: 3, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView()
+    await flushPromises()
+    listAccounts.mockClear()
+
+    await wrapper.get('[data-test="toggle-filters"]').trigger('click')
+    listAccounts.mockClear()
+
+    vi.useFakeTimers()
+    try {
+      // Arms the 300ms debounced reload; unmount must clear the timer before it fires.
+      // (advanceTimersByTimeAsync flushes microtasks; flushPromises relies on a
+      // real setTimeout and cannot run under fake timers.)
+      await wrapper.get('[data-test="change-filter"]').trigger('click')
+      wrapper.unmount()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(listAccounts).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

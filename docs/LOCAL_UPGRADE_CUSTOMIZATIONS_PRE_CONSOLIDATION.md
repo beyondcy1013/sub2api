@@ -10,7 +10,7 @@ The behavior checklist below is not a file allowlist. Before upgrading, preserve
 
 ```bash
 TS=$(date +%Y%m%d-%H%M%S)
-BACKUP=/home/third_party/upgrade-backups/sub2api-$TS
+BACKUP=/home/codes/third_party/upgrade-backups/sub2api-$TS
 BACKUP_BRANCH=backup-pre-upgrade-$TS
 mkdir -p "$BACKUP"
 git branch "$BACKUP_BRANCH" HEAD
@@ -108,7 +108,7 @@ The full restore contract is in `.codex/skills/sub2api-account-modal-enhancer/re
 git log --reverse --oneline origin/main..HEAD
 git diff --stat origin/main...HEAD
 
-cd /home/third_party/sub2api/backend
+cd /home/codes/ai/sub2api/backend
 go test -tags unit ./internal/handler/dto ./internal/service \
   -run 'TestRedactCredentials|TestAccountFromServiceShallow|TestMergePreservingSensitiveCreds|TestIsSensitiveCredentialKey'
 
@@ -117,7 +117,7 @@ go test ./internal/service \
 
 go test ./internal/repository ./internal/handler/admin ./internal/service -count=1
 
-cd /home/third_party/sub2api/frontend
+cd /home/codes/ai/sub2api/frontend
 pnpm vitest run \
   src/components/account/__tests__/EditAccountModal.spec.ts \
   src/components/account/__tests__/AccountUsageCell.spec.ts \
@@ -145,7 +145,7 @@ After every test, build, deployment, live version, and behavior check succeeds, 
 
 ```bash
 case "$BACKUP" in
-  /home/third_party/upgrade-backups/sub2api-*) ;;
+  /home/codes/third_party/upgrade-backups/sub2api-*) ;;
   *) echo "FATAL: refusing to delete unexpected backup path: $BACKUP"; exit 1 ;;
 esac
 git branch -d "$BACKUP_BRANCH" &&

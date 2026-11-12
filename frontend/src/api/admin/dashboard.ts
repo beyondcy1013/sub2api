@@ -13,6 +13,7 @@ import type {
   UserUsageTrendPoint,
   UserSpendingRankingResponse,
   UserBreakdownItem,
+  AccountBreakdownItem,
   UsageRequestType
 } from '@/types'
 
@@ -198,6 +199,38 @@ export async function getUserBreakdown(params: UserBreakdownParams): Promise<Use
   return data
 }
 
+export interface AccountBreakdownParams {
+  start_date?: string
+  end_date?: string
+  group_id?: number
+  model?: string
+  model_source?: 'requested' | 'upstream' | 'mapping'
+  endpoint?: string
+  endpoint_type?: 'inbound' | 'upstream' | 'path'
+  limit?: number
+  sort_by?: 'total_tokens' | 'input_tokens' | 'output_tokens' | 'cache_tokens' | 'requests' | 'cost' | 'actual_cost' | 'account_cost'
+  user_id?: number
+  api_key_id?: number
+  account_id?: number
+  request_type?: UsageRequestType
+  stream?: boolean
+  native_compaction_v2?: boolean | null
+  billing_type?: number | null
+}
+
+export interface AccountBreakdownResponse {
+  accounts: AccountBreakdownItem[]
+  start_date: string
+  end_date: string
+}
+
+export async function getAccountBreakdown(params: AccountBreakdownParams): Promise<AccountBreakdownResponse> {
+  const { data } = await apiClient.get<AccountBreakdownResponse>('/admin/dashboard/account-breakdown', {
+    params
+  })
+  return data
+}
+
 /**
  * Get dashboard snapshot v2 (aggregated response for heavy admin pages).
  */
@@ -342,6 +375,8 @@ export const dashboardAPI = {
   getApiKeyUsageTrend,
   getUserUsageTrend,
   getUserSpendingRanking,
+  getUserBreakdown,
+  getAccountBreakdown,
   getBatchUsersUsage,
   getBatchApiKeysUsage
 }

@@ -145,9 +145,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { accountsAPI } from '@/api/admin/accounts'
 import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import { useClipboard } from '@/composables/useClipboard'
@@ -179,7 +180,14 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const adminSettingsStore = useAdminSettingsStore()
 const { copyToClipboard } = useClipboard()
+
+onMounted(() => {
+  if (!adminSettingsStore.loaded) {
+    adminSettingsStore.fetch().catch(() => {})
+  }
+})
 
 const showDropdown = ref(false)
 const searchQuery = ref('')
@@ -215,18 +223,22 @@ const canSyncUpstream = computed(() => {
 })
 
 const availableOptions = computed(() => {
-  if (normalizedPlatforms.value.length === 0) {
-    return allModels
-  }
-
-  const allowedModels = new Set<string>()
-  for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
-      allowedModels.add(model)
+  let list = allModels
+  if (normalizedPlatforms.value.length > 0) {
+    const allowedModels = new Set<string>()
+    for (const platform of normalizedPlatforms.value) {
+      for (const model of getModelsByPlatform(platform)) {
+        allowedModels.add(model)
+      }
     }
+    list = allModels.filter(model => allowedModels.has(model.value))
   }
 
-  return allModels.filter(model => allowedModels.has(model.value))
+  if (adminSettingsStore.globalModelExcludePatterns?.length > 0) {
+    list = list.filter(model => !adminSettingsStore.isModelGloballyExcluded(model.value))
+  }
+
+  return list
 })
 
 const filteredModels = computed(() => {
@@ -265,6 +277,10 @@ const addCustom = () => {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
+  if (adminSettingsStore.isModelGloballyExcluded(model)) {
+    appStore.showError(t('admin.accounts.modelGloballyExcluded', { model }))
+    return
+  }
   const conflict = props.modelMappings?.find(mapping => mapping.from.trim() === model && mapping.to.trim() && mapping.to.trim() !== model)
   if (conflict) {
     appStore.showInfo(t('admin.accounts.modelMappingConflict', { from: model, to: conflict.to.trim() }))
@@ -282,7 +298,7 @@ const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {
-      if (!newModels.includes(model)) {
+      if (!newModels.includes(model) && !adminSettingsStore.isModelGloballyExcluded(model)) {
         newModels.push(model)
       }
     }
@@ -304,7 +320,11 @@ const syncUpstreamModels = async () => {
       return
     }
 
-    const upstreamModels = result.models.map(model => model.trim()).filter(Boolean)
+    // 全局排除规则在服务端已过滤，这里再兜底一层，避免任何路径把被排除模型写进 model_mapping 导致创建/保存被拒
+    const upstreamModels = result.models
+      .map(model => model.trim())
+      .filter(Boolean)
+      .filter(model => !adminSettingsStore.isModelGloballyExcluded(model))
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
       return

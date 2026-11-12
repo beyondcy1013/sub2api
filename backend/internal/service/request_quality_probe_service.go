@@ -1,0 +1,555 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/modules/qualityevidence"
+	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"golang.org/x/sync/singleflight"
+)
+
+// RequestQualityProbeService coordinates per-request capability checks and
+// explicit manual tests. Historical proof helpers remain for legacy callers;
+// gateway response gates always use StartRequestQualityCheck.
+type RequestQualityProbeService struct {
+	settingService     *SettingService
+	accountRepo        AccountRepository
+	ruleRepo           DegradationRuleRepository
+	accountTestService qualityProbeTester
+
+	detectionRepo AccountDetectionRepository
+	recentSuccess sync.Map // key: "accountID:model" -> time.Time
+	probeFlight   singleflight.Group
+}
+
+type qualityProbeTester interface {
+	RunDegradationProbeRules(context.Context, int64, string, []*DegradationRule) (*ScheduledTestResult, error)
+}
+
+// NewRequestQualityProbeService creates a new RequestQualityProbeService.
+func NewRequestQualityProbeService(
+	settingService *SettingService,
+	accountRepo AccountRepository,
+	ruleRepo DegradationRuleRepository,
+	accountTestService *AccountTestService,
+) *RequestQualityProbeService {
+	var detectionRepo AccountDetectionRepository
+	var tester qualityProbeTester
+	if accountTestService != nil {
+		accountTestService.qualityRuleRepo = ruleRepo
+		detectionRepo = accountTestService.detectionRepo
+		tester = accountTestService
+	}
+	return &RequestQualityProbeService{
+		detectionRepo:      detectionRepo,
+		settingService:     settingService,
+		accountRepo:        accountRepo,
+		ruleRepo:           ruleRepo,
+		accountTestService: tester,
+	}
+}
+
+// TouchRecentSuccess records that an account successfully served or tested a model.
+func (s *RequestQualityProbeService) TouchRecentSuccess(accountID int64, model string) {
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	cleanModel := strings.ToLower(strings.TrimSpace(model))
+	if cleanModel != "" {
+		s.recentSuccess.Store(fmt.Sprintf("%d:%s", accountID, cleanModel), now)
+	}
+
+}
+
+// HasRecentSuccess reports whether the account has a successful turn within recentMinutes.
+func (s *RequestQualityProbeService) HasRecentSuccess(accountID int64, model string, recentMinutes int) bool {
+	if s == nil {
+		return false
+	}
+	if recentMinutes <= 0 {
+		recentMinutes = 10
+	}
+	window := time.Duration(recentMinutes) * time.Minute
+	now := time.Now()
+
+	cleanModel := strings.ToLower(strings.TrimSpace(model))
+	if cleanModel != "" {
+		if val, ok := s.recentSuccess.Load(fmt.Sprintf("%d:%s", accountID, cleanModel)); ok {
+			if t, ok := val.(time.Time); ok && now.Sub(t) < window {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ClearRecentSuccess invalidates the recent success record for an account.
+func (s *RequestQualityProbeService) ClearRecentSuccess(accountID int64, model ...string) {
+	if s == nil {
+		return
+	}
+	if len(model) > 0 && model[0] != "" {
+		s.recentSuccess.Delete(fmt.Sprintf("%d:%s", accountID, strings.ToLower(strings.TrimSpace(model[0]))))
+		return
+	}
+	prefix := fmt.Sprintf("%d:", accountID)
+	s.recentSuccess.Range(func(key, _ any) bool {
+		if k, ok := key.(string); ok && strings.HasPrefix(k, prefix) {
+			s.recentSuccess.Delete(key)
+		}
+		return true
+	})
+}
+
+type probeExecutionResult struct {
+	passed bool
+	reason string
+	err    error
+}
+
+// EnsureAccountQuality verifies that an account is capable of serving requestedModel.
+// If the account already has recent success within the configured window, it passes
+// immediately with zero probe overhead. Otherwise, it triggers an on-demand probe
+// before forwarding. If the probe passes, it returns true and caller forwards seamlessly.
+// If the probe fails, it returns false and caller fails over to the next candidate account.
+func (s *RequestQualityProbeService) EnsureAccountQuality(
+	ctx context.Context,
+	account *Account,
+	requestedModel string,
+) (passed bool, reason string, err error) {
+	if s == nil || s.settingService == nil || account == nil {
+		return true, "", nil
+	}
+
+	settings, err := s.settingService.GetRequestQualityProbeSettings(ctx)
+	if err != nil {
+		return false, "load quality settings failed", err
+	}
+	if settings == nil || !settings.Enabled || len(settings.RuleIDs) == 0 {
+		return true, "", nil
+	}
+
+	// 1. Designated models check ("只能指定的大模型才需要测智")
+	cleanModel := strings.TrimSpace(requestedModel)
+	if settings.ModelScope != "all" {
+		matched := false
+		for _, m := range settings.Models {
+			if matchesQualityProbeModel(m, cleanModel) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return true, "", nil
+		}
+	}
+
+	// 2. Designated accounts / troubled accounts check ("可能出问题的才需要测智")
+	scope := strings.ToLower(strings.TrimSpace(settings.AccountScope))
+	switch scope {
+	case "selected":
+		inList := false
+		for _, id := range settings.AccountIDs {
+			if id == account.ID {
+				inList = true
+				break
+			}
+		}
+		if !inList && !getExtraBool(account.Extra, "test_on_request_enabled") {
+			return true, "", nil
+		}
+	case "error_or_downgraded":
+		isTroubled := account.Status == "error" || getExtraBool(account.Extra, "pelican_downgraded") || account.ErrorMessage != ""
+		if !isTroubled {
+			// Normal, active accounts without error flag don't need on-request probe in this scope
+			return true, "", nil
+		}
+	default: // "all"
+		// Every account supporting the designated models is checked for recent success
+	}
+
+	// 3. Recent success check (近期成功有效窗口期内免测直接放行)
+	recentMinutes := settings.RecentMinutes
+	if recentMinutes <= 0 {
+		recentMinutes = 10
+	}
+	if settings.AllowBusinessSuccess && s.HasRecentSuccess(account.ID, cleanModel, recentMinutes) {
+		return true, "", nil
+	}
+
+	// 4. No recent success record: execute probe on-demand ("先测智")
+	if s.accountTestService == nil {
+		return false, "quality tester unavailable", errors.New("quality tester unavailable")
+	}
+
+	rules, ruleErr := s.resolveProbeRules(ctx, settings.RuleIDs)
+	if ruleErr != nil {
+		return false, ruleErr.Error(), ruleErr
+	}
+	fingerprint := DegradationRulesFingerprint(rules)
+	if s.detectionRepo != nil {
+		passed, proofErr := s.detectionRepo.HasRecentProof(ctx, account.ID, cleanModel, fingerprint, time.Now().Add(-time.Duration(recentMinutes)*time.Minute))
+		if proofErr != nil {
+			return false, "read quality proof failed", proofErr
+		}
+		if passed {
+			return true, "", nil
+		}
+	}
+	flightKey := fmt.Sprintf("probe:%d:%s:%s", account.ID, cleanModel, fingerprint)
+	pending := s.probeFlight.DoChan(flightKey, func() (any, error) {
+		return s.executeProbe(context.WithoutCancel(ctx), account, cleanModel, settings, rules), nil
+	})
+	var res any
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err().Error(), ctx.Err()
+	case completed := <-pending:
+		if completed.Err != nil {
+			return false, completed.Err.Error(), completed.Err
+		}
+		res = completed.Val
+	}
+	result, ok := res.(probeExecutionResult)
+	if !ok {
+		return true, "", nil
+	}
+	return result.passed, result.reason, result.err
+}
+
+// StartRequestQualityCheck starts at most one probe per matching business
+// attempt. A passing probe for the same account, model and question may release
+// later attempts inside the configured reuse window (`reuse_seconds`), which
+// bounds upstream cost; failures never release a later attempt, and singleflight
+// is still bypassed so each window gets its own check. A nil channel means the
+// feature is disabled, this attempt is outside scope, or a recent passing probe
+// covered it.
+func (s *RequestQualityProbeService) StartRequestQualityCheck(ctx context.Context, account *Account, model string) (<-chan error, context.CancelFunc) {
+	noop := func() {}
+	if s == nil || s.settingService == nil || account == nil {
+		return nil, noop
+	}
+	settings, err := s.GetSettings(ctx)
+	result := make(chan error, 1)
+	if err != nil {
+		result <- err
+		return result, noop
+	}
+	if !settings.Enabled || len(settings.RuleIDs) == 0 || !requestQualityMatches(settings, account, model) {
+		return nil, noop
+	}
+	if s.hasRecentPassingProbe(ctx, account, model, settings) {
+		logger.LegacyPrintf("service.request_quality_probe",
+			"[RequestQualityProbe] account=%d (%s) model=%s reusing passing probe within %ds",
+			account.ID, account.Name, strings.TrimSpace(model), settings.reuseWindowSeconds())
+		return nil, noop
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(settings.TimeoutSeconds)*time.Second)
+	go func() {
+		if s.accountTestService == nil {
+			result <- errors.New("quality tester unavailable")
+			return
+		}
+		ids := settings.RuleIDs
+		// Older configurations allowed several rules. Keep the first until the
+		// administrator next saves the new single-question configuration.
+		if len(ids) > 1 {
+			ids = ids[:1]
+		}
+		rules, err := s.resolveProbeRules(probeCtx, ids)
+		if err == nil {
+			verdict := s.executeProbe(probeCtx, account, strings.TrimSpace(model), settings, rules)
+			err = verdict.err
+			if !verdict.passed && err == nil {
+				err = errors.New(verdict.reason)
+			}
+		}
+		result <- err
+	}()
+	return result, cancel
+}
+
+// hasRecentPassingProbe reports whether the same account, model and selected
+// question passed inside the reuse window. Only a passing latest record counts:
+// a newer failure or a changed question invalidates the evidence. Read errors
+// fall back to probing instead of releasing an unchecked response.
+func (s *RequestQualityProbeService) hasRecentPassingProbe(ctx context.Context, account *Account, model string, settings *RequestQualityProbeSettings) bool {
+	if s == nil || s.detectionRepo == nil || account == nil || settings == nil {
+		return false
+	}
+	window := settings.reuseWindowSeconds()
+	if window <= 0 {
+		return false
+	}
+	ids := settings.RuleIDs
+	if len(ids) > 1 {
+		ids = ids[:1]
+	}
+	rules, err := s.resolveProbeRules(ctx, ids)
+	if err != nil {
+		return false
+	}
+	passed, err := s.detectionRepo.HasRecentProof(ctx, account.ID, strings.TrimSpace(model),
+		DegradationRulesFingerprint(rules), time.Now().Add(-time.Duration(window)*time.Second))
+	if err != nil {
+		return false
+	}
+	return passed
+}
+
+func requestQualityMatches(settings *RequestQualityProbeSettings, account *Account, model string) bool {
+	if settings.ModelScope != "all" {
+		matched := false
+		for _, candidate := range settings.Models {
+			if matchesQualityProbeModel(candidate, model) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	if enabled, ok := settings.AccountOverrides[account.ID]; ok {
+		return enabled
+	}
+	switch settings.AccountScope {
+	case "selected":
+		for _, id := range settings.AccountIDs {
+			if id == account.ID {
+				return true
+			}
+		}
+		return getExtraBool(account.Extra, "test_on_request_enabled")
+	case "error_or_downgraded":
+		return account.Status == "error" || getExtraBool(account.Extra, "pelican_downgraded") || account.ErrorMessage != ""
+	default:
+		return true
+	}
+}
+
+func matchesQualityProbeModel(pattern, model string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	model = strings.ToLower(strings.TrimSpace(model))
+	if pattern == "" || model == "" {
+		return false
+	}
+	if matchesQualityProbeModelPattern(pattern, model) {
+		return true
+	}
+	// Strip namespace prefix like "global:" or "cn:" if present
+	if idx := strings.Index(model, ":"); idx >= 0 {
+		if matchesQualityProbeModelPattern(pattern, model[idx+1:]) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesQualityProbeModelPattern(pattern, model string) bool {
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(model, strings.TrimSuffix(pattern, "*"))
+	}
+	if pattern == model {
+		return true
+	}
+	// Prefix match: e.g. "gpt-6" matches "gpt-6-sol", "gpt-6.1-sol", "gpt-6-astra", etc.
+	if strings.HasPrefix(model, pattern+"-") || strings.HasPrefix(model, pattern+".") {
+		return true
+	}
+	return false
+}
+
+func (s *RequestQualityProbeService) resolveProbeRules(ctx context.Context, ids []int64) ([]*DegradationRule, error) {
+	if len(ids) != 1 {
+		return nil, errors.New("designate one automatic quality question in account testing")
+	}
+	return s.resolveSelectedRules(ctx, ids, false)
+}
+
+func (s *RequestQualityProbeService) resolveSelectedRules(ctx context.Context, ids []int64, manual bool) ([]*DegradationRule, error) {
+	if len(ids) == 0 {
+		return BuiltinCapabilityRules(), nil
+	}
+	if s.ruleRepo == nil {
+		return nil, errors.New("rule library unavailable")
+	}
+	rules := make([]*DegradationRule, 0, len(ids))
+	seen := map[int64]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		rule, err := s.ruleRepo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !rule.Enabled && !manual {
+			return nil, fmt.Errorf("rule %d is disabled", id)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func (s *RequestQualityProbeService) executeProbe(ctx context.Context, account *Account, modelID string, settings *RequestQualityProbeSettings, rules []*DegradationRule) probeExecutionResult {
+	probeCtx, cancel := context.WithTimeout(withDetectionOrigin(ctx, "request", AccountTestModePelican, account.ID, 0, false), time.Duration(settings.TimeoutSeconds)*time.Second)
+	defer cancel()
+
+	logger.LegacyPrintf("service.request_quality_probe",
+		"[RequestQualityProbe] account=%d (%s) model=%s running request-triggered quality check",
+		account.ID, account.Name, modelID)
+
+	testResult, err := s.accountTestService.RunDegradationProbeRules(probeCtx, account.ID, modelID, rules)
+	if err != nil {
+		logger.LegacyPrintf("service.request_quality_probe",
+			"[RequestQualityProbe] account=%d (%s) model=%s probe error: %v",
+			account.ID, account.Name, modelID, err)
+		return probeExecutionResult{
+			passed: false,
+			reason: "探测请求异常: " + err.Error(),
+			err:    err,
+		}
+	}
+
+	if testResult == nil {
+		return probeExecutionResult{err: errors.New("empty quality result"), reason: "empty quality result"}
+	}
+	if testResult.Status != "success" && testResult.UpstreamFailure != nil && (testResult.UpstreamFailure.StatusCode == 402 || testResult.UpstreamFailure.StatusCode == 403) {
+		failure := testResult.UpstreamFailure
+		reason := GatewayFailureReason("insufficient_balance")
+		message := "Upstream account has insufficient balance or a billing issue"
+		if failure.StatusCode == 403 {
+			reason = "upstream_forbidden"
+			message = "Upstream HTTP 403: " + SanitizeUpstreamErrorMessage(ExtractUpstreamErrorMessage([]byte(failure.Body)))
+		}
+		return probeExecutionResult{passed: false, reason: failure.Error(), err: &UpstreamFailoverError{
+			StatusCode: failure.StatusCode, ResponseBody: []byte(failure.Body), Stage: GatewayFailureStageInference,
+			Scope: GatewayFailureScopeAccount, Reason: reason, ClientStatusCode: failure.StatusCode,
+			ClientMessage: message,
+		}}
+	}
+	if testResult.Status != "success" || testResult.Downgraded {
+		reason := testResult.DowngradeReason
+		if testResult.ErrorMessage != "" {
+			reason = testResult.ErrorMessage
+		}
+		if reason == "" {
+			reason = "探测判定降智或异常"
+		}
+		logger.LegacyPrintf("service.request_quality_probe",
+			"[RequestQualityProbe] account=%d (%s) model=%s probe FAILED status=%s downgraded=%t: %s",
+			account.ID, account.Name, modelID, testResult.Status, testResult.Downgraded, reason)
+
+		// Persist downgrade status to account extra so UI reflects it
+		s.ClearRecentSuccess(account.ID, modelID)
+		if testResult.Status == "success" && testResult.Downgraded {
+			s.persistAccountDowngradeFlag(probeCtx, account, true)
+		}
+
+		probeErr := fmt.Errorf("quality probe failed: %s", reason)
+		var verdictErr error = probeErr
+		if testResult.Status == "success" && testResult.Downgraded {
+			verdictErr = &rotationnotice.DowngradeError{Cause: probeErr}
+		}
+		return probeExecutionResult{
+			passed: false,
+			reason: reason,
+			err:    verdictErr,
+		}
+	}
+
+	logger.LegacyPrintf("service.request_quality_probe",
+		"[RequestQualityProbe] account=%d (%s) model=%s probe PASSED; recording success and proceeding with request",
+		account.ID, account.Name, modelID)
+
+	// If account had downgrade flag, clear it
+	if getExtraBool(account.Extra, "pelican_downgraded") {
+		s.persistAccountDowngradeFlag(probeCtx, account, false)
+	}
+
+	return probeExecutionResult{passed: true}
+}
+
+func (s *RequestQualityProbeService) persistAccountDowngradeFlag(ctx context.Context, account *Account, downgraded bool) {
+	if s.accountRepo == nil || account == nil {
+		return
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	if err := s.accountRepo.UpdateExtra(persistCtx, account.ID, map[string]any{"pelican_downgraded": downgraded}); err != nil {
+		logger.LegacyPrintf("service.request_quality_probe", "persist downgrade account=%d failed: %v", account.ID, err)
+	}
+}
+
+// GetSettings returns the current request quality probe settings.
+func (s *RequestQualityProbeService) GetSettings(ctx context.Context) (*RequestQualityProbeSettings, error) {
+	if s == nil || s.settingService == nil {
+		return DefaultRequestQualityProbeSettings(), nil
+	}
+	return s.settingService.GetRequestQualityProbeSettings(ctx)
+}
+
+// UpdateSettings persists new request quality probe settings.
+func (s *RequestQualityProbeService) UpdateSettings(ctx context.Context, settings *RequestQualityProbeSettings) error {
+	if s == nil || s.settingService == nil {
+		return errors.New("request quality probe service unavailable")
+	}
+	return s.settingService.UpdateRequestQualityProbeSettings(ctx, settings)
+}
+
+func (s *RequestQualityProbeService) ListDetectionRecords(ctx context.Context, f AccountDetectionFilter) ([]*AccountDetectionRecord, error) {
+	if s.detectionRepo == nil {
+		return []*AccountDetectionRecord{}, nil
+	}
+	return s.detectionRepo.List(ctx, f)
+}
+func (s *RequestQualityProbeService) RunManualRules(ctx context.Context, accountID int64, model string, ids []int64) (*ScheduledTestResult, error) {
+	_, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	// An explicit manual selection may use any saved question. Enabled controls
+	// automatic probes only; the tester dispatches using the account's platform.
+	rules, err := s.resolveSelectedRules(ctx, ids, true)
+	if err != nil {
+		return nil, err
+	}
+	if s.accountTestService == nil {
+		return nil, errors.New("quality tester unavailable")
+	}
+	return s.accountTestService.RunDegradationProbeRules(WithAccountDetectionSource(ctx, "manual"), accountID, model, rules)
+}
+
+func (s *RequestQualityProbeService) LatestAccountSummaries(ctx context.Context, ids []int64) ([]qualityevidence.AccountSummary, error) {
+	reader, ok := s.detectionRepo.(interface {
+		LatestAccountSummaries(context.Context, []int64) ([]qualityevidence.AccountSummary, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("detection summary repository unavailable")
+	}
+	return reader.LatestAccountSummaries(ctx, ids)
+}
+
+// RecentSuccessfulUse is advisory only; it never bypasses the quality gate.
+func (s *RequestQualityProbeService) RecentSuccessfulUse(ctx context.Context, attempts []rotationnotice.Attempt, before time.Time) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	reader, ok := s.detectionRepo.(interface {
+		RecentSuccessfulUse(context.Context, []rotationnotice.Attempt, time.Time) (bool, error)
+	})
+	if !ok {
+		return false, nil
+	}
+	return reader.RecentSuccessfulUse(ctx, attempts, before)
+}

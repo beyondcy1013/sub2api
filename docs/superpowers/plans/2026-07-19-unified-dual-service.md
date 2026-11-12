@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Consolidate sub2api and sub2freeApi into `/home/third_party/sub2api` as one source tree and one embedded build artifact while retaining two isolated systemd services with profile-specific behavior.
+**Goal:** Consolidate sub2api and sub2freeApi into `/home/codes/ai/sub2api` as one source tree and one embedded build artifact while retaining two isolated systemd services with profile-specific behavior.
 
 **Architecture:** The canonical tree contains the union of both repositories. Each process loads `deployment.profile` (`main` or `free`) and derives immutable runtime capabilities from it; public settings inject those capabilities into the shared frontend before mount. One `-tags embed` build is installed byte-for-byte to the two existing binary paths, while systemd users, working directories, PostgreSQL databases, Redis databases/prefixes, ports, and rollback paths remain isolated.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Canonical source path is `/home/third_party/sub2api`; `/home/third_party/sub2freeApi` remains the free service runtime/config directory and historical recovery source.
+- Canonical source path is `/home/codes/ai/sub2api`; `/home/codes/ai/sub2freeApi` remains the free service runtime/config directory and historical recovery source.
 - `sub2api.service` remains on port `18381`, PostgreSQL database `sub2api`, Redis DB `0`, runtime user `sub2api`.
 - `sub2freeApi.service` remains on port `18382`, PostgreSQL database `sub2freeApi`, Redis DB `1`, scheduler key prefix `sub2freeApi`, runtime user `sub2freeapi`.
 - Preserve every local commit and every staged, unstaged, ignored-policy, and untracked file from both repositories.
@@ -24,8 +24,8 @@
 ### Task 1: Import The Free History Into The Canonical Repository
 
 **Files:**
-- Merge: all tracked files reachable from `/home/third_party/sub2freeApi` `main`
-- Preserve: both repository backup bundles under `/home/third_party/upgrade-backups`
+- Merge: all tracked files reachable from `/home/codes/ai/sub2freeApi` `main`
+- Preserve: both repository backup bundles under `/home/codes/third_party/upgrade-backups`
 - Preserve/restore: pre-existing dirty and untracked files recorded by each backup `status.txt`, patches, and tar archive
 
 **Interfaces:**
@@ -43,7 +43,7 @@ Create a uniquely named stash including non-ignored untracked files after the al
 - [ ] **Step 3: Fetch and merge the local free branch**
 
 ```bash
-git fetch /home/third_party/sub2freeApi main:refs/remotes/consolidation/free-main
+git fetch /home/codes/ai/sub2freeApi main:refs/remotes/consolidation/free-main
 git merge --no-ff refs/remotes/consolidation/free-main
 ```
 
@@ -190,7 +190,7 @@ Confirm the union migration set is additive and both existing databases can adva
 - Create: `docs/UNIFIED_DUAL_SERVICE_DEPLOYMENT.md`
 - Modify: `/etc/systemd/system/sub2api.service`
 - Modify: `/etc/systemd/system/sub2freeApi.service`
-- Modify: `/home/third_party/sub2freeApi/AGENTS.md`
+- Modify: `/home/codes/ai/sub2freeApi/AGENTS.md`
 
 **Interfaces:**
 - Main systemd environment: `DEPLOYMENT_PROFILE=main`
@@ -210,8 +210,8 @@ Do not restart either service yet.
 **Files:**
 - Build: `frontend/dist`
 - Build once: `backend/bin/sub2api-unified.new`
-- Install atomically: `/home/third_party/bin/sub2api/sub2api`
-- Install the same bytes atomically: `/home/third_party/bin/sub2freeApi/sub2freeApi`
+- Install atomically: `/home/codes/third_party/bin/sub2api/sub2api`
+- Install the same bytes atomically: `/home/codes/third_party/bin/sub2freeApi/sub2freeApi`
 
 **Interfaces:**
 - Produces two active services with equal executable SHA and profile-specific runtime behavior

@@ -29,6 +29,7 @@ type CustomEndpoint struct {
 // SystemSettings represents the admin settings API response payload.
 type SystemSettings struct {
 	OpenAICodexTicketHarvestScope       service.CodexTicketHarvestScope `json:"openai_codex_ticket_harvest_scope"`
+	PelicanProbeSettings                service.PelicanProbeSettings    `json:"pelican_probe_settings"`
 	OpenAICodexTicketStrictResponse     bool                            `json:"openai_codex_ticket_strict_response,omitempty"`
 	OpenAICodexTicketFailClosed         bool                            `json:"openai_codex_ticket_fail_closed"`
 	OpenAICodexTicketStrategy           string                          `json:"openai_codex_ticket_strategy"`
@@ -36,6 +37,7 @@ type SystemSettings struct {
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
 	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
+	GlobalModelExcludePatterns          []string                 `json:"global_model_exclude_patterns"`
 	PromoCodeEnabled                    bool                     `json:"promo_code_enabled"`
 	PasswordResetEnabled                bool                     `json:"password_reset_enabled"`
 	FrontendURL                         string                   `json:"frontend_url"`

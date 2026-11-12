@@ -27,6 +27,10 @@
           </span>
         </template>
 
+        <template #cell-request_id="{ row }">
+          <span class="break-all font-mono text-xs text-gray-600 dark:text-gray-400">{{ row.request_id || row.client_request_id || '-' }}</span>
+        </template>
+
         <template #cell-endpoint="{ row }">
           <div class="max-w-[320px] space-y-1 text-xs">
             <div class="break-all text-gray-700 dark:text-gray-300">
@@ -96,7 +100,7 @@
             v-if="row.account_id"
             class="text-sm text-gray-900 dark:text-white"
             :title="t('admin.ops.errorLog.accountId') + ' ' + row.account_id"
-          >{{ row.account_name || '#' + row.account_id }}</span>
+          >{{ row.account_name || '#' + row.account_id }}<span v-if="systemLogLink && row.account_name" class="ml-1 text-xs text-gray-400">#{{ row.account_id }}</span></span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
@@ -152,6 +156,12 @@
 
         <template #cell-actions="{ row }">
           <button
+            v-if="systemLogLink && (row.request_id || row.client_request_id)"
+            type="button"
+            class="mr-2 text-xs text-primary-600 hover:underline dark:text-primary-400"
+            @click.stop="emit('viewSystemLogs', row)"
+          >{{ t('admin.ops.logs.relatedSystemLogs') }}</button>
+          <button
             type="button"
             class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-600 dark:hover:text-primary-400"
             :title="t('admin.ops.errorLog.details')"
@@ -197,6 +207,7 @@ const { t } = useI18n()
 // 列序对齐管理端用量明细:身份(用户→Key→账号)→ 请求形态(平台→模型→端点→分组→类型)
 // → 结果(状态→消息)→ 时间→UA→IP→操作
 const allColumns = computed<Column[]>(() => [
+  ...(props.systemLogLink ? [{ key: 'request_id', label: t('admin.ops.errorDetail.requestId') }] : []),
   { key: 'user', label: t('admin.ops.errorLog.user') },
   { key: 'api_key', label: t('admin.ops.errorLog.apiKey') },
   { key: 'account', label: t('admin.ops.errorLog.account') },
@@ -299,6 +310,8 @@ interface Props {
   summaryFirst?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  /** 日志中心可按请求 ID 查看系统日志。 */
+  systemLogLink?: boolean
 }
 
 interface Emits {
@@ -308,6 +321,7 @@ interface Emits {
   (e: 'ipGeoBatchFailed'): void
   (e: 'sort', sortBy: string, sortOrder: 'asc' | 'desc'): void
   (e: 'userClick', userId: number, email?: string): void
+  (e: 'viewSystemLogs', row: OpsErrorLog): void
 }
 
 const props = defineProps<Props>()

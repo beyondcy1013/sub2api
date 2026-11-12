@@ -29,6 +29,9 @@ import type {
   CheckMixedChannelResponse,
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
+  RequestQualityProbeSettings,
+  AccountDetectionRecord,
+  ScheduledTestResult,
   AccountBalanceQueryConfig,
   AccountBalanceQueryResult,
   UpdateSchedulingRateRequest,
@@ -849,8 +852,10 @@ export async function queryAccountBalance(id: number): Promise<AccountBalanceQue
  * @param id - Account ID
  * @returns List of available models for this account
  */
-export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
-  const { data } = await apiClient.get<ClaudeModel[]>(`/admin/accounts/${id}/models`)
+export async function getAvailableModels(id: number, options?: { local?: boolean }): Promise<ClaudeModel[]> {
+  const { data } = await apiClient.get<ClaudeModel[]>(`/admin/accounts/${id}/models`, {
+    params: options?.local ? { catalog: 'local' } : undefined
+  })
   return data
 }
 
@@ -1045,6 +1050,15 @@ export async function importCodexSession(payload: CodexSessionImportRequest): Pr
     timeout: 120000 // 120s timeout for large session imports
   })
   return data
+}
+
+export async function syncCurrentCodex(): Promise<CodexSessionImportResult> {
+  const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/sync-current-codex')
+  return data
+}
+
+export async function restoreCurrentCodex(id: number): Promise<void> {
+  await apiClient.post(`/admin/accounts/${id}/restore-current-codex`, { confirm: true })
 }
 
 export async function createOpenAICodexPAT(payload: OpenAICodexPATCreateRequest): Promise<Account> {
@@ -1314,6 +1328,21 @@ export async function updateUpstreamBillingProbeSettings(
   return data
 }
 
+export async function getRequestQualityProbeSettings(): Promise<RequestQualityProbeSettings> {
+  const { data } = await apiClient.get<RequestQualityProbeSettings>('/admin/accounts/request-quality-probe/settings')
+  return data
+}
+
+export async function updateRequestQualityProbeSettings(
+  settings: RequestQualityProbeSettings
+): Promise<RequestQualityProbeSettings> {
+  const { data } = await apiClient.put<RequestQualityProbeSettings>(
+    '/admin/accounts/request-quality-probe/settings',
+    settings
+  )
+  return data
+}
+
 export async function setUpstreamBillingProbeEnabled(id: number, enabled: boolean): Promise<void> {
   await apiClient.put(`/admin/accounts/${id}/upstream-billing-probe`, { enabled })
 }
@@ -1474,6 +1503,8 @@ export const accountsAPI = {
   previewClearImportedData,
   clearImportedData,
   importCodexSession,
+  syncCurrentCodex,
+  restoreCurrentCodex,
   createOpenAICodexPAT,
   getAntigravityDefaultModelMapping,
   batchDelete,
@@ -1488,6 +1519,10 @@ export const accountsAPI = {
   reassignStickySessions,
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
+  listDetectionRecords,
+  runQualityRules,
+  getRequestQualityProbeSettings,
+  updateRequestQualityProbeSettings,
   setUpstreamBillingProbeEnabled,
   probeUpstreamBilling,
   probeUpstreamBillingBatch,
@@ -1587,4 +1622,13 @@ export async function streamManualCodexHarvest(
   if (buffer.startsWith('data: ')) {
     try { onProgress(JSON.parse(buffer.slice(6)) as ManualHarvestProgress) } catch { /* ignore */ }
   }
+}
+
+export async function listDetectionRecords(params: { account_id?: number; model_id?: string; source?: string; before_id?: number } = {}): Promise<AccountDetectionRecord[]> {
+  const { data } = await apiClient.get<AccountDetectionRecord[]>('/admin/accounts/detection-records', { params })
+  return data ?? []
+}
+export async function runQualityRules(accountId: number, modelId: string, ruleIds: number[], signal?: AbortSignal): Promise<ScheduledTestResult> {
+  const { data } = await apiClient.post<ScheduledTestResult>(`/admin/accounts/${accountId}/quality-test`, { model_id: modelId, rule_ids: ruleIds }, { signal })
+  return data
 }

@@ -22,6 +22,7 @@ import (
 const codexImportClockSkewSeconds int64 = 120
 
 type CodexSessionImportRequest struct {
+	managementOnly          bool
 	Content                 string         `json:"content"`
 	Contents                []string       `json:"contents"`
 	Name                    string         `json:"name"`
@@ -286,6 +287,17 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 				ExpiresAt:          effectiveExpiresAt,
 				AutoPauseOnExpired: autoPauseOnExpired,
 			}
+			if req.managementOnly {
+				paused := false
+				pauseResult, err := h.adminService.BulkUpdateAccounts(ctx, &service.BulkUpdateAccountsInput{AccountIDs: []int64{existing.ID}, Status: "inactive", Schedulable: &paused})
+				if err != nil {
+					return result, err
+				}
+				if pauseResult == nil || pauseResult.Success != 1 || pauseResult.Failed != 0 {
+					return result, errors.New("无法暂停已有账号，同步已中止")
+				}
+				updateInput.Status = "inactive"
+			}
 			if req.ProxyID != nil {
 				updateInput.ProxyID = req.ProxyID
 			}
@@ -329,6 +341,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 		}
 
 		account, createErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
+			ManagementOnly:        req.managementOnly,
 			Name:                  accountName,
 			Notes:                 req.Notes,
 			Platform:              service.PlatformOpenAI,

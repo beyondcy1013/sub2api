@@ -62,7 +62,12 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	body []byte,
 	promptCacheKey string,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (forwardResult *OpenAIForwardResult, forwardErr error) {
+	ctx, finishAccountForward := beginAccountForward(ctx, c, account)
+	defer finishAccountForward(&forwardErr)
+	if accountForwardPaused(ctx) {
+		return nil, accountPausedFailover()
+	}
 	return s.forwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel, false)
 }
 

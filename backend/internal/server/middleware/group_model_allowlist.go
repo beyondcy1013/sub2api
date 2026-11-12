@@ -29,14 +29,25 @@ import (
 //     `model`/`session.model` 或 multipart `model`/`session` 后回填请求体。
 //   - 拒绝：按入口协议格式返回 404，并标记运维业务限流原因
 //     local_model_configuration 与 ingress 拒绝原因 model_not_allowed。
-func GroupModelAllowlist() gin.HandlerFunc {
+func GroupModelAllowlist(settingServices ...*service.SettingService) gin.HandlerFunc {
+	var settingService *service.SettingService
+	if len(settingServices) > 0 {
+		settingService = settingServices[0]
+	}
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey == nil || apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
+		hasGroupAllowlist := ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
+
+		var globalPatterns []string
+		if settingService != nil && c.Request != nil {
+			globalPatterns, _ = settingService.GetGlobalModelExcludePatterns(c.Request.Context())
+		}
+		hasGlobalExclude := len(globalPatterns) > 0
+
+		if !hasGroupAllowlist && !hasGlobalExclude {
 			c.Next()
 			return
 		}
-		allowlist := apiKey.Group.ModelAllowlist
 		if c.Request == nil {
 			c.Next()
 			return
@@ -70,22 +81,39 @@ func GroupModelAllowlist() gin.HandlerFunc {
 			}
 		}
 
-		blocked := ""
-		for _, candidate := range models {
-			if !allowlist.Allows(candidate) {
-				blocked = candidate
-				break
+		// 1. 全局模型排除过滤：若命中全局排除规则，直接阻断
+		if hasGlobalExclude {
+			for _, candidate := range models {
+				if service.IsModelGloballyExcluded(globalPatterns, candidate) {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+					MarkIngressRejected(c, IngressRejectModelNotAllowed)
+					groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available", candidate))
+					c.Abort()
+					return
+				}
 			}
 		}
-		if blocked == "" {
-			c.Next()
-			return
+
+		// 2. 分组白名单校验：若开启，任一候选未在白名单中即阻断
+		if hasGroupAllowlist {
+			allowlist := apiKey.Group.ModelAllowlist
+			blocked := ""
+			for _, candidate := range models {
+				if !allowlist.Allows(candidate) {
+					blocked = candidate
+					break
+				}
+			}
+			if blocked != "" {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+				MarkIngressRejected(c, IngressRejectModelNotAllowed)
+				groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", blocked))
+				c.Abort()
+				return
+			}
 		}
 
-		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
-		MarkIngressRejected(c, IngressRejectModelNotAllowed)
-		groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", blocked))
-		c.Abort()
+		c.Next()
 	}
 }
 

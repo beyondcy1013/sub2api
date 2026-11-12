@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -250,6 +251,31 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
+		if h.requestQualityProbe != nil {
+			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, reqModel); !ok {
+				fs.FailedAccountIDs[account.ID] = struct{}{}
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+					selection.ReleaseFunc = nil
+				}
+				fs.LastFailoverErr = &service.UpstreamFailoverError{
+					StatusCode:       http.StatusBadGateway,
+					Stage:            service.GatewayFailureStageInference,
+					Scope:            service.GatewayFailureScopeAccount,
+					Reason:           "request_quality_probe_failed",
+					ClientStatusCode: http.StatusBadGateway,
+					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, reqModel, reason),
+				}
+				reqLog.Warn("gateway.responses.account_skipped_quality_probe_failed",
+					zap.Int64("account_id", account.ID),
+					zap.String("account_name", account.Name),
+					zap.String("model", reqModel),
+					zap.String("reason", reason),
+				)
+				continue
+			}
+		}
+
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
 		if !selection.Acquired {
@@ -362,6 +388,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
 		stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
+		if h.requestQualityProbe != nil {
+			h.requestQualityProbe.TouchRecentSuccess(account.ID, reqModel)
+		}
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,

@@ -231,18 +231,24 @@ func rewriteClientToolHistory(value any, adapter *ResponsesClientToolMapping) (b
 			typ := strings.TrimSpace(stringValue(typed["type"]))
 			switch typ {
 			case "custom_tool_call":
-				if adapter.CustomTools[strings.TrimSpace(stringValue(typed["name"]))] {
-					typed["type"] = "function_call"
-					typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
-					delete(typed, "input")
-					normalizeLoweredFunctionItemID(typed)
-					changed = true
+				toolName := strings.TrimSpace(stringValue(typed["name"]))
+				typed["type"] = "function_call"
+				typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
+				delete(typed, "input")
+				normalizeLoweredFunctionItemID(typed)
+				changed = true
+				if adapter != nil && adapter.CustomTools != nil && toolName != "" {
+					adapter.CustomTools[toolName] = true
 				}
 			case "custom_tool_call_output":
+				toolName := strings.TrimSpace(stringValue(typed["name"]))
 				typed["type"] = "function_call_output"
 				normalizeLoweredFunctionItemID(typed)
 				normalizeClientToolOutput(typed)
 				changed = true
+				if adapter != nil && adapter.CustomTools != nil && toolName != "" {
+					adapter.CustomTools[toolName] = true
+				}
 			case "tool_search_call":
 				if adapter.ToolSearch {
 					typed["type"] = "function_call"

@@ -15,7 +15,8 @@
         :readonly="readonly"
         :rows="rows"
         :class="[
-          'input w-full min-h-[80px] transition-all duration-200 resize-y',
+          'input w-full transition-all duration-200 resize-y',
+          textareaClass || 'min-h-[80px]',
           error ? 'input-error ring-2 ring-red-500/20' : '',
           disabled ? 'cursor-not-allowed bg-gray-100 opacity-60 dark:bg-dark-900' : ''
         ]"
@@ -49,13 +50,15 @@ interface Props {
   hint?: string
   id?: string
   rows?: number | string
+  textareaClass?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   required: false,
   readonly: false,
-  rows: 3
+  rows: 3,
+  textareaClass: ''
 })
 
 const emit = defineEmits<{

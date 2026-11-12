@@ -432,6 +432,12 @@
     overflow: hidden;
   }
 
+  /* MobileActionSheet bottom sheets use an independent lock so they cannot
+     interfere with the body.modal-open contract owned by dialogs. */
+  body.mobile-action-sheet-open {
+    overflow: hidden;
+  }
+
   .modal-enter-active {
     transition: opacity 250ms ease-out;
   }

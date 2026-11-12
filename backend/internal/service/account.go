@@ -180,6 +180,10 @@ func (a *Account) IsPinned() bool {
 	return a != nil && a.getExtraBool(AccountPinnedExtraKey)
 }
 
+func (a *Account) IsFixedCodex() bool {
+	return a != nil && a.getExtraBool(AccountFixedCodexExtraKey)
+}
+
 // BillingRateMultiplier 返回账号计费倍率。
 // - nil 表示未配置/旧缓存缺字段，按 1.0 处理
 // - 允许 0，表示该账号计费为 0

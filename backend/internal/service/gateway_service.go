@@ -690,6 +690,7 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	OperatorPaused           bool // Explicit local pause is not an upstream health failure.
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
@@ -731,7 +732,7 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
-	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
+	return !e.OperatorPaused && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
 }
 
 // sseStreamErrorEventError 表示上游 SSE 流体内出现 event:error 帧。
@@ -1395,12 +1396,22 @@ func mixedListingModelAllowed(groupPlatform, model string) bool {
 	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
 }
 
+func (s *GatewayService) SettingService() *SettingService {
+	if s == nil {
+		return nil
+	}
+	return s.settingService
+}
+
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
+				if s.settingService != nil {
+					return s.settingService.FilterGloballyExcludedModels(ctx, cloneStringSlice(models))
+				}
 				return cloneStringSlice(models)
 			}
 		}
@@ -1483,6 +1494,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if s.modelsListCache != nil {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
+	}
+	if s.settingService != nil {
+		models = s.settingService.FilterGloballyExcludedModels(ctx, models)
 	}
 	return cloneStringSlice(models)
 }

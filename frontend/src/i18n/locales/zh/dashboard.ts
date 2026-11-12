@@ -393,6 +393,9 @@ export default {
     inboundEndpoint: '入站端点',
     upstreamEndpoint: '上游端点',
     type: '类型',
+    status: '状态',
+    statusSuccess: '成功',
+    statusFailed: '失败',
     tokens: 'Token',
     cost: '费用',
     firstToken: '首 Token',
@@ -478,7 +481,7 @@ export default {
       detailAccuracy: '定位精度',
       detailCoordinates: '坐标',
     },
-    tabs: { usage: '用量明细', errors: '错误请求', ranking: '用户排行' },
+    tabs: { usage: '用量明细', errors: '错误请求', ranking: '用户排行', accounts: '账号统计' },
     errors: {
       time: '时间', model: '模型', endpoint: '端点', status: '状态码',
       category: '分类', platform: '平台', message: '错误信息',

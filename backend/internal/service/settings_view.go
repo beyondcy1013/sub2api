@@ -16,10 +16,12 @@ type SystemSettings struct {
 	OpenAICodexTicketStrictResponse     bool
 	OpenAICodexTicketFailClosed         bool
 	OpenAICodexTicketStrategy           string
+	PelicanProbeSettings                PelicanProbeSettings
 	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
 	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
+	GlobalModelExcludePatterns          []string // 全局排除大模型表达式列表
 	PromoCodeEnabled                    bool
 	PasswordResetEnabled                bool
 	FrontendURL                         string

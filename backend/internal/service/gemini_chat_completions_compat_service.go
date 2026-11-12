@@ -29,7 +29,12 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	c *gin.Context,
 	account *Account,
 	body []byte,
-) (*ForwardResult, error) {
+) (forwardResult *ForwardResult, forwardErr error) {
+	ctx, finishAccountForward := beginAccountForward(ctx, c, account)
+	defer finishAccountForward(&forwardErr)
+	if accountForwardPaused(ctx) {
+		return nil, accountPausedFailover()
+	}
 	startTime := time.Now()
 
 	var ccReq apicompat.ChatCompletionsRequest

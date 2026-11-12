@@ -85,8 +85,8 @@ const EditAccountModalStub = defineComponent({
 })
 
 const AccountTestModalStub = defineComponent({
-  props: { show: Boolean, account: { type: Object, default: null } },
-  template: '<div data-test="test-account">{{ show ? account?.name : "" }}</div>'
+  props: { show: Boolean, accounts: { type: Array, default: () => [] } },
+  template: '<div data-test="test-account">{{ show ? accounts[0]?.name : "" }}</div>'
 })
 
 const AccountStatsModalStub = defineComponent({

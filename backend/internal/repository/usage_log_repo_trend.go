@@ -724,6 +724,116 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 	return results, nil
 }
 
+// GetAccountBreakdownStats returns per-account usage breakdown within a specific dimension.
+func (r *usageLogRepository) GetAccountBreakdownStats(ctx context.Context, startTime, endTime time.Time, dim usagestats.AccountBreakdownDimension, limit int) (results []usagestats.AccountBreakdownItem, err error) {
+	query := `
+		SELECT
+			COALESCE(ul.account_id, 0) as account_id,
+			COALESCE(a.name, '') as account_name,
+			COALESCE(a.platform, '') as platform,
+			COALESCE(a.type, '') as type,
+			COUNT(*) as requests,
+			COALESCE(SUM(ul.input_tokens), 0) as input_tokens,
+			COALESCE(SUM(ul.output_tokens), 0) as output_tokens,
+			COALESCE(SUM(ul.cache_creation_tokens + ul.cache_read_tokens), 0) as cache_tokens,
+			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(ul.total_cost), 0) as cost,
+			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
+			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost
+		FROM usage_logs ul
+		LEFT JOIN accounts a ON a.id = ul.account_id
+		WHERE ul.created_at >= $1 AND ul.created_at < $2
+	`
+	args := []any{startTime, endTime}
+
+	if dim.GroupID > 0 {
+		query += fmt.Sprintf(" AND ul.group_id = $%d", len(args)+1)
+		args = append(args, dim.GroupID)
+	}
+	if dim.Model != "" {
+		query += fmt.Sprintf(" AND %s = $%d", resolveModelDimensionExpression(dim.ModelType), len(args)+1)
+		args = append(args, dim.Model)
+	}
+	if dim.Endpoint != "" {
+		col := resolveEndpointColumn(dim.EndpointType)
+		query += fmt.Sprintf(" AND %s = $%d", col, len(args)+1)
+		args = append(args, dim.Endpoint)
+	}
+	if dim.UserID > 0 {
+		query += fmt.Sprintf(" AND ul.user_id = $%d", len(args)+1)
+		args = append(args, dim.UserID)
+	}
+	if dim.APIKeyID > 0 {
+		query += fmt.Sprintf(" AND ul.api_key_id = $%d", len(args)+1)
+		args = append(args, dim.APIKeyID)
+	}
+	if dim.AccountID > 0 {
+		query += fmt.Sprintf(" AND ul.account_id = $%d", len(args)+1)
+		args = append(args, dim.AccountID)
+	}
+	if dim.RequestType != nil {
+		condition, conditionArgs := buildRequestTypeFilterConditionWithAlias(len(args)+1, *dim.RequestType, "ul")
+		query += " AND " + condition
+		args = append(args, conditionArgs...)
+	}
+	if dim.Stream != nil {
+		query += fmt.Sprintf(" AND ul.stream = $%d", len(args)+1)
+		args = append(args, *dim.Stream)
+	}
+	query, args = appendNativeCompactionV2QueryFilter(query, args, dim.NativeCompactionV2, "ul")
+	if dim.BillingType != nil {
+		query += fmt.Sprintf(" AND ul.billing_type = $%d", len(args)+1)
+		args = append(args, *dim.BillingType)
+	}
+
+	orderBy := "actual_cost"
+	switch dim.SortBy {
+	case "total_tokens", "input_tokens", "output_tokens", "cache_tokens", "requests", "cost", "actual_cost", "account_cost":
+		orderBy = dim.SortBy
+	}
+	query += " GROUP BY ul.account_id, a.name, a.platform, a.type ORDER BY " + orderBy + " DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	rows, err := r.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			results = nil
+		}
+	}()
+
+	results = make([]usagestats.AccountBreakdownItem, 0)
+	for rows.Next() {
+		var row usagestats.AccountBreakdownItem
+		if err := rows.Scan(
+			&row.AccountID,
+			&row.AccountName,
+			&row.Platform,
+			&row.Type,
+			&row.Requests,
+			&row.InputTokens,
+			&row.OutputTokens,
+			&row.CacheTokens,
+			&row.TotalTokens,
+			&row.Cost,
+			&row.ActualCost,
+			&row.AccountCost,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // GetAllGroupUsageSummary 返回所有分组在服务端配置时区内的今日、昨日与当前保留记录累计金额。
 func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayStart time.Time) ([]usagestats.GroupUsageSummary, error) {
 	return r.getAllGroupUsageSummaryFromRollups(ctx, todayStart)

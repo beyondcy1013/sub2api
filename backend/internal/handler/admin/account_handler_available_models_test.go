@@ -3,10 +3,12 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -484,6 +486,82 @@ func TestAccountHandlerGetAvailableModels_Antigravity(t *testing.T) {
 	}
 }
 
+type countingHTTPUpstream struct {
+	calls atomic.Int32
+}
+
+func (u *countingHTTPUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	u.calls.Add(1)
+	return nil, errors.New("upstream must not be called for catalog=local")
+}
+
+func (u *countingHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return u.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+func setupLocalModelsRouter(adminSvc service.AdminService, upstream service.HTTPUpstream) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}
+	gateway := service.NewOpenAIGatewayService(
+		nil, nil, nil, nil, nil, nil, nil,
+		cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	accountTestSvc := service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, cfg, nil)
+	accountTestSvc.SetOpenAIGatewayService(gateway)
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, accountTestSvc, nil, nil, nil, nil, nil)
+	router.GET("/api/v1/admin/accounts/:id/models", handler.GetAvailableModels)
+	return router
+}
+
+// catalog=local must answer from the locally configured catalog and never
+// touch the upstream model discovery path (the pelican picker cannot afford a
+// multi-second upstream round trip per account).
+func TestAccountHandlerGetAvailableModels_LocalCatalogSkipsUpstream(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       61,
+			Name:     "openai-local-catalog",
+			Platform: service.PlatformOpenAI,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "sk-local",
+				"base_url": "https://models.example/v1",
+				"model_mapping": map[string]any{
+					"gpt-5.6-sol": "gpt-5.6-sol",
+				},
+			},
+		},
+	}
+	upstream := &countingHTTPUpstream{}
+	router := setupLocalModelsRouter(svc, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/61/models?catalog=local", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.EqualValues(t, 0, upstream.calls.Load(), "local catalog must not call the model list upstream")
+
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 1)
+	require.Equal(t, "gpt-5.6-sol", resp.Data[0].ID)
+
+	// The default request path still performs live upstream discovery.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/61/models", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.EqualValues(t, 1, upstream.calls.Load(), "default catalog keeps upstream discovery")
+}
+
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
@@ -599,6 +677,113 @@ func TestAccountHandlerSyncUpstreamModelsPreviewUsesProvidedModelMapping(t *test
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, []string{"glm-5.3"}, resp.Data.Models)
 	require.Equal(t, []string{"low", "high"}, resp.Data.Metadata["glm-5.3"].SupportedReasoningLevels)
+}
+
+type syncPreviewSettingRepo struct {
+	values map[string]string
+}
+
+func (r *syncPreviewSettingRepo) Get(_ context.Context, key string) (*service.Setting, error) {
+	if v, ok := r.values[key]; ok {
+		return &service.Setting{Key: key, Value: v}, nil
+	}
+	return nil, service.ErrSettingNotFound
+}
+
+func (r *syncPreviewSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	return r.values[key], nil
+}
+
+func (r *syncPreviewSettingRepo) Set(_ context.Context, key, value string) error {
+	r.values[key] = value
+	return nil
+}
+
+func (r *syncPreviewSettingRepo) GetMultiple(_ context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		if v, ok := r.values[k]; ok {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+func (r *syncPreviewSettingRepo) SetMultiple(_ context.Context, settings map[string]string) error {
+	for k, v := range settings {
+		r.values[k] = v
+	}
+	return nil
+}
+
+func (r *syncPreviewSettingRepo) GetAll(_ context.Context) (map[string]string, error) {
+	out := make(map[string]string, len(r.values))
+	for k, v := range r.values {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (r *syncPreviewSettingRepo) Delete(_ context.Context, key string) error {
+	delete(r.values, key)
+	return nil
+}
+
+// 上游同步时必须先剔除全局排除模型，否则前端会把它们写进 model_mapping，导致创建/编辑账号被后端拒绝。
+func TestAccountHandlerSyncUpstreamModelsPreviewFiltersGloballyExcludedModels(t *testing.T) {
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
+				"object": "list",
+				"data": [
+					{"id": "gpt-6.1-sol"},
+					{"id": "gpt-5.4"},
+					{"id": "gpt-4o-realtime-preview"}
+				]
+			}`)),
+		},
+		{
+			StatusCode: http.StatusNotFound,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":"not found"}`)),
+		},
+	}}
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	accountTestSvc := service.NewAccountTestService(
+		nil, nil, nil, nil, nil, upstream,
+		&config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+		nil,
+	)
+	accountTestSvc.SetSettingService(service.NewSettingService(&syncPreviewSettingRepo{values: map[string]string{
+		service.SettingKeyGlobalModelExcludePatterns: `["gpt-5.*","gpt-4*"]`,
+	}}, &config.Config{}))
+	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, accountTestSvc, nil, nil, nil, nil, nil)
+	router.POST("/api/v1/admin/accounts/models/sync-upstream-preview", handler.SyncUpstreamModelsPreview)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/accounts/models/sync-upstream-preview",
+		strings.NewReader(`{
+			"platform":"openai",
+			"type":"apikey",
+			"base_url":"https://provider.example/v1",
+			"api_key":"key"
+		}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data service.UpstreamModelCatalog `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, []string{"gpt-6.1-sol"}, resp.Data.Models)
 }
 
 func TestAccountHandlerSyncUpstreamModels_UpstreamErrorDoesNotExposeBody(t *testing.T) {

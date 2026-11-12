@@ -3,6 +3,43 @@ import { ref } from 'vue'
 import { adminAPI } from '@/api'
 import type { CustomMenuItem } from '@/types'
 
+export function matchPattern(pattern: string, text: string): boolean {
+  const p = pattern.trim().toLowerCase()
+  const t = text.trim().toLowerCase()
+  if (!p) return false
+  if (p === '*' || p === t) return true
+  const regexStr = '^' + p.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$'
+  try {
+    return new RegExp(regexStr).test(t)
+  } catch {
+    return false
+  }
+}
+
+export function isModelGloballyExcluded(patterns: string[], model: string): boolean {
+  if (!patterns || patterns.length === 0 || !model) return false
+  const m = model.trim().toLowerCase()
+  const candidates = new Set<string>()
+  const add = (v: string) => {
+    v = v.trim().toLowerCase()
+    if (!v) return
+    candidates.add(v)
+    if (v.startsWith('models/')) candidates.add(v.slice(7))
+    if (v.endsWith('-thinking')) candidates.add(v.slice(0, -9))
+  }
+  add(m)
+  const parts = m.split(/[/:]/)
+  for (const part of parts) {
+    add(part)
+  }
+  for (const pattern of patterns) {
+    for (const candidate of candidates) {
+      if (matchPattern(pattern, candidate)) return true
+    }
+  }
+  return false
+}
+
 export const useAdminSettingsStore = defineStore('adminSettings', () => {
   const loaded = ref(false)
   const loading = ref(false)
@@ -50,6 +87,7 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
   const opsQueryModeDefault = ref(readCachedString('ops_query_mode_default_cached', 'auto'))
   const paymentEnabled = ref(readCachedBool('payment_enabled_cached', false))
   const customMenuItems = ref<CustomMenuItem[]>([])
+  const globalModelExcludePatterns = ref<string[]>([])
 
   async function fetch(force = false): Promise<void> {
     if (loaded.value && !force) return
@@ -71,6 +109,9 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
       writeCachedString('ops_query_mode_default_cached', opsQueryModeDefault.value)
 
       customMenuItems.value = Array.isArray(settings.custom_menu_items) ? settings.custom_menu_items : []
+      globalModelExcludePatterns.value = Array.isArray(settings.global_model_exclude_patterns)
+        ? settings.global_model_exclude_patterns
+        : []
 
       paymentEnabled.value = paymentConfigResp.data?.enabled ?? false
       writeCachedBool('payment_enabled_cached', paymentEnabled.value)
@@ -132,6 +173,10 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
     initializeEventListeners()
   }
 
+  function isModelExcluded(model: string): boolean {
+    return isModelGloballyExcluded(globalModelExcludePatterns.value, model)
+  }
+
   return {
     loaded,
     loading,
@@ -140,6 +185,8 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
     opsQueryModeDefault,
     paymentEnabled,
     customMenuItems,
+    globalModelExcludePatterns,
+    isModelGloballyExcluded: isModelExcluded,
     fetch,
     setOpsMonitoringEnabledLocal,
     setOpsRealtimeMonitoringEnabledLocal,

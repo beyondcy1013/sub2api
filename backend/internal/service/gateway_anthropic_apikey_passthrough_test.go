@@ -1917,3 +1917,81 @@ func TestSonnet55BedrockCCCompatTransformsBeforeValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestStripAnthropicVendorUsageFields(t *testing.T) {
+	t.Run("non-streaming response with kiro_ fields in usage", func(t *testing.T) {
+		input := []byte(`{
+			"id": "msg_123",
+			"type": "message",
+			"role": "assistant",
+			"model": "claude-haiku-4-5-20251001",
+			"content": [{"type": "text", "text": "H72"}],
+			"stop_reason": "end_turn",
+			"usage": {
+				"input_tokens": 10,
+				"output_tokens": 2,
+				"cache_creation_input_tokens": 26,
+				"cache_read_input_tokens": 0,
+				"service_tier": "standard",
+				"inference_geo": "global",
+				"kiro_actual_input_tokens": 5708,
+				"kiro_billable_input_tokens": 26,
+				"kiro_credits": 0.00583588623548922,
+				"kiro_excluded_input_tokens": 5682,
+				"kiro_first_thinking_ms": null,
+				"kiro_first_tool_use_ms": null,
+				"kiro_first_visible_ms": 1068,
+				"kiro_total_ms": 1068,
+				"kiro_upstream_response_ms": 1068
+			}
+		}`)
+
+		cleaned := stripAnthropicVendorUsageFields(input)
+
+		require.Equal(t, "H72", gjson.GetBytes(cleaned, "content.0.text").String())
+		require.Equal(t, int64(10), gjson.GetBytes(cleaned, "usage.input_tokens").Int())
+		require.Equal(t, int64(2), gjson.GetBytes(cleaned, "usage.output_tokens").Int())
+		require.Equal(t, int64(26), gjson.GetBytes(cleaned, "usage.cache_creation_input_tokens").Int())
+		require.Equal(t, "standard", gjson.GetBytes(cleaned, "usage.service_tier").String())
+		require.Equal(t, "global", gjson.GetBytes(cleaned, "usage.inference_geo").String())
+
+		// Verify all kiro_ keys are stripped
+		usageObj := gjson.GetBytes(cleaned, "usage")
+		usageObj.ForEach(func(key, value gjson.Result) bool {
+			require.False(t, strings.HasPrefix(key.String(), "kiro_"), "unexpected vendor key: %s", key.String())
+			return true
+		})
+	})
+
+	t.Run("streaming SSE message_start with kiro_ fields in message.usage", func(t *testing.T) {
+		input := []byte(`{"type":"message_start","message":{"id":"msg_831","type":"message","role":"assistant","usage":{"input_tokens":6,"cache_read_input_tokens":20,"kiro_actual_input_tokens":431,"kiro_billable_input_tokens":26,"kiro_credits":0.001}}}`)
+		cleaned := stripAnthropicVendorUsageFields(input)
+
+		require.Equal(t, int64(6), gjson.GetBytes(cleaned, "message.usage.input_tokens").Int())
+		require.Equal(t, int64(20), gjson.GetBytes(cleaned, "message.usage.cache_read_input_tokens").Int())
+
+		msgUsageObj := gjson.GetBytes(cleaned, "message.usage")
+		msgUsageObj.ForEach(func(key, value gjson.Result) bool {
+			require.False(t, strings.HasPrefix(key.String(), "kiro_"), "unexpected vendor key: %s", key.String())
+			return true
+		})
+	})
+
+	t.Run("streaming SSE message_delta with kiro_ fields in usage", func(t *testing.T) {
+		input := []byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4,"kiro_actual_input_tokens":5708,"kiro_billable_input_tokens":26,"kiro_total_ms":1093}}`)
+		cleaned := stripAnthropicVendorUsageFields(input)
+
+		require.Equal(t, int64(4), gjson.GetBytes(cleaned, "usage.output_tokens").Int())
+		usageObj := gjson.GetBytes(cleaned, "usage")
+		usageObj.ForEach(func(key, value gjson.Result) bool {
+			require.False(t, strings.HasPrefix(key.String(), "kiro_"), "unexpected vendor key: %s", key.String())
+			return true
+		})
+	})
+
+	t.Run("clean payload without kiro_ fields is untouched", func(t *testing.T) {
+		input := []byte(`{"id":"msg_1","type":"message","usage":{"input_tokens":10,"output_tokens":5}}`)
+		cleaned := stripAnthropicVendorUsageFields(input)
+		require.Equal(t, string(input), string(cleaned))
+	})
+}
