@@ -502,3 +502,88 @@ func TestRequestQualityProbeReuseWindowZeroKeepsPerRequestProbe(t *testing.T) {
 	require.NoError(t, <-result)
 	require.Equal(t, 1, tester.runCount)
 }
+
+func TestMatchesQualityProbeModel_ClaudeAndWildcards(t *testing.T) {
+	tests := []struct {
+		pattern  string
+		model    string
+		expected bool
+	}{
+		// Claude general wildcard
+		{"claude*", "claude-3-7-sonnet-20250219", true},
+		{"claude*", "claude-sonnet-5", true},
+		{"claude*", "claude-haiku-5-5", true},
+		{"claude*", "anthropic/claude-3-7-sonnet", true},
+		{"claude*", "global:claude-sonnet-5", true},
+		{"claude*", "gpt-6-astra", false},
+
+		// Claude version delimiter tolerance (3-7 vs 3.7)
+		{"claude-3-7*", "claude-3-7-sonnet-20250219", true},
+		{"claude-3.7*", "claude-3-7-sonnet-20250219", true},
+		{"claude-3-7*", "claude-3.7-sonnet", true},
+		{"claude-3.7-sonnet*", "claude-3-7-sonnet-20250219", true},
+		{"claude-3-7*", "claude-3-5-sonnet", false},
+
+		// Claude Sonnet / Haiku specific wildcards
+		{"claude-sonnet*", "claude-sonnet-5", true},
+		{"claude-sonnet*", "claude-sonnet-4-5", true},
+		{"claude-sonnet*", "claude-haiku-5-5", false},
+		{"claude*sonnet*", "claude-3-7-sonnet-20250219", true},
+		{"claude*sonnet*", "claude-3-5-haiku-20241022", false},
+
+		// Leading / surrounding wildcard
+		{"*claude*", "claude-sonnet-5", true},
+		{"*claude*", "anthropic/claude-3-7-sonnet", true},
+		{"*claude*", "deepseek-chat", false},
+
+		// Provider prefix in pattern
+		{"anthropic/claude*", "claude-3-7-sonnet", true},
+		{"anthropic/claude-3-7*", "claude-3-7-sonnet-20250219", true},
+
+		// Family prefix without '*'
+		{"claude", "claude-sonnet-5", true},
+		{"claude", "claude-3-7-sonnet", true},
+		{"claude-3.7", "claude-3-7-sonnet", true},
+		{"claude", "gpt-6-astra", false},
+
+		// GPT-6 patterns still work
+		{"gpt-6*", "gpt-6.1-sol", true},
+		{"gpt-6*", "gpt-6-astra", true},
+		{"gpt-6", "gpt-6-sol", true},
+		{"gpt-6*", "claude-sonnet-5", false},
+	}
+
+	for _, tc := range tests {
+		actual := matchesQualityProbeModel(tc.pattern, tc.model)
+		require.Equal(t, tc.expected, actual, "pattern=%q model=%q expected=%v got=%v", tc.pattern, tc.model, tc.expected, actual)
+	}
+}
+
+func TestRequestQualityProbe_ClaudeWildcardGate(t *testing.T) {
+	svc, tester, _ := qualityFixture(t)
+	// Configure with multiple wildcards including Claude and GPT-6
+	require.NoError(t, svc.settingService.UpdateRequestQualityProbeSettings(context.Background(), &RequestQualityProbeSettings{
+		Enabled: true, RuleIDs: []int64{1}, Models: []string{"gpt-6*", "claude-3-7*"}, ModelScope: "selected",
+		AccountScope: "all",
+	}))
+
+	// 1. claude-3-7-sonnet-20250219 should trigger probe
+	result1, cancel1 := svc.StartRequestQualityCheck(context.Background(), &Account{ID: 1, Status: "active"}, "claude-3-7-sonnet-20250219")
+	defer cancel1()
+	require.NotNil(t, result1)
+	require.NoError(t, <-result1)
+	require.Equal(t, 1, tester.runCount)
+
+	// 2. claude-haiku-5-5 should NOT trigger probe (not matching claude-3-7*)
+	result2, cancel2 := svc.StartRequestQualityCheck(context.Background(), &Account{ID: 1, Status: "active"}, "claude-haiku-5-5")
+	defer cancel2()
+	require.Nil(t, result2)
+	require.Equal(t, 1, tester.runCount)
+
+	// 3. gpt-6-astra should trigger probe
+	result3, cancel3 := svc.StartRequestQualityCheck(context.Background(), &Account{ID: 1, Status: "active"}, "gpt-6-astra")
+	defer cancel3()
+	require.NotNil(t, result3)
+	require.NoError(t, <-result3)
+	require.Equal(t, 2, tester.runCount)
+}

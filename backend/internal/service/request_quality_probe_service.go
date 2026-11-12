@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/modules/qualityevidence"
 	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -342,30 +343,112 @@ func matchesQualityProbeModel(pattern, model string) bool {
 	if pattern == "" || model == "" {
 		return false
 	}
-	if matchesQualityProbeModelPattern(pattern, model) {
+
+	// 1. Direct candidate matching
+	if matchesQualityProbeCandidate(pattern, model) {
 		return true
 	}
-	// Strip namespace prefix like "global:" or "cn:" if present
-	if idx := strings.Index(model, ":"); idx >= 0 {
-		if matchesQualityProbeModelPattern(pattern, model[idx+1:]) {
+
+	// 2. Strip namespace and provider prefixes from model:
+	// e.g. "global:claude-3-7-sonnet" -> "claude-3-7-sonnet"
+	// e.g. "anthropic/claude-3-7-sonnet" -> "claude-3-7-sonnet"
+	cleanModel := stripModelNamespaceAndProvider(model)
+	if cleanModel != model && matchesQualityProbeCandidate(pattern, cleanModel) {
+		return true
+	}
+
+	// 3. Strip namespace and provider prefixes from pattern as well:
+	// e.g. pattern "anthropic/claude*" with requested model "claude-3-7-sonnet"
+	cleanPattern := stripModelNamespaceAndProvider(pattern)
+	if cleanPattern != pattern {
+		if matchesQualityProbeCandidate(cleanPattern, model) || matchesQualityProbeCandidate(cleanPattern, cleanModel) {
 			return true
 		}
 	}
+
 	return false
 }
 
-func matchesQualityProbeModelPattern(pattern, model string) bool {
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(model, strings.TrimSuffix(pattern, "*"))
+func stripModelNamespaceAndProvider(s string) string {
+	if idx := strings.Index(s, ":"); idx >= 0 {
+		s = s[idx+1:]
 	}
+	if idx := strings.LastIndex(s, "/"); idx >= 0 {
+		s = s[idx+1:]
+	}
+	return s
+}
+
+func matchesQualityProbeCandidate(pattern, model string) bool {
+	if matchesQualityProbeModelPattern(pattern, model) {
+		return true
+	}
+
+	// Delimiter normalization between digits:
+	// Anthropic models often use "3-7" (claude-3-7-sonnet) while clients/users often use "3.7" (claude-3.7-sonnet).
+	// Normalizing both allows "claude-3.7*" to match "claude-3-7-sonnet-20250219" and vice-versa.
+	normPattern := normalizeVersionDelimiters(pattern)
+	normModel := normalizeVersionDelimiters(model)
+	if normPattern != pattern || normModel != model {
+		if matchesQualityProbeModelPattern(normPattern, normModel) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizeVersionDelimiters(s string) string {
+	if !strings.Contains(s, ".") {
+		return s
+	}
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '.' && i > 0 && i+1 < len(runes) && runes[i-1] >= '0' && runes[i-1] <= '9' && runes[i+1] >= '0' && runes[i+1] <= '9' {
+			b.WriteRune('-')
+		} else {
+			b.WriteRune(runes[i])
+		}
+	}
+	return b.String()
+}
+
+func matchesQualityProbeModelPattern(pattern, model string) bool {
 	if pattern == model {
 		return true
 	}
+
+	if strings.Contains(pattern, "*") {
+		return globMatch(pattern, model)
+	}
+
 	// Prefix match: e.g. "gpt-6" matches "gpt-6-sol", "gpt-6.1-sol", "gpt-6-astra", etc.
+	// "claude" matches "claude-sonnet-5", "claude-3-7-sonnet", etc.
 	if strings.HasPrefix(model, pattern+"-") || strings.HasPrefix(model, pattern+".") {
 		return true
 	}
+
 	return false
+}
+
+func globMatch(pattern, text string) bool {
+	if pattern == "*" {
+		return text != ""
+	}
+	if strings.HasSuffix(pattern, "*") && !strings.Contains(pattern[:len(pattern)-1], "*") {
+		return strings.HasPrefix(text, pattern[:len(pattern)-1])
+	}
+	if strings.HasPrefix(pattern, "*") && !strings.Contains(pattern[1:], "*") {
+		return strings.HasSuffix(text, pattern[1:])
+	}
+	parts := strings.Split(pattern, "*")
+	for i := range parts {
+		parts[i] = regexp.QuoteMeta(parts[i])
+	}
+	matched, err := regexp.MatchString("^"+strings.Join(parts, ".*")+"$", text)
+	return err == nil && matched
 }
 
 func (s *RequestQualityProbeService) resolveProbeRules(ctx context.Context, ids []int64) ([]*DegradationRule, error) {
