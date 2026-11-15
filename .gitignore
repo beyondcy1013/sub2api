@@ -140,12 +140,17 @@ docs/*
 !docs/UPGRADE_RUNBOOK.md
 !docs/OPS_REVIEW_2026-09-30.md
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
+!docs/agent-resource-safety.md
+!docs/moego-json-batching.md
+!docs/admin-api-keys.md
+!docs/mcp.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/LOCAL_UPGRADE_CUSTOMIZATIONS_PRE_CONSOLIDATION.md
 !docs/UPGRADE_RUNBOOK_PRE_CONSOLIDATION.md
 !docs/ASYNC_IMAGE_TASKS.md
+!docs/OPENAI_IMAGES_CODEX.md
 !docs/BATCH_IMAGE_MVP.md
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md

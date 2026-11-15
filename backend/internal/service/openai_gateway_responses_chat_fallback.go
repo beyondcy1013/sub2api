@@ -71,12 +71,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+	if err := validateGPT61CompatRequest(body, upstreamModel); err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
-	if openai.IsGPT61SolModelSpelling(upstreamModel) && len(effectiveTools) > 0 && !accountAllowsGPT61SolChatTools(account) {
-		err := fmt.Errorf("gpt-6.1-sol requires Responses for tool calls; %s only supports Chat Completions", accountErrorIdentifier(account))
+	if openai.RequiresResponsesForToolCalls(upstreamModel) && len(effectiveTools) > 0 && !accountAllowsGPT61SolChatTools(account) {
+		err := fmt.Errorf("%s requires Responses for tool calls; %s only supports Chat Completions", normalizeKnownOpenAICodexModel(upstreamModel), accountErrorIdentifier(account))
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}

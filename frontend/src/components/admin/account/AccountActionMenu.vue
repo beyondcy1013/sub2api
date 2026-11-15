@@ -144,6 +144,7 @@ import { Icon } from '@/components/icons'
 import MobileActionSheet from '@/components/common/MobileActionSheet.vue'
 import type { Account } from '@/types'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
+import { supportsAccountQuota } from '@/utils/accountQuota'
 
 const props = withDefaults(defineProps<{
   show: boolean
@@ -203,7 +204,7 @@ const supportsPrivacy = computed(() => (isAntigravityOAuth.value || isOpenAIOAut
 const supportsStateProtection = computed(() => isOpenAIOAuthParent.value)
 const isStateProtected = computed(() => Boolean(props.account?.extra?.state_protection_enabled))
 const hasQuotaLimit = computed(() => {
-  return (props.account?.type === 'apikey' || props.account?.type === 'bedrock') && (
+  return supportsAccountQuota(props.account?.type) && (
     (props.account?.quota_limit ?? 0) > 0 ||
     (props.account?.quota_daily_limit ?? 0) > 0 ||
     (props.account?.quota_weekly_limit ?? 0) > 0
