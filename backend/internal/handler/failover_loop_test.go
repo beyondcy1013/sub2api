@@ -920,7 +920,7 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		require.Equal(t, FailoverExhausted, action)
 	})
 
-	t.Run("503且未耗尽_等待后返回Continue并清除失败列表", func(t *testing.T) {
+	t.Run("503候选耗尽_立即结束且保留排除列表", func(t *testing.T) {
 		fs := NewFailoverState(3, false)
 		fs.LastFailoverErr = newTestFailoverErr(503, false, false)
 		fs.FailedAccountIDs[100] = struct{}{}
@@ -930,10 +930,9 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		action := fs.HandleSelectionExhausted(context.Background())
 		elapsed := time.Since(start)
 
-		require.Equal(t, FailoverContinue, action)
-		require.Empty(t, fs.FailedAccountIDs, "应清除失败账号列表")
-		require.GreaterOrEqual(t, elapsed, 1500*time.Millisecond, "应等待约 2s")
-		require.Less(t, elapsed, 5*time.Second)
+		require.Equal(t, FailoverExhausted, action)
+		require.Contains(t, fs.FailedAccountIDs, int64(100))
+		require.Less(t, elapsed, 100*time.Millisecond, "不应退避重开一轮")
 	})
 
 	t.Run("503但SwitchCount已超过MaxSwitches_返回Exhausted", func(t *testing.T) {
@@ -987,13 +986,13 @@ func TestHandleSelectionExhausted(t *testing.T) {
 		require.Equal(t, FailoverCanceled, action)
 	})
 
-	t.Run("503且SwitchCount等于MaxSwitches_仍可重试", func(t *testing.T) {
+	t.Run("503且SwitchCount等于MaxSwitches_不重新开轮", func(t *testing.T) {
 		fs := NewFailoverState(2, false)
 		fs.LastFailoverErr = newTestFailoverErr(503, false, false)
-		fs.SwitchCount = 2 // == MaxSwitches，条件是 <=，仍可重试
+		fs.SwitchCount = 2 // == MaxSwitches，仍然必须结束
 
 		action := fs.HandleSelectionExhausted(context.Background())
-		require.Equal(t, FailoverContinue, action)
+		require.Equal(t, FailoverExhausted, action)
 	})
 }
 
@@ -1039,4 +1038,16 @@ func TestFailoverClientGone(t *testing.T) {
 	t.Run("nil安全", func(t *testing.T) {
 		require.False(t, failoverClientGone(nil))
 	})
+}
+
+func TestQualityRejectionNeverRetriesAndSelectionDoesNotRestart(t *testing.T) {
+	fs := NewFailoverState(10, false)
+	failure := &service.UpstreamFailoverError{StatusCode: 502, Reason: "request_quality_probe_failed", RetryableOnSameAccount: true}
+	require.False(t, sameAccountRetryAllowed(failure, 0, 100))
+	require.Equal(t, FailoverContinue, fs.HandleFailoverError(context.Background(), nil, 1, "openai", 100, failure))
+	require.Contains(t, fs.FailedAccountIDs, int64(1))
+	require.Empty(t, fs.SameAccountRetryCount)
+	fs.LastFailoverErr = &service.UpstreamFailoverError{StatusCode: 503}
+	require.Equal(t, FailoverExhausted, fs.HandleSelectionExhausted(context.Background()))
+	require.Contains(t, fs.FailedAccountIDs, int64(1))
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +170,11 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesNativeR
 	require.NoError(t, err)
 
 	require.Equal(t, "https://example.com/v1/responses", upstream.lastReq.URL.String())
-	requireOpenAICodexProbeHeaders(t, upstream.lastReq.Header)
+	identityHeaders := upstream.lastReq.Header.Clone()
+	marker := accountDetectionOrigin(context.Background(), 3, AccountTestModeDefault).UserAgent("")
+	require.Equal(t, codexCLIUserAgent+" "+marker, identityHeaders.Get("User-Agent"))
+	identityHeaders.Set("User-Agent", strings.TrimSuffix(identityHeaders.Get("User-Agent"), " "+marker))
+	requireOpenAICodexProbeHeaders(t, identityHeaders)
 	require.Contains(t, upstream.lastReq.Header.Get("x-codex-beta-features"), "remote_compaction_v2")
 	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String(),
 		"原生 v2 探测不应用 compact_model_mapping")

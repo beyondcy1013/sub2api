@@ -145,24 +145,55 @@ public final class MainActivity extends Activity {
         Button settingsButton = new Button(this);
         settingsButton.setText(R.string.settings);
         settingsButton.setAllCaps(false);
-        settingsButton.setOnClickListener(view ->
-            startActivity(new Intent(this, SettingsActivity.class))
-        );
+        settingsButton.setVisibility(View.GONE);
         FrameLayout.LayoutParams settingsParams = new FrameLayout.LayoutParams(dp(56), dp(44));
         settingsParams.gravity = Gravity.TOP | Gravity.END;
-        settingsParams.topMargin = dp(8);
-        settingsParams.rightMargin = dp(8);
+        settingsParams.rightMargin = dp(48);
         root.addView(settingsButton, settingsParams);
 
         refreshButton = new Button(this);
         refreshButton.setText(R.string.refresh);
         refreshButton.setAllCaps(false);
-        refreshButton.setOnClickListener(view -> refreshWebView());
+        refreshButton.setVisibility(View.GONE);
         FrameLayout.LayoutParams refreshParams = new FrameLayout.LayoutParams(dp(64), dp(44));
         refreshParams.gravity = Gravity.TOP | Gravity.END;
-        refreshParams.topMargin = dp(8);
-        refreshParams.rightMargin = dp(72);
+        refreshParams.rightMargin = dp(112);
         root.addView(refreshButton, refreshParams);
+
+        Button nativeActionsButton = new Button(this);
+        nativeActionsButton.setText("‹");
+        nativeActionsButton.setAllCaps(false);
+        nativeActionsButton.setContentDescription(getText(R.string.native_actions));
+        FrameLayout.LayoutParams nativeActionsParams = new FrameLayout.LayoutParams(dp(40), dp(48));
+        nativeActionsParams.gravity = Gravity.TOP | Gravity.END;
+        root.addView(nativeActionsButton, nativeActionsParams);
+
+        Runnable toggleNativeActions = () -> {
+            boolean expand = settingsButton.getVisibility() != View.VISIBLE;
+            int visibility = expand ? View.VISIBLE : View.GONE;
+            settingsButton.setVisibility(visibility);
+            refreshButton.setVisibility(visibility);
+            nativeActionsButton.setText(expand ? "›" : "‹");
+        };
+        nativeActionsButton.setOnClickListener(view -> toggleNativeActions.run());
+        settingsButton.setOnClickListener(view -> {
+            toggleNativeActions.run();
+            startActivity(new Intent(this, SettingsActivity.class));
+        });
+        refreshButton.setOnClickListener(view -> {
+            toggleNativeActions.run();
+            refreshWebView();
+        });
+
+        root.post(() -> {
+            int topMargin = Math.max(0, root.getHeight() / 3 - dp(24));
+            settingsParams.topMargin = topMargin;
+            refreshParams.topMargin = topMargin;
+            nativeActionsParams.topMargin = topMargin;
+            settingsButton.setLayoutParams(settingsParams);
+            refreshButton.setLayoutParams(refreshParams);
+            nativeActionsButton.setLayoutParams(nativeActionsParams);
+        });
 
         setContentView(root);
         WindowInsetsLayout.install(this, root, null);

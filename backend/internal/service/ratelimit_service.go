@@ -28,6 +28,7 @@ type RateLimitService struct {
 	openAIAPIKeyHealth      OpenAIAPIKeyHealthCache
 	timeoutCounterCache     TimeoutCounterCache
 	openAI403CounterCache   OpenAI403CounterCache
+	poolModeErrorCounter    PoolModeErrorCounterCache
 	relayFailureBudgetCache RelayFailureBudgetCache
 	settingService          *SettingService
 	tokenCacheInvalidator   TokenCacheInvalidator
@@ -128,6 +129,11 @@ func (s *RateLimitService) SetOpenAIAPIKeyHealthCache(cache OpenAIAPIKeyHealthCa
 // SetOpenAI403CounterCache 设置 OpenAI 403 连续失败计数器（可选依赖）
 func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache) {
 	s.openAI403CounterCache = cache
+}
+
+// SetPoolModeErrorCounterCache 设置池模式账号连续错误计数器（可选依赖）
+func (s *RateLimitService) SetPoolModeErrorCounterCache(cache PoolModeErrorCounterCache) {
+	s.poolModeErrorCounter = cache
 }
 
 func (s *RateLimitService) SetRelayFailureBudgetCache(cache RelayFailureBudgetCache) {
@@ -355,6 +361,9 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	if account.IsPoolMode() && !customErrorCodesEnabled {
 		if tempUnschedRulesApply(account, statusCode, responseBody, tempUnschedulableModel(ctx, nil)) &&
 			s.tryTempUnschedulable(ctx, account, statusCode, responseBody) {
+			return true
+		}
+		if s.trackPoolModeConsecutiveError(ctx, account, statusCode, responseBody) {
 			return true
 		}
 		slog.Info("pool_mode_error_skipped", "account_id", account.ID, "status_code", statusCode)
@@ -2370,6 +2379,7 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 		}
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
+	s.ResetPoolModeErrorCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
@@ -2381,6 +2391,57 @@ func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID 
 	if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
 		slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
 	}
+}
+
+// ResetPoolModeErrorCounter 清除池模式账号连续错误计数。
+func (s *RateLimitService) ResetPoolModeErrorCounter(ctx context.Context, accountID int64) {
+	if s == nil || s.poolModeErrorCounter == nil || accountID <= 0 {
+		return
+	}
+	if err := s.poolModeErrorCounter.ResetPoolModeErrorCount(ctx, accountID); err != nil {
+		slog.Warn("pool_mode_error_reset_failed", "account_id", accountID, "error", err)
+	}
+}
+
+// trackPoolModeConsecutiveError 累计池模式账号的连续上游错误；窗口内达到
+// poolModeErrorThreshold 次后进入 poolModeErrorCooldownMinutes 的临时冷却并清零计数。
+// 返回 true 表示已应用冷却（等价于 failover 信号）。计数器不可用或写入失败时
+// 保持池模式原有行为（不写本地账号状态）。
+func (s *RateLimitService) trackPoolModeConsecutiveError(ctx context.Context, account *Account, statusCode int, responseBody []byte) bool {
+	if s == nil || s.poolModeErrorCounter == nil || account == nil || s.accountRepo == nil {
+		return false
+	}
+	count, err := s.poolModeErrorCounter.IncrementPoolModeErrorCount(ctx, account.ID, poolModeErrorWindowMinutes)
+	if err != nil {
+		slog.Warn("pool_mode_error_increment_failed", "account_id", account.ID, "error", err)
+		return false
+	}
+	if count < poolModeErrorThreshold {
+		return false
+	}
+	upstreamMsg := strings.TrimSpace(sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(responseBody)))
+	if upstreamMsg != "" {
+		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
+	}
+	until := time.Now().Add(time.Duration(poolModeErrorCooldownMinutes) * time.Minute)
+	reason := fmt.Sprintf("Pool mode consecutive upstream errors cooldown (%d/%d): HTTP %d", count, poolModeErrorThreshold, statusCode)
+	if upstreamMsg != "" {
+		reason += ": " + upstreamMsg
+	}
+	s.notifyAccountSchedulingBlocked(account, until, "pool_mode_consecutive_errors")
+	if setErr := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); setErr != nil {
+		slog.Warn("pool_mode_error_set_temp_unschedulable_failed", "account_id", account.ID, "error", setErr)
+		return false
+	}
+	s.ResetPoolModeErrorCounter(ctx, account.ID)
+	slog.Warn(
+		"pool_mode_error_temp_unschedulable",
+		"account_id", account.ID,
+		"until", until,
+		"count", count,
+		"status_code", statusCode,
+	)
+	return true
 }
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
@@ -2411,6 +2472,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
+		s.ResetPoolModeErrorCounter(ctx, accountID)
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}

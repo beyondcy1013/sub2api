@@ -180,6 +180,9 @@ type UsageLog struct {
 	Stream             bool
 	OpenAIWSMode       bool
 	NativeCompactionV2 bool
+	// ClientDisconnected 表示客户端在响应返回前断开（访问日志 499）。该请求仍会
+	// 排空上游并计费，但使用记录必须显示真实终态，不能回退成 200 成功。
+	ClientDisconnected bool
 	DurationMs         *int
 	FirstTokenMs       *int
 	UserAgent          *string

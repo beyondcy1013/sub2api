@@ -528,9 +528,9 @@ func (s *OpenAIGatewayService) ensureOpenAIAlphaSearchAuthMetadata(ctx context.C
 }
 
 // isOpenAIAlphaSearchEndpointUnsupported 识别「API key 上游没有实现
-// /v1/alpha/search 端点」的响应。404/405 不在通用 failover 状态集里（模型
-// 调用中的 404 通常是用户请求问题），但对这个独立工具端点而言，它几乎只
-// 意味着所选上游（官方平台或第三方中转）不提供该端点——应换号重试，而
+// /v1/alpha/search 端点」的响应。404/405 同样属于通用 failover 状态；
+// 保留独立端点判定供账号副作用分类使用，端点缺失不代表账号认证失败。
+// 所选上游（官方平台或第三方中转）不提供该端点时应换号重试，而
 // 不是把 404 透传给客户端，否则混合分组里 OAuth 账号明明可以承接搜索，
 // 请求却可能死在先被选中的 API key 账号上。
 func isOpenAIAlphaSearchEndpointUnsupported(account *Account, statusCode int) bool {

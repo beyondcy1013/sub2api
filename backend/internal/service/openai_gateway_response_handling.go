@@ -33,6 +33,9 @@ type openaiStreamingResult struct {
 	imageCount       int
 	imageOutputSizes []string
 	searchCount      int
+	// clientDisconnected 表示下游客户端在响应写完前断开。上游仍会被排空用于
+	// 计费，用量行必须保留该终态，不能显示成 200 成功。
+	clientDisconnected bool
 }
 
 type openaiNonStreamingResult struct {
@@ -353,12 +356,13 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	streamSearchSeen := make(map[string]struct{})
 	resultWithUsage := func() *openaiStreamingResult {
 		return &openaiStreamingResult{
-			usage:            usage,
-			firstTokenMs:     firstTokenMs,
-			responseID:       responseID,
-			imageCount:       imageCounter.Count(),
-			imageOutputSizes: imageCounter.Sizes(),
-			searchCount:      searchCounter,
+			usage:              usage,
+			firstTokenMs:       firstTokenMs,
+			responseID:         responseID,
+			imageCount:         imageCounter.Count(),
+			imageOutputSizes:   imageCounter.Sizes(),
+			searchCount:        searchCounter,
+			clientDisconnected: clientDisconnected,
 		}
 	}
 	flushPending := func(disconnectMessage string) {

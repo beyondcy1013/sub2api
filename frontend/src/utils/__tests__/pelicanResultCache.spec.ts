@@ -109,4 +109,29 @@ describe('pelicanResultCache', () => {
     expect(setCachedPelicanUserRating(12, 5000, 'inaccurate')?.userRating).toBeUndefined()
     expect(getCachedPelicanResult(12)?.userRating).toBeUndefined()
   })
+
+  it('读取旧缓存时以能力判定为准，已完成且未降智的条目不再显示为失败', () => {
+    localStorage.setItem('sub2api:account-pelican-results:v1', JSON.stringify([
+      {
+        accountId: 308,
+        results: [
+          { accountId: 308, accountName: 'WorkBuddy2apiRs18371', accountType: 'apikey', testMode: 'pelican', status: 'failed',
+            result: { has_html: true, html: '<svg></svg>', downgraded: false, reason: '测智通过（未降智，已生成完整动画）', response_model: 'deepseek-v4.1-flash' },
+            responseModel: 'deepseek-v4.1-flash', reason: '测智通过（未降智，已生成完整动画）', testedAt: 2000 },
+          { accountId: 308, accountName: 'WorkBuddy2apiRs18371', accountType: 'apikey', testMode: 'pelican', status: 'failed',
+            result: { has_html: true, html: '<svg></svg>', downgraded: true, reason: '疑似降智', response_model: 'deepseek-v4.1-flash' },
+            responseModel: 'deepseek-v4.1-flash', reason: '疑似降智', testedAt: 1000 },
+          { accountId: 308, accountName: 'WorkBuddy2apiRs18371', accountType: 'apikey', testMode: 'pelican', status: 'failed',
+            result: { has_html: false, downgraded: false, reason: 'connection refused', response_model: '' },
+            reason: 'connection refused', testedAt: 500 }
+        ]
+      }
+    ]))
+    reloadPelicanResultCacheFromStorage()
+
+    const [passed, downgraded, broken] = getCachedPelicanHistory(308)
+    expect(passed.status).toBe('success')
+    expect(downgraded.status).toBe('downgraded')
+    expect(broken.status).toBe('failed')
+  })
 })

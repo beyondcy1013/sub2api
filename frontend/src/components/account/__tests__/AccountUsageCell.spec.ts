@@ -2445,4 +2445,38 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('admin.accounts.columns.balance')
     wrapper.unmount()
   })
+
+  it('apikey 账号无历史余额且状态为 active 时在挂载时自动排队获取余额', async () => {
+    queryAccountBalance.mockResolvedValue({
+      success: true,
+      balance: 18.88,
+      unit: 'USD',
+      unlimited: false,
+      queried_at: '2026-07-23T04:00:00Z'
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 4006,
+          platform: 'openai',
+          type: 'apikey',
+          status: 'active',
+          credentials: { base_url: 'https://upstream.example.com' },
+          extra: {}
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+    expect(queryAccountBalance).toHaveBeenCalledWith(4006)
+    expect(wrapper.text()).toContain('$18.88')
+    const updatedAccount = wrapper.emitted<Account[]>('account-updated')?.[0]?.[0]
+    expect(updatedAccount?.id).toBe(4006)
+    expect(updatedAccount?.extra?.balance_query?.last_result?.balance).toBe(18.88)
+    wrapper.unmount()
+  })
 })

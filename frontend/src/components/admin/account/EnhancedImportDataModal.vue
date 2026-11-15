@@ -78,6 +78,7 @@
       </div>
 
       <div v-else class="space-y-3">
+        <button type="button" class="btn btn-secondary" :disabled="busy" @click="readClipboardText">读取剪贴板</button>
         <TextArea
           v-model="jsonText"
           :label="t('admin.accounts.enhancedImportTextLabel')"
@@ -100,6 +101,11 @@
         </div>
       </div>
 
+      <div v-if="previewError" class="text-sm text-red-600" role="alert">{{ previewError }}</div>
+      <div v-else-if="previewAccounts.length" class="text-sm max-h-48 overflow-auto">
+        <p>预览：{{ previewAccounts.length }} 个账号；源配置只保存，不自动执行终端脚本。</p>
+        <ol class="list-decimal pl-5"><li v-for="(account, index) in previewAccounts" :key="index">{{ account.name }} · {{ account.platform }} / {{ account.type }}</li></ol>
+      </div>
       <ImportRoutingOptions v-if="operation === 'import'" ref="routingOptionsRef" />
 
       <label
@@ -144,7 +150,7 @@
 
     <template #footer>
       <div class="flex w-full justify-end gap-3">
-        <button class="btn btn-secondary" type="button" :disabled="busy" @click="handleClose">
+        <button data-test="enhanced-import-close" class="btn btn-secondary" type="button" :disabled="busy" @click="handleClose">
           {{ t('common.cancel') }}
         </button>
         <button
@@ -162,7 +168,7 @@
           class="btn btn-primary"
           type="submit"
           form="enhanced-import-data-form"
-          :disabled="busy"
+          :disabled="busy || !previewAccounts.length || !!previewError"
         >
           {{ submitLabel }}
         </button>
@@ -192,6 +198,7 @@ import {
 interface Props {
   show: boolean
   operation?: 'import' | 'clear'
+  initialSource?: 'file' | 'text'
 }
 
 interface Emits {
@@ -200,12 +207,19 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  operation: 'import'
+  operation: 'import',
+  initialSource: 'file'
 })
 const emit = defineEmits<Emits>()
 const { t } = useI18n()
 const appStore = useAppStore()
 
+const previewAccounts = ref<AdminDataPayload['accounts']>([])
+const previewError = ref('')
+async function readClipboardText() {
+  try { jsonText.value = await navigator.clipboard.readText() }
+  catch { appStore.showWarning('无法读取剪贴板，请直接粘贴内容或选择文件。') }
+}
 const sourceMode = ref<'file' | 'text'>('file')
 const importing = ref(false)
 const clearing = ref(false)
@@ -264,7 +278,7 @@ watch(
   () => props.show,
   open => {
     if (!open) return
-    sourceMode.value = 'file'
+    sourceMode.value = props.initialSource
     files.value = []
     jsonText.value = ''
     dragDepth.value = 0
@@ -370,6 +384,20 @@ const readPayloads = async (): Promise<AdminDataPayload[] | null> => {
   }
   return payloads
 }
+
+watch([sourceMode, files, jsonText, () => props.show], async (_values, _previous, onCleanup) => {
+  let stale = false
+  onCleanup(() => { stale = true })
+  previewAccounts.value = []
+  previewError.value = ''
+  if (!props.show || (sourceMode.value === 'text' ? !jsonText.value.trim() : !files.value.length)) return
+  try {
+    const payloads = await readPayloads()
+    if (!stale && payloads) previewAccounts.value = payloads.flatMap(payload => payload.accounts)
+  } catch (error) {
+    if (!stale) previewError.value = error instanceof EnhancedImportError ? `${error.sourceName}: ${error.code}` : error instanceof Error ? error.message : '无法解析账号数据'
+  }
+})
 
 const handleImport = async () => {
   if (busy.value) return

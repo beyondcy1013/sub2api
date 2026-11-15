@@ -112,6 +112,27 @@ func movableSessionStickyAllowed(cfg *config.Config) bool {
 // filterByAccountSchedulingPreference returns the currently preferred strict
 // tier. Callers remove failed/full candidates and invoke it again, which makes
 // the next price tier the natural fallback.
+// stickyAccountMatchesLowestSchedulingRate keeps movable session affinity only
+// while the bound account is still in the cheapest available rate tier. Strict
+// previous_response_id affinity is handled before this check and is unaffected.
+func stickyAccountMatchesLowestSchedulingRate(accountID int64, candidates []Account, cfg *config.Config) bool {
+	if accountID <= 0 || !usesCustomAccountSchedulingPreference(cfg) || len(candidates) == 0 {
+		return true
+	}
+	var minRate, boundRate float64
+	known, boundFound := false, false
+	for i := range candidates {
+		rate := candidates[i].BillingRateMultiplier()
+		if candidates[i].ID == accountID {
+			boundRate, boundFound = rate, true
+		}
+		if !known || rate < minRate {
+			minRate, known = rate, true
+		}
+	}
+	return !boundFound || boundRate <= minRate
+}
+
 func filterByAccountSchedulingPreference(accounts []accountWithLoad, cfg *config.Config) []accountWithLoad {
 	preferred := accounts
 	if accountSchedulingStrategy(cfg) != AccountSchedulingStrategyLowestCost || len(preferred) < 2 {

@@ -95,10 +95,20 @@ test("Sub2API Android uses native WebView touch handling and permits pinch zoom"
   assert.doesNotMatch(activity, /window\.__sub2apiTouch|new PointerEvent/);
 });
 
+test("Sub2API Android native actions stay collapsed at the right edge until tapped", () => {
+  assert.doesNotMatch(activity, /nativeActionsHeight|webViewParams\.topMargin|connectionPanelParams\.topMargin/);
+  assert.match(activity, /settingsButton\.setVisibility\(View\.GONE\)/);
+  assert.match(activity, /refreshButton\.setVisibility\(View\.GONE\)/);
+  assert.match(activity, /nativeActionsButton\.setOnClickListener\(view -> toggleNativeActions\.run\(\)\)/);
+  assert.match(activity, /root\.getHeight\(\) \/ 3 - dp\(24\)/);
+  assert.match(activity, /nativeActionsButton\.setText\(expand \? "›" : "‹"\)/);
+  assert.match(activity, /settingsButton\.setOnClickListener[\s\S]{0,120}toggleNativeActions\.run\(\);[\s\S]{0,80}SettingsActivity\.class/);
+});
+
 test("Sub2API Android native refresh keeps the selected origin and page URL", () => {
   assert.match(strings, /<string name="refresh">刷新<\/string>/);
   assert.match(activity, /refreshButton\.setText\(R\.string\.refresh\)/);
-  assert.match(activity, /refreshButton\.setOnClickListener\(view -> refreshWebView\(\)\)/);
+  assert.match(activity, /refreshButton\.setOnClickListener[\s\S]{0,100}toggleNativeActions\.run\(\);\s*refreshWebView\(\)/);
   assert.match(activity, /private void refreshWebView\(\)/);
   assert.match(activity, /if \(!SourceRegistry\.isValidIndex\(selectedSource\)\)[\s\S]*beginSourceResolution\(\)/);
   assert.match(activity, /if \(currentPageFailed\)[\s\S]*requestSourceReevaluation\(\)/);

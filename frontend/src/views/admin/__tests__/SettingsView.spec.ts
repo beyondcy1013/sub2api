@@ -725,6 +725,29 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  it("loads, previews and saves the instance appearance without a child store dependency", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      instance_name: "AWS · 主站",
+      instance_color: "orange",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    const section = wrapper.findAll("section").find((item) => item.text().includes("实例外观"));
+    expect(section).toBeDefined();
+    expect((section!.get("input").element as HTMLInputElement).value).toBe("AWS · 主站");
+    expect((section!.get("select").element as HTMLSelectElement).value).toBe("orange");
+    await section!.get("input").setValue("测试实例");
+    await section!.get("select").setValue("cyan");
+    expect(section!.text()).toContain("测试实例");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      instance_name: "测试实例", instance_color: "cyan",
+    }));
+    expect(fetchPublicSettings).toHaveBeenCalledWith(true);
+  });
+
   it("loads and saves the open button visibility for each custom menu", async () => {
     const menuItems = [
       { id: "docs", label: "Docs", url: "https://example.com/docs", icon_svg: "", visibility: "user", sort_order: 0 },

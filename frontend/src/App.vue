@@ -9,12 +9,15 @@ import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
+import { useInstanceAppearance } from '@/modules/instanceappearance/useInstanceAppearance'
+import { instanceFavicon, prefixInstanceTitle } from '@/modules/instanceappearance/appearance'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 
 const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
+const instanceAppearance = useInstanceAppearance()
 const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
@@ -26,21 +29,17 @@ function updateDocumentTitle() {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems, {
+  document.title = prefixInstanceTitle(resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems, {
     billingMode: resolveSiteBillingMode(appStore.cachedPublicSettings),
-  })
+  }), instanceAppearance.value.name)
 }
 
-// Watch for site settings changes and update favicon/title
-watch(
-  () => appStore.siteLogo,
-  (newLogo) => {
-    if (newLogo) {
-      updateFavicon(newLogo)
-    }
-  },
-  { immediate: true }
-)
+// Use a palette-colored icon even when the instance has a custom site logo.
+watch(instanceAppearance, (appearance) => {
+  updateFavicon(instanceFavicon(appearance.color))
+  document.documentElement.style.setProperty('--instance-color', appearance.color)
+  updateDocumentTitle()
+}, { immediate: true })
 
 watch(
   [
@@ -162,9 +161,25 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div class="instance-color-strip" aria-hidden="true" />
   <NavigationProgress />
   <RouterView />
   <Toast />
   <AnnouncementPopup />
   <AdminComplianceDialog />
 </template>
+
+<style>
+.instance-color-strip {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 5px;
+  background: var(--instance-color, #2563eb);
+  z-index: 90;
+  pointer-events: none;
+}
+.sidebar-header {
+  border-top: 5px solid var(--instance-color, #2563eb);
+  background: color-mix(in srgb, var(--instance-color, #2563eb) 15%, transparent);
+}
+</style>

@@ -11,6 +11,7 @@
           <Icon name="menu" size="md" />
         </button>
 
+        <div class="max-w-[100px] leading-none lg:hidden"><InstanceBadge /></div>
         <div class="hidden lg:block">
           <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
             {{ pageTitle }}
@@ -252,6 +253,7 @@
 </template>
 
 <script setup lang="ts">
+import InstanceBadge from '@/modules/instanceappearance/InstanceBadge.vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

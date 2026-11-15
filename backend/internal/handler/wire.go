@@ -60,6 +60,7 @@ func ProvideAdminHandlers(
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetRequestQualityProbeService(requestQualityProbe)
+	usageHandler.SetRequestQualityProbeService(requestQualityProbe)
 	accountHandler.SetSuperPriorityService(superPriorityService)
 	settingHandler.SetSuperPriorityService(superPriorityService)
 	settingHandler.SetSchedulingRefreshers(superPriorityRunner, upstreamBillingProbe)

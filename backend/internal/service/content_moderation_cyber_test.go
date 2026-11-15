@@ -279,12 +279,13 @@ func TestRecordCyberPolicyEvent_RuntimeSnapshotRefreshFailureKeepsStaleScope(t *
 
 	require.Len(t, repo.snapshotLogs(), 1)
 	require.Eventually(t, func() bool {
-		_, calls := settingRepo.calls()
-		return calls == 2
+		// Constructor workers may also read the initial snapshot. Observe the
+		// failed refresh completing, not an exact transient repository count.
+		return svc.runtimeRefreshRetryAt.Load() > 0
 	}, time.Second, time.Millisecond)
 	getValue, getMultiple := settingRepo.calls()
 	require.Zero(t, getValue)
-	require.Equal(t, 2, getMultiple)
+	require.GreaterOrEqual(t, getMultiple, 2)
 }
 
 // TestRecordCyberPolicyEvent_CreateLogBeforeEmail verifies F7: the moderation

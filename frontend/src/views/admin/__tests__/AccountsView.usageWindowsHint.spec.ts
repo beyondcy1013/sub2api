@@ -27,7 +27,8 @@ vi.mock('@/api/admin', () => ({
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
-      toggleSchedulable: vi.fn()
+      toggleSchedulable: vi.fn(),
+      getDegradationCounts: vi.fn().mockResolvedValue({})
     },
     proxies: {
       getAll: getAllProxies
@@ -385,7 +386,10 @@ describe('admin AccountsView usage windows hint', () => {
     const keys = wrapper.findAll('[data-test="column-key"]')
       .map(node => node.attributes('data-column-key'))
 
-    expect(keys.indexOf('usage')).toBe(keys.indexOf('schedulable') + 1)
+    expect(keys.indexOf('downgraded')).toBe(keys.indexOf('schedulable') + 1)
+    expect(keys.indexOf('quality_status')).toBe(keys.indexOf('downgraded') + 1)
+    expect(keys.indexOf('degradation_count')).toBe(keys.indexOf('quality_status') + 1)
+    expect(keys.indexOf('usage')).toBe(keys.indexOf('degradation_count') + 1)
     expect(keys.indexOf('platform_type')).toBe(keys.indexOf('usage') + 1)
     expect(keys.indexOf('actions')).toBe(keys.indexOf('select') + 1)
     expect(keys.indexOf('name')).toBe(keys.indexOf('actions') + 1)

@@ -32,6 +32,7 @@
 | 模块 | 后端目标包 | 前端目标目录 | 主要职责 |
 | --- | --- | --- | --- |
 | Codex 账号采集/票据 | `backend/internal/modules/codexharvest` | `frontend/src/modules/codexharvest` | auth 文件、可用性、采集流程、ticket 生命周期、反馈和调度 |
+| 自动检测策略 | `backend/internal/modules/autodetection` | `frontend/src/modules/qualitycontrol` | 所有/指定账号、目标状态、周期连接/标准测智、恢复策略、持久执行进度；核心层仅接线和适配 |
 | 请求质量与账号检测 | `backend/internal/modules/requestquality`、`accountdetection` | `frontend/src/modules/request-quality`、`account-detection` | 探测、规则、WebSocket、结果汇总、检测计划 |
 | 降级规则 | `backend/internal/modules/degradation` | `frontend/src/modules/degradation` | 规则 CRUD、运行时匹配、探测失败后的降级决策 |
 | Excel/BPS 计费 | `backend/internal/modules/basispoints` | `frontend/src/modules/basispoints` | 图片/表格解析、费率计算、结构化结果和 admission |
@@ -72,4 +73,29 @@
 - 是否会把 `main` profile 的数据库、Redis 或调度 key 泄漏到 `free` profile？
 - 是否会被上游升级覆盖，且能通过薄适配器恢复？
 - 是否在 `LOCAL_UPGRADE_CUSTOMIZATIONS.md` 中补充了用户可见行为契约？
+
+## 已实施：2026-10-17 首批模块迁移
+
+- `backend/internal/modules/mihomo` 接管原 `internal/mihomo` 的全部实现与测试；原路径只保留类型别名与转发函数，共享唯一运行状态。
+- `backend/internal/modules/basispoints` 接管原 `internal/service/basispoints` 的全部协议、图片中继、结构化输出实现与测试及来源声明；原路径只保留兼容入口。核心调用方直接引用新模块。
+- `frontend/src/modules/mihomo` 集中组件、类型、独立 API client 与测试；原 settings 路径保留组件/类型兼容导出。
+- `frontend/src/modules/logcenter` 集中本地日志页面、API 适配器与测试；路由继续通过原页面薄入口接入。上游 Ops API、权限与共享组件保留其原有所有权，不复制一套后端日志服务。
+- 仓库 `AGENTS.md` 已增加新功能模块归属规则；模块 README 记录边界；`scripts/verify-local-modules.sh` 提供聚焦验证入口，日志中心原验证脚本已跟随新测试路径。
+- 此批是目录和依赖归属调整，不修改配置、端口、数据、HTTP 路径、调度、票据、图片中继与 UI 行为；不会自动接通目前未注册的 Mihomo 管理接口。
+- 迁移前相关源码、index/worktree diff 与状态归档在 `/data/cargo-target/sub2api-module-backups/20261017-033919`，未暂存或提交其他已有改动。
+- `degradation`、`requestquality`、`accountdetection`、`codexharvest` 和 `openai_runtime` 仍按上述顺序逐批迁移，不能宣称已完成全部解耦。
+
+### 首次完整验证与旧测试修正
+
+请求 `034134-18debef697f8f711` 的完整后端套件通过，前端为 3277 通过、1 跳过、1 失败。唯一失败来自 `AccountsView.batchTestAndMark.spec.ts`，仍模拟已移除的 `test-and-mark` 事件并期待自动测试/标记。按现行“手动测试 UI 整合”合同，将此测试更新为选择账号后经 `pelican-test` 打开统一工作台，验证账号明细、默认模式、不自动测试/标记，以及无选择时不启动。保留负向断言，未恢复已移除入口，也未跳过测试。
+
+失败发生在安装前，未产生 `install-report-1.json`；main/free PID 与磁盘 SHA 均保持首次请求前状态。
+
+### 首批部署验收通过
+
+- 成功请求：`034937-18debef697f8f712`，2026-10-17 03:56:22 完成。完整后端套件、前端 426 个文件 / 3279 项测试通过（另有 1 项原有跳过）、TypeScript、Vite 及嵌入式 Go 构建通过。
+- 构建源码快照：`afb7299e07c4ce78e9f920bf2530c03229b057933d2909a4b79447a1bf9c64b9`。日志：`/home/bin/webclx/compile/runs/20261017T034942-2182085-13658/build-1.log`；审计：同目录 `install-report-1.json`，`modified=2, removed=0, missing=0`。
+- 两端磁盘及运行进程 SHA-256 均为 `e261cfa6ee38b333cf423435ab6d3d971b2a1f07b4783d8d01aa935419298573`。main/free 均 active，首页与 `/health` 返回 200，端口、profile、数据库、Redis 与 free scheduler prefix 隔离核验通过。
+- main 保留 `sub2api.bak.20261017-035618-2280783`；free 保留 `sub2freeApi.bak.20261017-035618-2280783`。旧备份各归档 1 个，删除 0 个。
+- 验收未发送真实上游模型请求，也未声称完成浏览器人工操作验收。后续深度耦合模块仍以本报告的迁移清单为准。
 

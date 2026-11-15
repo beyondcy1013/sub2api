@@ -1622,6 +1622,7 @@ type TestAccountRequest struct {
 	ReasoningEffort string `json:"reasoning_effort"`
 	Evaluator       string `json:"evaluator"`
 	ExpectedAnswer  *int   `json:"expected_answer"`
+	RuleID          int64  `json:"rule_id"`
 }
 
 type SyncFromCRSRequest struct {
@@ -1656,6 +1657,7 @@ func (h *AccountHandler) Test(c *gin.Context) {
 		ReasoningEffort: req.ReasoningEffort,
 		Evaluator:       req.Evaluator,
 		ExpectedAnswer:  req.ExpectedAnswer,
+		RuleID:          req.RuleID,
 	}
 	if err := h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		if c.Request.Context().Err() == nil {
@@ -3540,7 +3542,7 @@ func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service
 	// Explicit account mappings expose their request-side names to connectivity tests.
 	if account.Platform == service.PlatformAntigravity {
 		models := antigravityAccountTestModels(account.Credentials["model_mapping"])
-		response.Success(c, h.filterAvailableModelsResponse(c, filterAccountTestPickerModels(account, models, antigravityPickerModelID, buildAntigravityPickerModel)))
+		response.Success(c, h.filterAvailableModelsResponse(c, models))
 		return
 	}
 

@@ -304,7 +304,7 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 
 func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
 	switch statusCode {
-	case 401, 402, 403, 405, 429, 529:
+	case 401, 402, 403, 404, 405, 429, 529:
 		return true
 	default:
 		return statusCode >= 500
@@ -981,4 +981,25 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 
 	writeError(c, resp.StatusCode, errType, upstreamMsg)
 	return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
+}
+
+// accountCapabilityFailover leaves the response uncommitted when a managed
+// gateway can try another account. Standalone callers keep their direct error.
+func (s *OpenAIGatewayService) accountCapabilityFailover(message string) *UpstreamFailoverError {
+	if s == nil || s.accountRepo == nil {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{"error": map[string]string{
+		"type": "upstream_error", "message": message,
+	}})
+	return &UpstreamFailoverError{
+		StatusCode:        http.StatusBadGateway,
+		ResponseBody:      body,
+		Stage:             GatewayFailureStageInference,
+		Scope:             GatewayFailureScopeAccount,
+		Reason:            "account_endpoint_capability_mismatch",
+		NextAccountAction: NextAccountRetry,
+		ClientStatusCode:  http.StatusBadGateway,
+		ClientMessage:     "No available account supports the required model endpoint",
+	}
 }

@@ -51,6 +51,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	account *Account,
 	useTLSFallback bool,
 ) (*http.Response, error) {
+	markDetectionRequest(request, account)
 	if s.pluginManager != nil {
 		if response, handled, err := s.pluginManager.RoundTripOpenAIProtection(request.Context(), request, proxyURL, account); handled {
 			return response, err

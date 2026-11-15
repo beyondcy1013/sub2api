@@ -77,14 +77,6 @@
     <div class="hidden lg:flex flex-wrap gap-2">
       <template v-if="selectedIds.length > 0">
         <button
-          data-test="batch-test-and-mark"
-          class="btn btn-secondary btn-sm"
-          :disabled="testingSelected"
-          @click="$emit('test-and-mark')"
-        >
-          {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
-        </button>
-        <button
           data-test="batch-pelican-test"
           class="btn btn-secondary btn-sm"
           @click="$emit('pelican-test')"
@@ -113,6 +105,7 @@
         </button>
         <button @click="$emit('toggle-schedulable', true)" class="btn btn-success btn-sm">{{ t('admin.accounts.bulkActions.enableScheduling') }}</button>
         <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
+        <button data-test="bulk-clipboard-export" @click="$emit('clipboard-export')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.clipboardExportSelected') }}</button>
         <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
       </template>
       <button
@@ -240,15 +233,6 @@
             <template v-if="selectedIds.length > 0">
               <button
                 type="button"
-                data-test="batch-test-and-mark"
-                class="mobile-sheet-action"
-                :disabled="testingSelected"
-                @click="closeAndRun(() => $emit('test-and-mark'))"
-              >
-                {{ testingSelected ? t('admin.accounts.bulkActions.testingAndMarking') : t('admin.accounts.bulkActions.testAndMark') }}
-              </button>
-              <button
-                type="button"
                 data-test="batch-pelican-test"
                 class="mobile-sheet-action"
                 @click="closeAndRun(() => $emit('pelican-test'))"
@@ -263,6 +247,9 @@
               </button>
               <button type="button" class="mobile-sheet-action" @click="closeAndRun(() => $emit('probe-upstream-billing'))">
                 {{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}
+              </button>
+              <button type="button" data-test="mobile-clipboard-export" class="mobile-sheet-action" @click="closeAndRun(() => $emit('clipboard-export'))">
+                {{ t('admin.accounts.clipboardExportSelected') }}
               </button>
               <button
                 type="button"
@@ -349,7 +336,6 @@ const props = withDefaults(defineProps<{
   quickUpdating?: 'proxy' | 'group' | null
   refreshingUsage?: boolean
   refreshingBalance?: boolean
-  testingSelected?: boolean
   showDelete?: boolean
   showPermanentDelete?: boolean
   permanentDeleting?: boolean
@@ -365,7 +351,6 @@ const props = withDefaults(defineProps<{
   quickUpdating: null,
   refreshingUsage: false,
   refreshingBalance: false,
-  testingSelected: false,
   showDelete: true,
   showPermanentDelete: false,
   permanentDeleting: false,
@@ -391,8 +376,8 @@ const emit = defineEmits<{
   'probe-upstream-billing': []
   'refresh-usage': []
   'refresh-balance': []
-  'test-and-mark': []
   'pelican-test': []
+  'clipboard-export': []
 }>()
 
 const { t } = useI18n()

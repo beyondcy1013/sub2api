@@ -138,6 +138,23 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
+  it('retains rotation progress when the upstream ultimately fails', async () => {
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse([
+      'data: {"type":"routing_progress","text":"x"}\n\n',
+      'data: {"type":"routing_progress","text":"---"}\n\n',
+      'data: {"type":"error","error":"all accounts failed"}\n\n'
+    ])) as any
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect(wrapper.find('[data-test="rotation-progress"]').text()).toContain('x ---')
+    expect(wrapper.emitted('test-succeeded')).toBeUndefined()
+    expect(wrapper.emitted('test-failed')?.[0]?.[1]).toBe('all accounts failed')
+    wrapper.unmount()
+  })
+
   it('打开弹窗不自动测试，点击开始测试才发起请求', async () => {
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })

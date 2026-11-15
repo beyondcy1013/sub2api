@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -148,6 +149,7 @@ func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *Sched
 		}
 	}
 	mode := NormalizeScheduledTestMode(plan.Mode)
+	ctx = withDetectionOrigin(ctx, "scheduled", mode, plan.AccountID, plan.ID, strings.TrimSpace(plan.ModelID) == "")
 
 	// Pelican plans are OpenAI-only; skip defensively for plans created before
 	// create/update validation existed.

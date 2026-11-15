@@ -3,6 +3,7 @@ package dto
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/modules/qualityevidence"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -641,6 +642,9 @@ type UsageLog struct {
 	// NativeCompactionV2 is true only for requests positively identified at
 	// runtime as the native OpenAI remote compaction v2 wire.
 	NativeCompactionV2 bool `json:"native_compaction_v2"`
+	// ClientDisconnected 表示客户端在响应返回前断开。该行仍按上游用量计费，
+	// 但状态列必须显示 499 客户端断开，而不是 200 成功。
+	ClientDisconnected bool `json:"client_disconnected,omitempty"`
 	DurationMs         *int `json:"duration_ms"`
 	FirstTokenMs       *int `json:"first_token_ms"`
 
@@ -688,6 +692,7 @@ type UsageLog struct {
 
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。
 type AdminUsageLog struct {
+	QualityEvidence *qualityevidence.Evidence `json:"quality_evidence,omitempty"`
 	UsageLog
 
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.

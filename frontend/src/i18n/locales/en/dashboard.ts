@@ -391,6 +391,8 @@ export default {
     status: 'Status',
     statusSuccess: 'Success',
     statusFailed: 'Failed',
+    statusClientDisconnected: 'Client disconnected',
+    statusClientDisconnectedHint: 'The client disconnected before the response was returned. Upstream usage is still billed, and this request\'s quality check is usually cancelled (no verdict).',
     tokens: 'Tokens',
     cost: 'Cost',
     firstToken: 'First Token',

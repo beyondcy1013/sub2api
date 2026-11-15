@@ -32,6 +32,10 @@ func AccountTestPickerModelIDs(account *Account, catalogIDs []string) []string {
 		kept = append(kept, id)
 	}
 
+	if !hasConcreteModelMapping(account) {
+		return kept
+	}
+
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		return kept
@@ -52,4 +56,29 @@ func AccountTestPickerModelIDs(account *Account, catalogIDs []string) []string {
 	}
 	sort.Strings(missing)
 	return append(kept, missing...)
+}
+
+func hasConcreteModelMapping(account *Account) bool {
+	if account == nil || account.Credentials == nil {
+		return false
+	}
+	switch raw := account.Credentials["model_mapping"].(type) {
+	case map[string]any:
+		for k, v := range raw {
+			k = strings.TrimSpace(k)
+			if k != "" && !strings.ContainsAny(k, "*?") {
+				if _, ok := v.(string); ok {
+					return true
+				}
+			}
+		}
+	case map[string]string:
+		for k := range raw {
+			k = strings.TrimSpace(k)
+			if k != "" && !strings.ContainsAny(k, "*?") {
+				return true
+			}
+		}
+	}
+	return false
 }

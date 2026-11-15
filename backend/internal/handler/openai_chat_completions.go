@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -204,7 +203,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			)
 			if len(failedAccountIDs) == 0 {
 				cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
-				cls = classifySelectionFailureError(err, cls)
+				cls = classifySelectionFailureError(err, cls, c)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -233,31 +232,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
-		if h.requestQualityProbe != nil {
-			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, forwardModel); !ok {
-				failedAccountIDs[account.ID] = struct{}{}
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-					selection.ReleaseFunc = nil
-				}
-				lastFailoverErr = &service.UpstreamFailoverError{
-					StatusCode:       http.StatusBadGateway,
-					Stage:            service.GatewayFailureStageInference,
-					Scope:            service.GatewayFailureScopeAccount,
-					Reason:           "request_quality_probe_failed",
-					ClientStatusCode: http.StatusBadGateway,
-					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, forwardModel, reason),
-				}
-				reqLog.Warn("openai_chat_completions.account_skipped_quality_probe_failed",
-					zap.Int64("account_id", account.ID),
-					zap.String("account_name", account.Name),
-					zap.String("model", forwardModel),
-					zap.String("reason", reason),
-				)
-				continue
-			}
-		}
-
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
@@ -279,14 +253,14 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
-		result, err := func() (*service.OpenAIForwardResult, error) {
+		result, err := forwardWithQualityGate(c, h.requestQualityProbe, account, forwardModel, func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
 			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
-		}()
+		})
 		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyChat = body

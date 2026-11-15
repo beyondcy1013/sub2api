@@ -8,7 +8,7 @@ const stubs = {
   BaseDialog: { template: '<div v-if="show"><slot /></div>', props: ['show'] },
   AutomaticDetectionPolicies: { name: 'AutomaticDetectionPolicies', props: ['accounts', 'hasStandard'], template: '<div />' },
   RequestQualityProbeForm: { template: '<div />' },
-  ScheduledTestsPanel: { name: 'ScheduledTestsPanel', props: ['accountId', 'rulesOnly', 'modelOptions'], template: '<div />' },
+  ScheduledTestsPanel: { name: 'ScheduledTestsPanel', props: ['accountId', 'rulesOnly', 'modelOptions', 'initialPlanId'], template: '<div />' },
 }
 describe('independent automatic detection dialog', () => {
   beforeEach(() => {
@@ -25,6 +25,16 @@ describe('independent automatic detection dialog', () => {
     expect(w.findAll('[role="tab"]')).toHaveLength(4)
     await w.get('[data-test="automatic-tab-rules"]').trigger('click')
     expect(w.findComponent({ name: 'ScheduledTestsPanel' }).props('rulesOnly')).toBe(true)
+    w.unmount()
+  })
+  it('opens the selected Cron plan editor from the task table', async () => {
+    const w = mount(AutomaticDetectionDialog, { props: { show: true, accounts: [], initialAccountId: 42 }, global: { stubs } })
+    await flushPromises()
+    w.findComponent({ name: 'AutomaticDetectionPolicies' }).vm.$emit('schedules', 19)
+    await flushPromises()
+    const panel = w.findComponent({ name: 'ScheduledTestsPanel' })
+    expect(panel.props('initialPlanId')).toBe(19)
+    expect(panel.props('accountId')).toBe(null)
     w.unmount()
   })
   it('resets to the requested mode on each opening with per-account context', async () => {

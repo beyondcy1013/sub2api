@@ -93,6 +93,7 @@
         />
       </div>
 
+      <RotationProgress :entries="rotationProgress" />
       <DetectionResultSummary v-if="status !== 'idle'" :status="status" :capability="testMode === 'pelican'" :downgraded="pelicanResult?.downgraded" :reason="pelicanResult?.reason" :error="errorMessage" :model="selectedModelId" />
       <!-- Terminal Output -->
       <div class="group relative">
@@ -395,7 +396,9 @@
 </template>
 
 <script setup lang="ts">
+import RotationProgress from '@/modules/rotationnotice/RotationProgress.vue'
 import { computed, ref, watch, nextTick } from 'vue'
+import { cachedAccountModels, rememberAccountModels } from '@/utils/pelicanModelCatalog'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -442,6 +445,7 @@ const emit = defineEmits<{
 const terminalRef = ref<HTMLElement | null>(null)
 const status = ref<'idle' | 'connecting' | 'success' | 'error'>('idle')
 const outputLines = ref<OutputLine[]>([])
+const rotationProgress = ref<string[]>([])
 const streamingContent = ref('')
 const errorMessage = ref('')
 const availableModels = ref<ClaudeModel[]>([])
@@ -602,12 +606,20 @@ watch(selectedModelId, () => {
   }
 })
 
+const cachedModelOptions = (accountId: number) => cachedAccountModels(accountId).map(model => ({
+  id: model.id,
+  type: 'model',
+  display_name: model.display_name || model.id,
+  created_at: ''
+}))
+
 const loadAvailableModels = async () => {
   if (!props.account) return
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
-  availableModels.value = [] // Prevent stale options from another account during reload
+  // 先用该账号上一次成功加载的目录渲染，避免测智期间下拉短暂变空。
+  availableModels.value = cachedModelOptions(props.account.id)
   try {
     // axios unwraps the standard {code,data} envelope in the response
     // interceptor, so the API helper already returns the model array here.
@@ -616,6 +628,7 @@ const loadAvailableModels = async () => {
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
+    if (availableModels.value.length > 0) rememberAccountModels(props.account.id, availableModels.value)
     // Default selection by platform
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
@@ -638,9 +651,9 @@ const loadAvailableModels = async () => {
     }
   } catch (error) {
     console.error('Failed to load available models:', error)
-    // Fallback to empty list
-    availableModels.value = []
-    selectedModelId.value = ''
+    // 刷新失败不应清空已经可用的目录。
+    availableModels.value = cachedModelOptions(props.account.id)
+    selectedModelId.value = availableModels.value[0]?.id || ''
   } finally {
     loadingModels.value = false
   }
@@ -649,6 +662,7 @@ const loadAvailableModels = async () => {
 const resetState = () => {
   status.value = 'idle'
   outputLines.value = []
+  rotationProgress.value = []
   streamingContent.value = ''
   errorMessage.value = ''
   generatedImages.value = []
@@ -854,6 +868,10 @@ const handleEvent = (event: {
         })
         addLine(t('admin.accounts.imageReceived', { count: generatedImages.value.length }), 'text-purple-300')
       }
+      break
+
+    case 'routing_progress':
+      if (event.text === 'x' || event.text === '---') rotationProgress.value.push(event.text)
       break
 
     case 'status':

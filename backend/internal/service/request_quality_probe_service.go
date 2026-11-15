@@ -623,6 +623,13 @@ func (s *RequestQualityProbeService) LatestAccountSummaries(ctx context.Context,
 	return reader.LatestAccountSummaries(ctx, ids)
 }
 
+func (s *RequestQualityProbeService) DegradationCounts(ctx context.Context, ids []int64, since *time.Time) (map[int64]int64, error) {
+	if s == nil || s.detectionRepo == nil {
+		return map[int64]int64{}, nil
+	}
+	return s.detectionRepo.DegradationCounts(ctx, ids, since)
+}
+
 // RecentSuccessfulUse is advisory only; it never bypasses the quality gate.
 func (s *RequestQualityProbeService) RecentSuccessfulUse(ctx context.Context, attempts []rotationnotice.Attempt, before time.Time) (bool, error) {
 	if s == nil {

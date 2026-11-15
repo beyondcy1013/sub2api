@@ -20,7 +20,7 @@ type SystemSettings struct {
 	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
-	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
+	RegistrationEmailDomainQuotaEnabled bool     // 白名单非空时放行非白名单域名限量注册（默认关闭）
 	GlobalModelExcludePatterns          []string // 全局排除大模型表达式列表
 	PromoCodeEnabled                    bool
 	PasswordResetEnabled                bool
@@ -156,6 +156,8 @@ type SystemSettings struct {
 	GoogleOAuthFrontendRedirectURL    string
 
 	SiteName                    string
+	InstanceName                string
+	InstanceColor               string
 	SiteLogo                    string
 	SiteSubtitle                string
 	APIBaseURL                  string
@@ -266,11 +268,11 @@ type SystemSettings struct {
 	OpenAICodexTicketStaticProxyURL        string
 	OpenAICodexTicketModels                []string // Codex 292 打票模型列表；缺失时回退 yaml/env
 	MinCodexVersion                        string   // codex_cli_only 最低 Codex 引擎版本；空=不检查
-	MaxCodexVersion                        string // codex_cli_only 最高 Codex 引擎版本；空=不检查
-	CodexCLIOnlyBlacklist                  string // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
-	CodexCLIOnlyWhitelist                  string // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
-	CodexCLIOnlyAllowAppServerClients      bool   // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
-	CodexCLIOnlyEngineFingerprintSignals   string // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
+	MaxCodexVersion                        string   // codex_cli_only 最高 Codex 引擎版本；空=不检查
+	CodexCLIOnlyBlacklist                  string   // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
+	CodexCLIOnlyWhitelist                  string   // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
+	CodexCLIOnlyAllowAppServerClients      bool     // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
+	CodexCLIOnlyEngineFingerprintSignals   string   // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
@@ -371,6 +373,8 @@ type PublicSettings struct {
 	AliyunCaptchaPrefix                 string
 	AliyunCaptchaRegion                 string
 	SiteName                            string
+	InstanceName                        string
+	InstanceColor                       string
 	SiteLogo                            string
 	SiteSubtitle                        string
 	APIBaseURL                          string

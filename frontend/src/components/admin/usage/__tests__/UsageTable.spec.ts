@@ -89,6 +89,7 @@ const messages: Record<string, string> = {
 	'usage.status': 'Status',
 	'usage.statusSuccess': 'Success',
 	'usage.statusFailed': 'Failed',
+	'usage.statusClientDisconnected': 'Client disconnected',
 	'admin.ops.errorLog.details': 'Details',
 }
 
@@ -979,6 +980,38 @@ describe('admin UsageTable status and error handling', () => {
     expect(wrapper.text()).toContain('200')
     expect(wrapper.text()).toContain('Success')
     expect(wrapper.text()).toContain('primary-oai')
+  })
+
+  it('renders 499 client-disconnected badge instead of a 200 success badge', () => {
+    const row = {
+      request_id: 'client:disconnected-1',
+      status: 'client_disconnected',
+      status_code: 499,
+      client_disconnected: true,
+      input_tokens: 12814,
+      output_tokens: 315,
+      actual_cost: 0.03985,
+      account: { id: 21, name: 'sub2freeApi' },
+    }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row as any],
+        loading: false,
+        columns: [{ key: 'status', label: 'Status' }, { key: 'account', label: 'Account' }],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStubWithStatusAndAccount,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+    expect(wrapper.text()).toContain('499')
+    expect(wrapper.text()).toContain('Client disconnected')
+    expect(wrapper.text()).not.toContain('200 Success')
+    expect(wrapper.find('[data-testid="error-detail-btn"]').exists()).toBe(false)
   })
 
   it('renders error badge, error message, account name, and emits errorClick for failed row', async () => {

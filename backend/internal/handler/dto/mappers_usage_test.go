@@ -49,6 +49,29 @@ func TestUsageLogFromService_PreservesNativeCompactionAndStream(t *testing.T) {
 	require.True(t, adminDTO.NativeCompactionV2)
 }
 
+func TestUsageLogFromService_ClientDisconnectedReports499(t *testing.T) {
+	t.Parallel()
+
+	// A client that disconnects before the response is released still gets billed
+	// from the drained upstream usage; the row must not claim 200 success.
+	log := &service.UsageLog{
+		RequestID:          "client:disconnected",
+		Model:              "gpt-6.1-sol",
+		ClientDisconnected: true,
+	}
+
+	userDTO := UsageLogFromService(log)
+	adminDTO := UsageLogFromServiceAdmin(log)
+	require.True(t, userDTO.ClientDisconnected)
+	require.Equal(t, "client_disconnected", userDTO.Status)
+	require.NotNil(t, userDTO.StatusCode)
+	require.Equal(t, 499, *userDTO.StatusCode)
+	require.True(t, adminDTO.ClientDisconnected)
+	require.Equal(t, "client_disconnected", adminDTO.Status)
+	require.NotNil(t, adminDTO.StatusCode)
+	require.Equal(t, 499, *adminDTO.StatusCode)
+}
+
 func TestUsageLogFromService_PrefersRequestTypeForLegacyFields(t *testing.T) {
 	t.Parallel()
 

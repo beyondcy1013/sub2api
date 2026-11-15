@@ -160,6 +160,8 @@ type UpdateSettingsRequest struct {
 
 	// OEM设置
 	SiteName                    string                `json:"site_name"`
+	InstanceName                string                `json:"instance_name"`
+	InstanceColor               string                `json:"instance_color"`
 	SiteLogo                    string                `json:"site_logo"`
 	SiteSubtitle                string                `json:"site_subtitle"`
 	APIBaseURL                  string                `json:"api_base_url"`
@@ -250,22 +252,22 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
-	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
-	ClaudeCodeClientVersion                *string `json:"claude_code_client_version"`
-	ClaudeCodeVersionAutoSyncEnabled       *bool   `json:"claude_code_version_auto_sync_enabled"`
+	OpenAITTFTMode                         *string   `json:"openai_ttft_mode"`
+	EnableFingerprintUnification           *bool     `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              *bool     `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                       *bool     `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection *bool     `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                *string   `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks          *string   `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection     *bool     `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl             *bool     `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization      *bool     `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion            *string   `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                   *string   `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion               *string   `json:"openai_codex_client_version"`
+	OpenAICodexVersionAutoSyncEnabled      *bool     `json:"openai_codex_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                *string   `json:"claude_code_client_version"`
+	ClaudeCodeVersionAutoSyncEnabled       *bool     `json:"claude_code_version_auto_sync_enabled"`
 	OpenAICodexTicketEnabled               *bool     `json:"openai_codex_ticket_enabled"`
 	OpenAICodexTicketHarvestProxyURL       string    `json:"openai_codex_ticket_harvest_proxy_url"`
 	OpenAICodexTicketUseSavedStaticProxy   bool      `json:"openai_codex_ticket_use_saved_static_proxy"`
@@ -1670,6 +1672,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GoogleOAuthRedirectURL:                 req.GoogleOAuthRedirectURL,
 		GoogleOAuthFrontendRedirectURL:         req.GoogleOAuthFrontendRedirectURL,
 		SiteName:                               req.SiteName,
+		InstanceName:                           req.InstanceName,
+		InstanceColor:                          req.InstanceColor,
 		SiteLogo:                               req.SiteLogo,
 		SiteSubtitle:                           req.SiteSubtitle,
 		APIBaseURL:                             req.APIBaseURL,
@@ -2407,6 +2411,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GoogleOAuthRedirectURL:                                 updatedSettings.GoogleOAuthRedirectURL,
 		GoogleOAuthFrontendRedirectURL:                         updatedSettings.GoogleOAuthFrontendRedirectURL,
 		SiteName:                                               updatedSettings.SiteName,
+		InstanceName:                                           updatedSettings.InstanceName,
+		InstanceColor:                                          updatedSettings.InstanceColor,
 		SiteLogo:                                               updatedSettings.SiteLogo,
 		SiteSubtitle:                                           updatedSettings.SiteSubtitle,
 		APIBaseURL:                                             updatedSettings.APIBaseURL,

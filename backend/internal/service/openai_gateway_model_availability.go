@@ -56,6 +56,14 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 	diag := ModelAvailabilityDiagnosis{}
 	for i := range accounts {
 		diag.HasAccountsInPool = true
+		// Account-derived composite routes require an exact public-model owner.
+		// A wildcard, empty mapping, or passthrough account must not turn an
+		// ownership/configuration rejection into a retryable capacity failure.
+		if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
+			if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(accounts[i], publicModel) {
+				continue
+			}
+		}
 		if isRetiredOpenAISubscriptionModel(&accounts[i], resolveOpenAIAccountUpstreamModelForRequest(&accounts[i], requestedModel, false)) {
 			diag.HasRetiredSubscriptionModel = true
 		}

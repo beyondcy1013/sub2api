@@ -30,7 +30,7 @@
           <div class="text-sm">
             <button
               v-if="row.user?.email"
-              class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              class="font-medium text-primary-600 no-underline transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
               @click="$emit('userClick', row.user_id, row.user?.email)"
               :title="t('admin.usage.clickToViewBalance')"
             >
@@ -54,7 +54,7 @@
               v-if="row.account?.id || row.account_id"
               type="button"
               data-testid="account-filter-btn"
-              class="font-medium text-primary-600 underline decoration-dashed underline-offset-2 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              class="font-medium text-primary-600 no-underline transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
               @click="$emit('accountClick', row.account?.id || row.account_id, row.account?.name)"
               :title="t('admin.usage.clickToFilterAccount')"
             >
@@ -64,13 +64,19 @@
           </div>
         </template>
 
+        <template #cell-quality_evidence="{ row }">
+          <QualityEvidenceCell :evidence="row.quality_evidence" />
+        </template>
+
         <template #cell-status="{ row }">
           <div class="flex items-center gap-1.5">
             <span
               class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
-              :class="isRowError(row) ? statusCodeBadgeClass(row.status_code || 500) : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'"
+              :class="isRowClientDisconnected(row) ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' : (isRowError(row) ? statusCodeBadgeClass(row.status_code || 500) : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200')"
+              :title="isRowClientDisconnected(row) ? t('usage.statusClientDisconnectedHint') : undefined"
             >
-              {{ row.status_code || (isRowError(row) ? 500 : 200) }} {{ isRowError(row) ? t('usage.statusFailed') : t('usage.statusSuccess') }}
+              <template v-if="isRowClientDisconnected(row)">499 {{ t('usage.statusClientDisconnected') }}</template>
+              <template v-else>{{ row.status_code || (isRowError(row) ? 500 : 200) }} {{ isRowError(row) ? t('usage.statusFailed') : t('usage.statusSuccess') }}</template>
             </span>
             <button
               v-if="row.error_id"
@@ -93,6 +99,7 @@
         </template>
 
         <template #cell-model="{ row }">
+ <DetectionOriginLabel :user-agent="row.user_agent" />
           <div class="space-y-0.5 text-xs">
             <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
               <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
@@ -592,9 +599,11 @@
 </template>
 
 <script setup lang="ts">
+import DetectionOriginLabel from '@/modules/qualityevidence/DetectionOriginLabel.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import QualityEvidenceCell from '@/modules/qualityevidence/QualityEvidenceCell.vue'
 import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
 import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
@@ -680,7 +689,13 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 
+// 客户端在响应返回前断开的行仍按上游用量计费，不是失败行；状态列单独显示 499。
+const isRowClientDisconnected = (row: UsageLog | AdminUsageLog): boolean => {
+  return row.client_disconnected === true || row.status === 'client_disconnected'
+}
+
 const isRowError = (row: UsageLog | AdminUsageLog): boolean => {
+  if (isRowClientDisconnected(row)) return false
   return row.status === 'error' || (row.status_code != null && row.status_code >= 400)
 }
 const copiedRequestId = ref<string | null>(null)

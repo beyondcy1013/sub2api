@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -228,7 +228,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			}
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
-				cls = classifySelectionFailureError(err, cls)
+				cls = classifySelectionFailureError(err, cls, c)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -257,31 +257,6 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
-
-		if h.requestQualityProbe != nil {
-			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, reqModel); !ok {
-				fs.FailedAccountIDs[account.ID] = struct{}{}
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-					selection.ReleaseFunc = nil
-				}
-				fs.LastFailoverErr = &service.UpstreamFailoverError{
-					StatusCode:       http.StatusBadGateway,
-					Stage:            service.GatewayFailureStageInference,
-					Scope:            service.GatewayFailureScopeAccount,
-					Reason:           "request_quality_probe_failed",
-					ClientStatusCode: http.StatusBadGateway,
-					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, reqModel, reason),
-				}
-				reqLog.Warn("gateway.cc.account_skipped_quality_probe_failed",
-					zap.Int64("account_id", account.ID),
-					zap.String("account_name", account.Name),
-					zap.String("model", reqModel),
-					zap.String("reason", reason),
-				)
-				continue
-			}
-		}
 
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
@@ -338,6 +313,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		// 5. Forward request
+		beginRotationAttempt(c, h.requestQualityProbe, account.ID, openAIChannelForwardModel(channelMapping, reqModel))
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardBody := body
 		if channelMapping.Mapped {
@@ -353,7 +329,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				return
 			}
-			result, err = h.geminiCompatService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody)
+			result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, openAIChannelForwardModel(channelMapping, reqModel), func() (*service.ForwardResult, error) {
+				return h.geminiCompatService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody)
+			})
 		} else if shouldUseAntigravityCompat(account) {
 			if h.antigravityGatewayService == nil {
 				h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
@@ -363,9 +341,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				return
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, openAIChannelForwardModel(channelMapping, reqModel), func() (*service.ForwardResult, error) {
+				return h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			})
 		} else {
-			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, openAIChannelForwardModel(channelMapping, reqModel), func() (*service.ForwardResult, error) {
+				return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			})
 		}
 
 		if accountReleaseFunc != nil {
@@ -422,6 +404,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 					return
 				}
 				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				if _, failed := fs.FailedAccountIDs[account.ID]; failed && action != FailoverCanceled {
+					failedRotationAttempt(c, account, failoverErr)
+				}
 				switch action {
 				case FailoverContinue:
 					continue
@@ -452,18 +437,33 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+	if rotationnotice.Committed(c) {
+		h.handleStreamingAwareError(c, status, errType, message, true)
+		return
+	}
+	var code string
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, "", message)
 	message = clienterror.Prefix(errType, message)
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": clienterror.WithSource(message),
-			"source":  clienterror.Source,
-		},
+		"error": rotationErrorObject(errType, code, message),
 	})
 }
 
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.
 func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	if message, ok := upstreamForbiddenMessage(lastErr); ok {
+		if rotationnotice.Committed(c) {
+			h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", message, true)
+		} else if !streamStarted {
+			h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error", message)
+		}
+		return
+	}
+
+	if rotationnotice.Committed(c) {
+		h.handleStreamingAwareError(c, 502, "upstream_error", "All available accounts exhausted", true)
+		return
+	}
 	if streamStarted {
 		return
 	}

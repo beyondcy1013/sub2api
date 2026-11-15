@@ -272,6 +272,7 @@ func ProvideAccountTestService(
 	settingService *SettingService,
 	pluginManager *PluginManager,
 	detectionRepo AccountDetectionRepository,
+	rateLimitService *RateLimitService,
 ) *AccountTestService {
 	service := NewAccountTestService(
 		accountRepo,
@@ -284,6 +285,7 @@ func ProvideAccountTestService(
 		tlsFPProfileService,
 	)
 	service.detectionRepo = detectionRepo
+	service.testRateLimitService = rateLimitService
 	service.agentIdentityWS = openAIGatewayService
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
@@ -515,6 +517,7 @@ func ProvideRateLimitService(
 	tempUnschedCache TempUnschedCache,
 	timeoutCounterCache TimeoutCounterCache,
 	openAI403CounterCache OpenAI403CounterCache,
+	poolModeErrorCounter PoolModeErrorCounterCache,
 	relayFailureBudgetCache RelayFailureBudgetCache,
 	settingService *SettingService,
 	tokenCacheInvalidator TokenCacheInvalidator,
@@ -526,6 +529,7 @@ func ProvideRateLimitService(
 	}
 	svc.SetTimeoutCounterCache(timeoutCounterCache)
 	svc.SetOpenAI403CounterCache(openAI403CounterCache)
+	svc.SetPoolModeErrorCounterCache(poolModeErrorCounter)
 	svc.SetRelayFailureBudgetCache(relayFailureBudgetCache)
 	svc.SetSettingService(settingService)
 	svc.SetTokenCacheInvalidator(tokenCacheInvalidator)

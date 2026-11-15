@@ -400,11 +400,9 @@ func TestAccountHandlerGetAvailableModels_AntigravityRespectsModelWhitelist(t *t
 	for _, model := range resp.Data {
 		ids = append(ids, model.ID)
 	}
-	// 白名单 + 服务端强制的 antigravity gemini 直通模型（与路由 IsModelSupported
-	// 一致）之外，其余默认模型不得出现在测试选择器里。
+	// 白名单之外，其余默认模型不得出现在测试选择器里。
 	require.Contains(t, ids, "claude-opus-4-6")
 	require.Contains(t, ids, "ag-custom-alias")
-	require.Contains(t, ids, "gemini-3-flash", "server-forced antigravity passthroughs stay servable")
 	require.NotContains(t, ids, "claude-sonnet-4-5")
 	require.NotContains(t, ids, "gemini-2.5-flash")
 }

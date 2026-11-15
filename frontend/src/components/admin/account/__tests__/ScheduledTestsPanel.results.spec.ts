@@ -18,7 +18,12 @@ import ScheduledTestsPanel from '../ScheduledTestsPanel.vue'
 const { listByAccount, listResults, showError } = vi.hoisted(() => ({
   listByAccount: vi.fn(), listResults: vi.fn(), showError: vi.fn(),
 }))
-vi.mock('@/api/admin', () => ({ adminAPI: { scheduledTests: { listByAccount, listResults } } }))
+vi.mock('@/api/admin', () => ({
+  adminAPI: {
+    scheduledTests: { listByAccount, listResults },
+    degradationRules: { list: vi.fn().mockResolvedValue([]) },
+  },
+}))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError }) }))
 
 async function openPanel() {

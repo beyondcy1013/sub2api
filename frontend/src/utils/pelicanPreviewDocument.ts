@@ -105,8 +105,32 @@ const FIT_STYLE = `
   }
 `
 
-export function pelicanPreviewDocument(html: string): string {
-  return `<meta http-equiv="Content-Security-Policy" content="${POLICY}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${FIT_STYLE}</style><script>${LOCKDOWN}</script><script>${FIT_SCRIPT}</script>${html}`
+// 预览 iframe 使用 srcdoc，会继承宿主文档的 CSP；宿主 script-src 只放行 nonce，
+// 因此内联脚本必须携带同一 nonce，否则动画脚本会被静默拦截，预览只剩首帧。
+export function currentCspNonce(): string {
+  try {
+    const el = document.querySelector('script[nonce]') as HTMLScriptElement | null
+    return el?.nonce || ''
+  } catch {
+    return ''
+  }
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+function withScriptNonce(html: string, nonce: string): string {
+  if (!nonce) return html
+  return html.replace(/<script\b([^>]*)>/gi, (_match, attrs: string) => {
+    const cleaned = attrs.replace(/\snonce\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    return `<script${cleaned} nonce="${escapeAttr(nonce)}">`
+  })
+}
+
+export function pelicanPreviewDocument(html: string, nonce: string = currentCspNonce()): string {
+  const nonceAttr = nonce ? ` nonce="${escapeAttr(nonce)}"` : ''
+  return `<meta http-equiv="Content-Security-Policy" content="${POLICY}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${FIT_STYLE}</style><script${nonceAttr}>${LOCKDOWN}</script><script${nonceAttr}>${FIT_SCRIPT}</script>${withScriptNonce(html, nonce)}`
 }
 
 // Older history entries may contain only raw model output, without result metadata.

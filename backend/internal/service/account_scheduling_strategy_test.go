@@ -73,6 +73,28 @@ func TestFilterByAccountSchedulingPreference_LowestCostIgnoresLegacySuperPriorit
 	require.Equal(t, []int64{2}, accountLoadIDs(fallback))
 }
 
+func TestFilterByAccountSchedulingPreference_ZeroRateTakesOverAndFallsBack(t *testing.T) {
+	zero := schedulingTestAccount(1, 0, false)
+	cheap := schedulingTestAccount(2, 0.1, false)
+	expensive := schedulingTestAccount(3, 0.5, false)
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{
+		BaseStrategy: AccountSchedulingStrategyLowestCost,
+	}}
+
+	preferred := filterByAccountSchedulingPreference([]accountWithLoad{
+		schedulingTestLoad(expensive),
+		schedulingTestLoad(zero),
+		schedulingTestLoad(cheap),
+	}, cfg)
+	require.Equal(t, []int64{1}, accountLoadIDs(preferred))
+
+	fallback := filterByAccountSchedulingPreference([]accountWithLoad{
+		schedulingTestLoad(expensive),
+		schedulingTestLoad(cheap),
+	}, cfg)
+	require.Equal(t, []int64{2}, accountLoadIDs(fallback))
+}
+
 func TestOrderAccountsBySchedulingPreference_PreservesDefaultOrderWithinTiers(t *testing.T) {
 	accounts := []*Account{
 		schedulingTestAccount(1, 0.7, false),
@@ -454,6 +476,43 @@ func TestSchedulingRateSyncModeDefaultsToAutoAndMigratesLegacySource(t *testing.
 	require.Equal(t, SchedulingRateSyncModeManualLock, (&Account{Extra: map[string]any{
 		SchedulingRateSyncModeExtraKey: SchedulingRateSyncModeManualLock,
 	}}).SchedulingRateSyncMode())
+}
+
+func TestStickyAccountMatchesLowestSchedulingRate(t *testing.T) {
+	expensive := schedulingTestAccount(881, 0.9, false)
+	zero := schedulingTestAccount(882, 0, false)
+	candidates := []Account{*expensive, *zero}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+
+	require.False(t, stickyAccountMatchesLowestSchedulingRate(expensive.ID, candidates, cfg))
+	require.True(t, stickyAccountMatchesLowestSchedulingRate(zero.ID, candidates, cfg))
+	require.True(t, stickyAccountMatchesLowestSchedulingRate(expensive.ID, candidates, &config.Config{}))
+}
+
+func TestOpenAILegacyLowestCost_BypassesMovableSessionSticky(t *testing.T) {
+	groupID := int64(90)
+	expensiveRate, zeroRate := 0.9, 0.0
+	accounts := []Account{
+		{ID: 901, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, RateMultiplier: &expensiveRate},
+		{ID: 902, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID}, RateMultiplier: &zeroRate},
+	}
+	cfg := &config.Config{SuperPriority: config.SuperPriorityConfig{BaseStrategy: AccountSchedulingStrategyLowestCost}}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:legacy-cost-session": 901}},
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("false"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, err := svc.selectAccountWithLoadAwareness(context.Background(), &groupID, PlatformOpenAI, "legacy-cost-session", "gpt-5.1", nil, false, "", true)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(902), selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
 }
 
 func TestOpenAIAdvancedLowestCost_BypassesMovableSessionSticky(t *testing.T) {

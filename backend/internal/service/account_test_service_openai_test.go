@@ -670,7 +670,11 @@ func TestAccountTestService_OpenAIAPIKeyResponsesUsesCodexProbeHeaders(t *testin
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
 	require.Equal(t, "https://compat-upstream.example/v1/responses", req.URL.String())
-	requireOpenAICodexProbeHeaders(t, req.Header)
+	identityHeaders := req.Header.Clone()
+	marker := accountDetectionOrigin(context.Background(), 95, AccountTestModeDefault).UserAgent("")
+	require.Equal(t, codexCLIUserAgent+" "+marker, identityHeaders.Get("User-Agent"))
+	identityHeaders.Set("User-Agent", strings.TrimSuffix(identityHeaders.Get("User-Agent"), " "+marker))
+	requireOpenAICodexProbeHeaders(t, identityHeaders)
 }
 
 func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsPath(t *testing.T) {
@@ -814,4 +818,64 @@ func TestAccountTestService_OpenAIChatCompletionsPathRejectsNonJSONStream(t *tes
 	require.Contains(t, err.Error(), "Invalid Chat Completions response from /v1/chat/completions")
 	require.Contains(t, recorder.Body.String(), "/v1/chat/completions")
 	require.NotContains(t, recorder.Body.String(), `"success":true`)
+}
+
+func TestAccountTestService_OpenAIChatCompletionsPelicanNumericAndReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	upstreamBody := strings.Join([]string{
+		`data: {"id":"chatcmpl_test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"Let me calculate: 10 + 11 = "},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"21"},"finish_reason":null}]}`,
+		"",
+		`data: {"id":"chatcmpl_test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          95,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "https://compat-upstream.example/v1",
+		},
+		Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: false},
+	}
+
+	expectedAnswer := 21
+	opts := AccountTestOptions{
+		ReasoningEffort: "low",
+		Evaluator:       "numeric",
+		ExpectedAnswer:  &expectedAnswer,
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "glm-5.3-flash", "What is 10 + 11?", AccountTestModePelican, opts)
+	require.NoError(t, err)
+
+	require.NotNil(t, upstream.lastBody)
+	require.Equal(t, "low", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+
+	body := recorder.Body.String()
+	// Reasoning content is streamed in real time
+	require.Contains(t, body, "Let me calculate: 10 + 11 = ")
+	// Content is streamed in real time
+	require.Contains(t, body, "21")
+	// Pelican result event is emitted with passing evaluation
+	require.Contains(t, body, "pelican_result")
+	require.Contains(t, body, "数字答案判定通过")
+	require.Contains(t, body, `"downgraded":false`)
+	require.Contains(t, body, `"success":true`)
 }

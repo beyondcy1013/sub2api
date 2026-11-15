@@ -736,7 +736,6 @@ describe('UseKeyModal', () => {
       options: { store: false },
       variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
     })
-    expect(models['gpt-6-sol'].variants).toHaveProperty('none')
     expect(models['gpt-6-luna'].limit).toEqual({ context: 1050000, output: 128000 })
     expect(models['gpt-6']).toEqual({
       name: 'GPT-6 (Astra)',
@@ -832,11 +831,15 @@ describe('UseKeyModal', () => {
 
     expect(claudeConfig).toBeDefined()
     const parsed = JSON.parse(claudeConfig!)
-    expect(parsed.provider['antigravity-claude'].models).not.toHaveProperty('claude-fable-5-2')
+    const fable52 = parsed.provider['antigravity-claude'].models['claude-fable-5-2']
     expect(parsed.provider['antigravity-claude'].models).not.toHaveProperty('claude-mythos-5-2')
     const fable51 = parsed.provider['antigravity-claude'].models['claude-fable-5-1']
     const fable = parsed.provider['antigravity-claude'].models['claude-fable-5']
 
+    expect(fable52.name).toBe('Claude Fable 5.2')
+    expect(fable52.limit).toEqual({ context: 1048576, output: 128000 })
+    expect(fable52.options.thinking).toEqual({ type: 'adaptive' })
+    expect(fable52.options.thinking).not.toHaveProperty('budgetTokens')
     expect(fable51.name).toBe('Claude Fable 5.1')
     expect(fable51.limit).toEqual({ context: 1048576, output: 128000 })
     expect(fable51.options.thinking).toEqual({ type: 'adaptive' })

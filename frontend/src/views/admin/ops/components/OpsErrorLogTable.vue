@@ -49,6 +49,7 @@
         </template>
 
         <template #cell-model="{ row }">
+ <DetectionOriginLabel :user-agent="row.user_agent" />
           <div v-if="hasModelMapping(row)" class="space-y-0.5 text-xs">
             <div class="break-all font-medium text-gray-900 dark:text-white">{{ row.requested_model }}</div>
             <div class="break-all text-gray-500 dark:text-gray-400"><span class="mr-0.5">↳</span>{{ row.upstream_model }}</div>
@@ -101,7 +102,9 @@
             class="text-sm text-gray-900 dark:text-white"
             :title="t('admin.ops.errorLog.accountId') + ' ' + row.account_id"
           >{{ row.account_name || '#' + row.account_id }}<span v-if="systemLogLink && row.account_name" class="ml-1 text-xs text-gray-400">#{{ row.account_id }}</span></span>
-          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+          <span v-else-if="row.phase === 'routing'" class="text-sm text-gray-500 dark:text-gray-400"
+            :title="t('admin.ops.errorLog.noAccountRoutingHint')">{{ t('admin.ops.errorLog.noAccountSelected') }}</span>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">{{ t('admin.ops.errorLog.accountNotRecorded') }}</span>
         </template>
 
         <template #cell-category="{ row }">
@@ -189,6 +192,7 @@
 </template>
 
 <script setup lang="ts">
+import DetectionOriginLabel from '@/modules/qualityevidence/DetectionOriginLabel.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataTable from '@/components/common/DataTable.vue'

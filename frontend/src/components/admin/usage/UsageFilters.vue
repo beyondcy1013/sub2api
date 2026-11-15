@@ -270,6 +270,7 @@ const accountKeyword = ref('')
 const accountResults = ref<SimpleAccount[]>([])
 const showAccountDropdown = ref(false)
 let accountSearchTimeout: ReturnType<typeof setTimeout> | null = null
+let accountSearchSequence = 0
 
 const modelOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allModels') },
@@ -435,30 +436,56 @@ const onClearApiKey = () => {
   emitChange()
 }
 
-const debounceAccountSearch = () => {
-  if (accountSearchTimeout) clearTimeout(accountSearchTimeout)
-  accountSearchTimeout = setTimeout(async () => {
-    if (!accountKeyword.value) {
-      accountResults.value = []
-      return
-    }
-    try {
-      const res = await adminAPI.accounts.list(1, 20, { search: accountKeyword.value })
+const clearPendingAccountSearch = () => {
+  if (accountSearchTimeout) {
+    clearTimeout(accountSearchTimeout)
+    accountSearchTimeout = null
+  }
+  accountSearchSequence += 1
+}
+
+const searchAccounts = async (query: string, sequence: number) => {
+  try {
+    const res = await adminAPI.accounts.list(1, 20, query ? { search: query } : undefined)
+    if (sequence === accountSearchSequence) {
       accountResults.value = res.items.map((a) => ({ id: a.id, name: a.name }))
-    } catch {
-      accountResults.value = []
     }
+  } catch {
+    if (sequence === accountSearchSequence) accountResults.value = []
+  }
+}
+
+const debounceAccountSearch = () => {
+  const keyword = accountKeyword.value
+  clearPendingAccountSearch()
+  accountResults.value = []
+  // Editing the label invalidates the previous selection. Keep the query text
+  // while the parent refreshes the unfiltered list.
+  if (filters.value.account_id != null) {
+    filters.value.account_id = undefined
+    emitChange()
+  }
+  accountKeyword.value = keyword
+  showAccountDropdown.value = true
+  const query = keyword.trim()
+  const sequence = accountSearchSequence
+  accountSearchTimeout = setTimeout(() => {
+    accountSearchTimeout = null
+    void searchAccounts(query, sequence)
   }, 300)
 }
 
 const selectAccount = (a: SimpleAccount) => {
+  clearPendingAccountSearch()
   accountKeyword.value = a.name
+  accountResults.value = []
   showAccountDropdown.value = false
   filters.value.account_id = a.id
   emitChange()
 }
 
 const clearAccount = () => {
+  clearPendingAccountSearch()
   accountKeyword.value = ''
   accountResults.value = []
   showAccountDropdown.value = false
@@ -466,16 +493,11 @@ const clearAccount = () => {
   emitChange()
 }
 
-const onAccountFocus = async () => {
+const onAccountFocus = () => {
+  clearPendingAccountSearch()
   showAccountDropdown.value = true
-  if (accountResults.value.length === 0) {
-    try {
-      const res = await adminAPI.accounts.list(1, 20, accountKeyword.value ? { search: accountKeyword.value } : undefined)
-      accountResults.value = res.items.map((a) => ({ id: a.id, name: a.name }))
-    } catch {
-      accountResults.value = []
-    }
-  }
+  accountResults.value = []
+  void searchAccounts(accountKeyword.value.trim(), accountSearchSequence)
 }
 
 const onApiKeyFocus = () => {
@@ -540,10 +562,13 @@ watch(
   () => filters.value.account_id,
   (accountId) => {
     if (!accountId) {
+      clearPendingAccountSearch()
       accountKeyword.value = ''
       accountResults.value = []
+      showAccountDropdown.value = false
     }
-  }
+  },
+  { flush: 'sync' }
 )
 
 onMounted(async () => {
@@ -557,6 +582,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearPendingAccountSearch()
   clearPendingUserSearch()
   document.removeEventListener('click', onDocumentClick)
 })
@@ -571,7 +597,7 @@ const setUserKeyword = (email: string) => {
 
 // 供外部(如账号统计下钻或表格点击)在程序化设置 account_id 后回显选中的账号名称
 const setAccountKeyword = (name: string) => {
-  if (accountSearchTimeout) clearTimeout(accountSearchTimeout)
+  clearPendingAccountSearch()
   accountKeyword.value = name
   accountResults.value = []
   showAccountDropdown.value = false
@@ -579,5 +605,7 @@ const setAccountKeyword = (name: string) => {
 
 const getUserSearchRevision = () => userSearchSequence
 
-defineExpose({ getUserSearchRevision, setUserKeyword, setAccountKeyword })
+const getAccountSearchRevision = () => accountSearchSequence
+
+defineExpose({ getUserSearchRevision, getAccountSearchRevision, setUserKeyword, setAccountKeyword })
 </script>

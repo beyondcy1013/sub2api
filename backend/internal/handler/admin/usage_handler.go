@@ -2,12 +2,14 @@ package admin
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/modules/qualityevidence"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -21,10 +23,11 @@ import (
 
 // UsageHandler handles admin usage-related requests
 type UsageHandler struct {
-	usageService   *service.UsageService
-	apiKeyService  *service.APIKeyService
-	adminService   service.AdminService
-	cleanupService *service.UsageCleanupService
+	requestQualityProbe *service.RequestQualityProbeService
+	usageService        *service.UsageService
+	apiKeyService       *service.APIKeyService
+	adminService        service.AdminService
+	cleanupService      *service.UsageCleanupService
 }
 
 // NewUsageHandler creates a new admin usage handler
@@ -40,6 +43,10 @@ func NewUsageHandler(
 		adminService:   adminService,
 		cleanupService: cleanupService,
 	}
+}
+
+func (h *UsageHandler) SetRequestQualityProbeService(svc *service.RequestQualityProbeService) {
+	h.requestQualityProbe = svc
 }
 
 // CreateUsageCleanupTaskRequest represents cleanup task creation request
@@ -214,7 +221,40 @@ func (h *UsageHandler) List(c *gin.Context) {
 		return
 	}
 
-	response.Paginated(c, adminUsageLogResponses(c, records), result.Total, page, pageSize)
+	var evidence []qualityevidence.Evidence
+	var evidenceErr error
+	if h.requestQualityProbe != nil {
+		evidence, evidenceErr = h.requestQualityProbe.UsageQualityEvidence(c.Request.Context(), records)
+	}
+	if adminaccess.RestrictedFromContext(c.Request.Context()) != nil {
+		out := make([]gin.H, 0, len(records))
+		for i := range records {
+			item := scopedAdminUsageLogResponse(&records[i])
+			if h.requestQualityProbe != nil {
+				if evidenceErr != nil {
+					item["quality_evidence"] = &qualityevidence.Evidence{State: "unavailable"}
+				} else if i < len(evidence) {
+					item["quality_evidence"] = &evidence[i]
+				}
+			}
+			out = append(out, item)
+		}
+		response.Paginated(c, out, result.Total, page, pageSize)
+		return
+	}
+	out := make([]dto.AdminUsageLog, 0, len(records))
+	for i := range records {
+		row := dto.UsageLogFromServiceAdmin(&records[i])
+		if h.requestQualityProbe != nil {
+			if evidenceErr != nil {
+				row.QualityEvidence = &qualityevidence.Evidence{State: "unavailable"}
+			} else if i < len(evidence) {
+				row.QualityEvidence = &evidence[i]
+			}
+		}
+		out = append(out, *row)
+	}
+	response.Paginated(c, out, result.Total, page, pageSize)
 }
 
 // Stats handles getting usage statistics with filters

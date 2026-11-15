@@ -281,6 +281,9 @@ export default {
         keyDeletedBadge: 'Key 已删除',
         account: '账号',
         accountId: '账号 ID',
+        noAccountSelected: '未选定账号',
+        accountNotRecorded: '未记录账号',
+        noAccountRoutingHint: '此路由失败记录未关联具体账号。请查看详情中的选号诊断或关联系统日志。',
         status: '状态码',
         message: '响应内容',
         ip: 'IP',
@@ -373,6 +376,7 @@ export default {
         rootCause: '根因',
         diagnosticPayloads: '诊断载荷',
         payloads: {
+          routing: '选号诊断',
           client: '客户端响应',
           upstream_message: '上游消息',
           upstream_detail: '上游详情',

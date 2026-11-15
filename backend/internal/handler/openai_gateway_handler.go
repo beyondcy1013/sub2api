@@ -17,7 +17,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -748,7 +750,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					}
 				}
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, requestPlatform)
-				cls = classifySelectionFailureError(err, cls)
+				cls = classifySelectionFailureError(err, cls, c)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -810,31 +812,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		reqLog.Debug("openai.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
-		if h.requestQualityProbe != nil {
-			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, forwardModel); !ok {
-				failedAccountIDs[account.ID] = struct{}{}
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-					selection.ReleaseFunc = nil
-				}
-				lastFailoverErr = &service.UpstreamFailoverError{
-					StatusCode:       http.StatusBadGateway,
-					Stage:            service.GatewayFailureStageInference,
-					Scope:            service.GatewayFailureScopeAccount,
-					Reason:           "request_quality_probe_failed",
-					ClientStatusCode: http.StatusBadGateway,
-					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, forwardModel, reason),
-				}
-				reqLog.Warn("openai.account_skipped_quality_probe_failed",
-					zap.Int64("account_id", account.ID),
-					zap.String("account_name", account.Name),
-					zap.String("model", forwardModel),
-					zap.String("reason", reason),
-				)
-				continue
-			}
-		}
-
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
@@ -854,19 +831,20 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		forwardStart := time.Now()
 		// 用扣除非语义心跳字节的口径快照：心跳注释不构成语义响应，
 		// 不能因心跳字节变化而放弃 failover 换号（#3887）。
+		beginRotationAttempt(c, h.requestQualityProbe, account.ID, forwardModel)
 		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
 		// 跨 passthrough 边界的 failover：从 Kiro 等透传账号切到 Bedrock 等非透传账号前，
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
-		result, err := func() (*service.OpenAIForwardResult, error) {
+		result, err := forwardWithQualityGate(c, h.requestQualityProbe, account, forwardModel, func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
 			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
-		}()
+		})
 		if h.handleForwardRequestBodyMemoryOverload(c, err, streamStarted) {
 			return
 		}
@@ -1007,6 +985,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 							continue
 						}
 					}
+					failedRotationAttempt(c, account, failoverErr)
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -1438,31 +1417,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
-		if h.requestQualityProbe != nil {
-			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, currentRoutingModel); !ok {
-				failedAccountIDs[account.ID] = struct{}{}
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-					selection.ReleaseFunc = nil
-				}
-				lastFailoverErr = &service.UpstreamFailoverError{
-					StatusCode:       http.StatusBadGateway,
-					Stage:            service.GatewayFailureStageInference,
-					Scope:            service.GatewayFailureScopeAccount,
-					Reason:           "request_quality_probe_failed",
-					ClientStatusCode: http.StatusBadGateway,
-					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, currentRoutingModel, reason),
-				}
-				reqLog.Warn("openai_messages.account_skipped_quality_probe_failed",
-					zap.Int64("account_id", account.ID),
-					zap.String("account_name", account.Name),
-					zap.String("model", currentRoutingModel),
-					zap.String("reason", reason),
-				)
-				continue
-			}
-		}
-
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
@@ -1483,15 +1437,16 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
+		beginRotationAttempt(c, h.requestQualityProbe, account.ID, currentRoutingModel)
 		writerSizeBeforeForward := c.Writer.Size()
-		result, err := func() (*service.OpenAIForwardResult, error) {
+		result, err := forwardWithQualityGate(c, h.requestQualityProbe, account, currentRoutingModel, func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
 			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
-		}()
+		})
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyMsg = body
@@ -1604,6 +1559,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							continue
 						}
 					}
+					failedRotationAttempt(c, account, failoverErr)
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -1688,31 +1644,32 @@ func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCac
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
+	if rotationnotice.Committed(c) {
+		h.anthropicStreamingAwareError(c, status, errType, message, true)
+		return
+	}
+	var code string
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, "", message)
 	message = clienterror.Prefix(errType, message)
 	c.JSON(status, gin.H{
-		"type": "error",
-		"error": gin.H{
-			"type":    errType,
-			"message": clienterror.WithSource(message),
-			"source":  clienterror.Source,
-		},
+		"type":  "error",
+		"error": rotationErrorObject(errType, code, message),
 	})
 }
 
 // anthropicStreamingAwareError handles errors that may occur during streaming,
 // using Anthropic SSE error format.
 func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+	var code string
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, "", message)
+	streamStarted = streamStarted || rotationnotice.Committed(c)
 	message = clienterror.Prefix(errType, message)
 	if streamStarted {
 		flusher, ok := c.Writer.(http.Flusher)
 		if ok {
 			errPayload, _ := json.Marshal(gin.H{
-				"type": "error",
-				"error": gin.H{
-					"type":    errType,
-					"message": clienterror.WithSource(message),
-					"source":  clienterror.Source,
-				},
+				"type":  "error",
+				"error": rotationErrorObject(errType, code, message),
 			})
 			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", errPayload) //nolint:errcheck
 			flusher.Flush()
@@ -1740,6 +1697,11 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 		h.anthropicStreamingAwareError(c, status, "api_error", failoverErr.ClientMessage, streamStarted)
 		return
 	}
+	if message, ok := upstreamForbiddenMessage(failoverErr); ok {
+		h.anthropicStreamingAwareError(c, http.StatusForbidden, "permission_error", message, streamStarted)
+		return
+	}
+
 	status, errType, errMsg := h.mapUpstreamError(failoverErr.StatusCode)
 	h.anthropicStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
@@ -3112,6 +3074,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		hooks := &service.OpenAIWSIngressHooks{
+			RequestQualityProbe:         h.requestQualityProbe,
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
 			InitialTurnStartedAt:        firstTurnStartedAt,
@@ -3768,9 +3731,19 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		return
 	}
 
+	if failoverErr.Reason == "request_quality_probe_failed" {
+		h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", failoverErr.ClientMessage, streamStarted)
+		return
+	}
+
 	// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
+
+	if message, ok := upstreamForbiddenMessage(failoverErr); ok {
+		h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", message, streamStarted)
+		return
+	}
 
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
@@ -3918,6 +3891,8 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 	streamStarted bool,
 	countTowardsSLA bool,
 ) {
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, code, message)
+	streamStarted = streamStarted || rotationnotice.Committed(c)
 	message = clienterror.Prefix(errType, message)
 
 	// body-signal compact 心跳可能已把响应头提交为 200：先停心跳（建立
@@ -3929,7 +3904,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 		if countTowardsSLA {
 			service.MarkOpsStreamFailure(c, errType, code, message, status)
 		} else {
-			service.MarkOpsStreamError(c, errType, message, status)
+			service.MarkOpsStreamErrorValue(c, service.OpsStreamError{ErrType: errType, Code: code, Message: message, IntendedStatus: status})
 		}
 		// /v1/responses 的严格 SDK（Codex CLI）要求终止事件必须属于
 		// response.completed/failed/incomplete/cancelled 集合。
@@ -4116,22 +4091,24 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	if rotationnotice.Committed(c) {
+		h.handleStreamingAwareError(c, status, errType, message, true)
+		return
+	}
+	var code string
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, "", message)
 	message = clienterror.Prefix(errType, message)
 
 	// body-signal compact 心跳可能已把响应头提交为 200：JSON 错误体会与已
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {
 		service.MarkOpsStreamError(c, errType, message, status)
-		if writeResponsesFailedSSE(c, errType, "", message) {
+		if writeResponsesFailedSSE(c, errType, code, message) {
 			return
 		}
 	}
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": clienterror.WithSource(message),
-			"source":  clienterror.Source,
-		},
+		"error": rotationErrorObject(errType, code, message),
 	})
 }
 

@@ -281,6 +281,9 @@ export default {
         keyDeletedBadge: 'Key Deleted',
         account: 'Account',
         accountId: 'Account ID',
+        noAccountSelected: 'No account selected',
+        accountNotRecorded: 'Account not recorded',
+        noAccountRoutingHint: 'This routing failure has no associated account. Check the selection diagnostics in its details or related system logs.',
         status: 'Status',
         message: 'Message',
         ip: 'IP',
@@ -373,6 +376,7 @@ export default {
         rootCause: 'Root Cause',
         diagnosticPayloads: 'Diagnostic Payloads',
         payloads: {
+          routing: 'Account selection diagnostics',
           client: 'Client Response',
           upstream_message: 'Upstream Message',
           upstream_detail: 'Upstream Detail',

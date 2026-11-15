@@ -1152,6 +1152,7 @@ export interface RequestQualityProbeSettings {
   rule_ids?: number[]
   allow_business_success?: boolean
   timeout_seconds?: number
+  reuse_seconds?: number
   enabled: boolean
   models: string[]
   recent_minutes: number
@@ -2002,6 +2003,8 @@ export interface UsageLog {
   stream: boolean
   openai_ws_mode?: boolean
   native_compaction_v2: boolean
+  /** 客户端在响应返回前断开：仍按上游用量计费，但状态显示 499 客户端断开。 */
+  client_disconnected?: boolean
   duration_ms: number | null
   first_token_ms: number | null
 
@@ -2718,6 +2721,7 @@ export interface DegradationRule {
 }
 
 export interface RuleOutcome {
+  prompt_summary?: string
   rule_id: number
   rule_name: string
   evaluator: string
@@ -2751,10 +2755,13 @@ export interface ScheduledTestPlan {
 }
 
 export interface ScheduledTestResult {
+  origin?: import('@/modules/qualityevidence/detectionOrigin').DetectionOrigin
+  question_summary?: string
   id: number
   plan_id: number
   status: string
   response_text: string
+  reasoning?: string
   error_message: string
   downgraded: boolean
   downgrade_reason: string

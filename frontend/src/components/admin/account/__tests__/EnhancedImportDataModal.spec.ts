@@ -381,7 +381,7 @@ describe('EnhancedImportDataModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.dataImportCompletedWithErrors')
     expect(wrapper.emitted('imported')).toBeUndefined()
 
-    await wrapper.find('button.btn-secondary').trigger('click')
+    await wrapper.get('[data-test="enhanced-import-close"]').trigger('click')
     expect(wrapper.emitted('imported')).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)
   })

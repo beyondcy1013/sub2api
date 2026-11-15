@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/modules/instanceappearance"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -342,6 +343,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	// OEM设置
+	settings.InstanceName = instanceappearance.NormalizeName(settings.InstanceName)
+	settings.InstanceColor = instanceappearance.NormalizeColor(settings.InstanceColor)
+	updates["instance_name"] = settings.InstanceName
+	updates["instance_color"] = settings.InstanceColor
 	updates[SettingKeySiteName] = settings.SiteName
 	updates[SettingKeySiteLogo] = settings.SiteLogo
 	updates[SettingKeySiteSubtitle] = settings.SiteSubtitle

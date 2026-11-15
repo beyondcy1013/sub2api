@@ -490,3 +490,34 @@ func TestParseSub2APIAccountBalanceRequiresKnownResponseShape(t *testing.T) {
 	_, err = parseAccountBalanceResponse(AccountBalanceQuerySchemeSub2API, []byte(`{"balance":19.75}`))
 	require.Error(t, err)
 }
+
+func TestSelectAccountBalanceSignInSiteMatchesRootDomain(t *testing.T) {
+	sites := []accountBalanceSignInSite{
+		{
+			ID:        "site-root-1",
+			LoginURL:  "https://ai.example.com/login",
+			Usernames: []string{"user1"},
+		},
+	}
+
+	matched, errCode := selectAccountBalanceSignInSite(sites, "https://api.example.com/v1", "sk-test", "")
+	require.Empty(t, errCode)
+	require.NotNil(t, matched)
+	require.Equal(t, "site-root-1", matched.ID)
+
+	// Amount parsing with both full-width and half-width currency marks
+	bal, unit, ok := parseAccountBalanceSignInAmount("¥88.50")
+	require.True(t, ok)
+	require.Equal(t, 88.50, bal)
+	require.Equal(t, "CNY", unit)
+
+	bal, unit, ok = parseAccountBalanceSignInAmount("￥99.00")
+	require.True(t, ok)
+	require.Equal(t, 99.00, bal)
+	require.Equal(t, "CNY", unit)
+
+	bal, unit, ok = parseAccountBalanceSignInAmount("$15.38")
+	require.True(t, ok)
+	require.Equal(t, 15.38, bal)
+	require.Equal(t, "USD", unit)
+}

@@ -593,6 +593,16 @@ export default {
 
     // Usage Records
     usage: {
+      qualityEvidence: {
+        column: '请求时测智参考',
+        disabled: '降智检测关闭',
+        not_required: '不需要',
+        disabled_not_required: '关闭且不需要',
+        unavailable: '检测状态读取失败',
+        noRecord: '请求时无检测记录',
+        latestHint: '只显示不晚于这条请求记录的同账号、同模型检测。后续检测不会改写旧请求；测智结果仅供参考，请求是否成功以状态列为准。开关与适用范围按当前配置显示。',
+        passed: '检测通过', downgraded: '疑似降智', failed: '检测异常（未判定）', cancelled: '检测取消（未判定）', skipped: '检测跳过（未判定）'
+      },
       title: '使用记录',
       description: '查看和管理所有用户的使用记录',
       userFilter: '用户',

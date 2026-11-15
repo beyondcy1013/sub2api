@@ -45,6 +45,22 @@ function mountTable(row: Partial<OpsErrorLog>) {
 }
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
+  it('explains a routing failure without inventing an account', () => {
+    const wrapper = mountTable({ phase: 'routing', status_code: 503, account_id: null })
+    expect(wrapper.text()).toContain('admin.ops.errorLog.noAccountSelected')
+    expect(wrapper.get('[title="admin.ops.errorLog.noAccountRoutingHint"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps selected accounts visible on 503 and identifies unrecorded attribution separately', () => {
+    const selected = mountTable({ phase: 'routing', status_code: 503, account_id: 309, account_name: 'Relay' })
+    expect(selected.text()).toContain('Relay')
+    expect(selected.text()).not.toContain('admin.ops.errorLog.noAccountSelected')
+    selected.unmount()
+    const missing = mountTable({ phase: 'internal', status_code: 503, account_id: null })
+    expect(missing.text()).toContain('admin.ops.errorLog.accountNotRecorded')
+    missing.unmount()
+  })
   it('links a failure to its system logs without opening another row action', async () => {
     const wrapper = mountTable({ account_id: 309, account_name: 'Claude relay' })
     await wrapper.setProps({ systemLogLink: true })

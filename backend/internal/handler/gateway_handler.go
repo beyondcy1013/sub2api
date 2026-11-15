@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -504,21 +505,26 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
+			beginRotationAttempt(c, h.requestQualityProbe, account.ID, reqModel)
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity {
-				result, err = h.antigravityGatewayService.ForwardGemini(
-					requestCtx,
-					c,
-					account,
-					reqModel,
-					"generateContent",
-					reqStream,
-					body,
-					hasBoundSession,
-					service.WithForwardGeminiSession(derefGroupID(apiKey.GroupID), sessionKey),
-				)
+				result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, reqModel, func() (*service.ForwardResult, error) {
+					return h.antigravityGatewayService.ForwardGemini(
+						requestCtx,
+						c,
+						account,
+						reqModel,
+						"generateContent",
+						reqStream,
+						body,
+						hasBoundSession,
+						service.WithForwardGeminiSession(derefGroupID(apiKey.GroupID), sessionKey),
+					)
+				})
 			} else {
-				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
+				result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, reqModel, func() (*service.ForwardResult, error) {
+					return h.geminiCompatService.Forward(requestCtx, c, account, body)
+				})
 			}
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
@@ -532,6 +538,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					if _, failed := fs.FailedAccountIDs[account.ID]; failed && action != FailoverCanceled {
+						failedRotationAttempt(c, account, failoverErr)
+					}
 					switch action {
 					case FailoverContinue:
 						continue
@@ -734,31 +743,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 
-			if h.requestQualityProbe != nil {
-				if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, reqModel); !ok {
-					fs.FailedAccountIDs[account.ID] = struct{}{}
-					if selection.ReleaseFunc != nil {
-						selection.ReleaseFunc()
-						selection.ReleaseFunc = nil
-					}
-					fs.LastFailoverErr = &service.UpstreamFailoverError{
-						StatusCode:       http.StatusBadGateway,
-						Stage:            service.GatewayFailureStageInference,
-						Scope:            service.GatewayFailureScopeAccount,
-						Reason:           "request_quality_probe_failed",
-						ClientStatusCode: http.StatusBadGateway,
-						ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, reqModel, reason),
-					}
-					reqLog.Warn("gateway.account_skipped_quality_probe_failed",
-						zap.Int64("account_id", account.ID),
-						zap.String("account_name", account.Name),
-						zap.String("model", reqModel),
-						zap.String("reason", reason),
-					)
-					continue
-				}
-			}
-
 			// [DEBUG-STICKY] 打印账号选择结果
 			reqLog.Info("sticky.account_selected",
 				zap.Int64("selected_account_id", account.ID),
@@ -948,11 +932,16 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				requestCtx = service.WithForceCacheBilling(requestCtx)
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
+			beginRotationAttempt(c, h.requestQualityProbe, account.ID, reqModel)
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
-				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
+				result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, attemptParsedReq.Model, func() (*service.ForwardResult, error) {
+					return h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
+				})
 			} else {
-				result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
+				result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, attemptParsedReq.Model, func() (*service.ForwardResult, error) {
+					return h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
+				})
 			}
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
@@ -1098,6 +1087,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					if _, failed := fs.FailedAccountIDs[account.ID]; failed && action != FailoverCanceled {
+						failedRotationAttempt(c, account, failoverErr)
+					}
 					switch action {
 					case FailoverContinue:
 						// 本次尝试已确定性失败，立即释放该账号的会话注册
@@ -2066,6 +2058,11 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 
+	if message, ok := upstreamForbiddenMessage(failoverErr); ok {
+		h.handleStreamingAwareError(c, http.StatusForbidden, "permission_error", message, streamStarted)
+		return
+	}
+
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
@@ -2102,11 +2099,13 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 }
 
 func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, code, message)
+	streamStarted = streamStarted || rotationnotice.Committed(c)
 	if streamStarted {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
 		// 这类挂在 200 流上的失败（如并发限流回退）不会进错误看板。
-		service.MarkOpsStreamError(c, errType, message, status)
+		service.MarkOpsStreamErrorValue(c, service.OpsStreamError{ErrType: errType, Code: code, Message: message, IntendedStatus: status})
 
 		// /v1/responses 的严格 SDK（Codex CLI）要求终止事件必须属于
 		// response.completed/failed/incomplete/cancelled 集合。
@@ -2242,6 +2241,7 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	status, errType, code, message = rotationnotice.FinalError(c, status, errType, code, message)
 	message = clienterror.WithSource(message)
 	errorObject := gin.H{"type": errType, "message": message, "source": clienterror.Source}
 	if code != "" {

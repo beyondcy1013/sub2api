@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/transportguard"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -160,15 +161,27 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		return err
 	}
 
+	confirmedByPoolGuard := false
 	if classifyUpstreamTransportError(err).Persistent {
-		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
+		// A pool relay may restart briefly during deployment. Require failures
+		// spanning time, rather than letting concurrent refusals evict it at once.
+		// Explicit proxy authentication rejection remains an immediate hard fault.
+		msg := strings.ToLower(err.Error())
+		confirm := s != nil && account.IsPoolMode() &&
+			!strings.Contains(msg, "authentication failed") &&
+			!strings.Contains(msg, "proxy authentication required")
+		confirmedByPoolGuard = confirm
+		if !confirm || s.poolTransportGuard.FailureWithPolicy(account.ID, time.Now(), transportguard.PolicyFromCredentials(account.Credentials)) {
+			s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
+		}
 	} else if s != nil && s.rateLimitService != nil {
 		s.rateLimitService.recordOpenAIRelayFailure(ctx, account, "transport", safeErr)
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: openAITransportFailoverBody,
+		HealthObservationHandled: confirmedByPoolGuard,
+		StatusCode:               http.StatusBadGateway,
+		ResponseBody:             openAITransportFailoverBody,
 	}
 }
 

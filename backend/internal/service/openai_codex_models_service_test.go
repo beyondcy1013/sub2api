@@ -342,6 +342,14 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "medium", *claudeHaiku55.DefaultReasoningLevel)
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromConfiguredCodexLevels(claudeHaiku55.SupportedReasoningLevels))
 
+	claudeFable52 := newConfiguredCodexModelDescriptor("claude-fable-5-2")
+	require.Equal(t, "Claude Fable 5.2", claudeFable52.DisplayName)
+	require.Equal(t, int64(1_000_000), claudeFable52.ContextWindow)
+	require.Equal(t, int64(1_000_000), claudeFable52.MaxContextWindow)
+	require.NotNil(t, claudeFable52.DefaultReasoningLevel)
+	require.Equal(t, "high", *claudeFable52.DefaultReasoningLevel)
+	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromConfiguredCodexLevels(claudeFable52.SupportedReasoningLevels))
+
 	gpt56 := newConfiguredCodexModelDescriptor("gpt-5.6-sol")
 	require.Equal(t, "GPT-5.6 Sol", gpt56.DisplayName)
 	require.Equal(t, "OpenAI GPT coding model routed through Sub2API.", gpt56.Description)

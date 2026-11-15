@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="show" :title="t('admin.accounts.schedulingRules.title')" width="normal" @close="$emit('close')">
+  <BaseDialog :show="show" :title="t('admin.accounts.schedulingRules.title')" width="normal" @close="requestClose">
     <template #title-actions>
       <HelpTooltip placement="bottom" width-class="w-56 max-w-[calc(100vw-1rem)] sm:w-96">
         <template #trigger>
@@ -31,30 +31,49 @@
       <Icon name="refresh" size="md" class="animate-spin text-gray-400" />
     </div>
     <div v-else class="space-y-5">
-      <div data-testid="scheduling-rule-strategy-group" class="space-y-3" role="group" :aria-label="t('admin.accounts.schedulingRules.strategy')">
+      <div data-testid="scheduling-rules-current-mode" class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-900/40">
+        <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.schedulingRules.currentMode') }}</span>
+        <span data-testid="scheduling-rules-effective-mode" class="text-xs font-semibold text-gray-800 dark:text-gray-100">{{ strategyLabel(serverStrategy) }}</span>
+        <span
+          data-testid="scheduling-rule-mode-badge"
+          class="rounded-full px-2 py-0.5 text-[10px] font-medium"
+          :class="dirty ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'"
+        >{{ dirty ? t('admin.accounts.schedulingRules.modeUnsaved') : t('admin.accounts.schedulingRules.modeActive') }}</span>
+      </div>
+
+      <div data-testid="scheduling-rule-strategy-group" class="space-y-3" role="radiogroup" :aria-label="t('admin.accounts.schedulingRules.strategy')">
         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">
           {{ t('admin.accounts.schedulingRules.strategy') }}
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="grid gap-2 sm:grid-cols-2">
           <button
+            v-for="option in strategyOptions"
+            :key="option.value"
             type="button"
-            data-testid="scheduling-rule-default"
-            :aria-pressed="strategy === 'default'"
-            class="h-10 border px-3 text-sm font-medium"
-            :class="strategy === 'default' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-200' : 'border-gray-300 text-gray-700 dark:border-dark-600 dark:text-gray-200'"
-            @click="strategy = 'default'"
+            role="radio"
+            :aria-checked="strategy === option.value"
+            :data-testid="option.testId"
+            class="rounded-lg border p-3 text-left transition"
+            :class="strategy === option.value ? 'border-primary-600 bg-primary-50/70 ring-1 ring-primary-500/30 dark:border-primary-400 dark:bg-primary-900/30' : 'border-gray-300 hover:border-gray-400 dark:border-dark-600 dark:hover:border-dark-400'"
+            @click="strategy = option.value"
           >
-            {{ t('admin.accounts.schedulingRules.default') }}
-          </button>
-          <button
-            type="button"
-            data-testid="scheduling-rule-lowest-cost"
-            :aria-pressed="strategy === 'lowest_cost'"
-            class="h-10 border px-3 text-sm font-medium"
-            :class="strategy === 'lowest_cost' ? 'border-primary-600 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-200' : 'border-gray-300 text-gray-700 dark:border-dark-600 dark:text-gray-200'"
-            @click="strategy = 'lowest_cost'"
-          >
-            {{ t('admin.accounts.schedulingRules.lowestCost') }}
+            <div class="flex items-start gap-2">
+              <span
+                class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
+                :class="strategy === option.value ? 'border-primary-600 bg-primary-600 dark:border-primary-400 dark:bg-primary-400' : 'border-gray-300 dark:border-dark-500'"
+              >
+                <span v-if="strategy === option.value" class="h-1.5 w-1.5 rounded-full bg-white dark:bg-dark-900" />
+              </span>
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ option.label }}</span>
+                  <span v-if="option.value === serverStrategy" class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">{{ t('admin.accounts.schedulingRules.badgeEffective') }}</span>
+                  <span v-if="option.value === strategy && strategy !== serverStrategy" class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">{{ t('admin.accounts.schedulingRules.badgePending') }}</span>
+                </div>
+                <p class="mt-1 text-xs leading-5 text-gray-600 dark:text-gray-300">{{ option.description }}</p>
+                <p class="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{{ option.fit }}</p>
+              </div>
+            </div>
           </button>
         </div>
       </div>
@@ -141,14 +160,21 @@
     </div>
 
     <template #footer>
-      <button type="button" data-testid="scheduling-rule-refresh" class="btn btn-secondary mr-auto gap-2" :disabled="loading || saving || refreshing" @click="refreshNow">
-        <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />
-        {{ refreshing ? t('admin.accounts.schedulingRules.refreshing') : t('admin.accounts.schedulingRules.immediateRefresh') }}
-      </button>
-      <button type="button" class="btn btn-secondary" :disabled="saving || refreshing" @click="$emit('close')">{{ t('common.cancel') }}</button>
-      <button type="button" data-testid="scheduling-rule-save" class="btn btn-primary" :disabled="saving || refreshing || !validInterval" @click="save">
-        {{ saving ? t('common.saving') : t('common.save') }}
-      </button>
+      <template v-if="pendingClose">
+        <span class="mr-auto text-xs font-medium text-amber-600 dark:text-amber-400" data-testid="scheduling-rule-unsaved-prompt">{{ t('admin.accounts.schedulingRules.unsavedPrompt') }}</span>
+        <button type="button" data-testid="scheduling-rule-keep-editing" class="btn btn-secondary" @click="pendingClose = false">{{ t('admin.accounts.schedulingRules.keepEditing') }}</button>
+        <button type="button" data-testid="scheduling-rule-discard-close" class="btn btn-secondary text-red-600 dark:text-red-400" @click="discardAndClose">{{ t('admin.accounts.schedulingRules.discardAndClose') }}</button>
+      </template>
+      <template v-else>
+        <button type="button" data-testid="scheduling-rule-refresh" class="btn btn-secondary mr-auto gap-2" :disabled="loading || saving || refreshing" @click="refreshNow">
+          <Icon name="refresh" size="sm" :class="{ 'animate-spin': refreshing }" />
+          {{ refreshing ? t('admin.accounts.schedulingRules.refreshing') : t('admin.accounts.schedulingRules.immediateRefresh') }}
+        </button>
+        <button type="button" data-testid="scheduling-rule-cancel" class="btn btn-secondary" :disabled="saving || refreshing" @click="requestClose">{{ t('common.cancel') }}</button>
+        <button type="button" data-testid="scheduling-rule-save" class="btn btn-primary" :disabled="saving || refreshing || !validInterval || !dirty" @click="save">
+          {{ saving ? t('common.saving') : t('admin.accounts.schedulingRules.saveAndSwitch', { mode: strategyLabel(strategy) }) }}
+        </button>
+      </template>
     </template>
   </BaseDialog>
 </template>
@@ -168,7 +194,7 @@ type SchedulingStrategy = 'default' | 'lowest_cost'
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
   (event: 'close'): void
-  (event: 'saved'): void
+  (event: 'saved', strategy: SchedulingStrategy): void
   (event: 'detection'): void
   (event: 'refreshed', result: SchedulingRulesRefreshResult): void
   (event: 'refresh-error', error: unknown): void
@@ -187,6 +213,30 @@ const livenessFailureThreshold = ref(2)
 const livenessEnabled = ref(true)
 const modelMismatchOnError = ref(false)
 const currentSettings = ref<SuperPrioritySettings | null>(null)
+const savedProbe = ref({ enabled: false, intervalMinutes: 30, notifyOnChangeOnly: false })
+const pendingClose = ref(false)
+
+const serverStrategy = computed<SchedulingStrategy>(() =>
+  currentSettings.value?.base_strategy === 'lowest_cost' ? 'lowest_cost' : 'default'
+)
+const strategyLabel = (value: SchedulingStrategy) =>
+  t(value === 'lowest_cost' ? 'admin.accounts.schedulingRules.lowestCost' : 'admin.accounts.schedulingRules.default')
+const strategyOptions = computed(() => [
+  {
+    value: 'default' as SchedulingStrategy,
+    testId: 'scheduling-rule-default',
+    label: t('admin.accounts.schedulingRules.default'),
+    description: t('admin.accounts.schedulingRules.defaultDesc'),
+    fit: t('admin.accounts.schedulingRules.defaultFit')
+  },
+  {
+    value: 'lowest_cost' as SchedulingStrategy,
+    testId: 'scheduling-rule-lowest-cost',
+    label: t('admin.accounts.schedulingRules.lowestCost'),
+    description: t('admin.accounts.schedulingRules.lowestCostDesc'),
+    fit: t('admin.accounts.schedulingRules.lowestCostFit')
+  }
+])
 const livenessRuntime = ref<SchedulingLivenessRuntimeStatus | null>(null)
 const schedulingRuntime = ref<SchedulingRulesRuntimeStatus | null>(null)
 const runtimeLoading = ref(false)
@@ -198,6 +248,36 @@ const validInterval = computed(() =>
   Number.isInteger(livenessIntervalMinutes.value) && livenessIntervalMinutes.value >= 1 && livenessIntervalMinutes.value <= 1440 &&
   Number.isInteger(livenessFailureThreshold.value) && livenessFailureThreshold.value >= 1 && livenessFailureThreshold.value <= 10
 )
+
+// The dialog must show whether the saved mode is the one the server reports,
+// so every field is compared against the last loaded/verified snapshot.
+const dirty = computed(() => {
+  const settings = currentSettings.value
+  if (!settings) return false
+  return (
+    strategy.value !== serverStrategy.value ||
+    livenessEnabled.value !== (settings.liveness_enabled !== false) ||
+    livenessIntervalMinutes.value !== intervalFromExpression(settings.check_interval ?? '@every 1m') ||
+    livenessFailureThreshold.value !== (settings.failure_threshold ?? 2) ||
+    modelMismatchOnError.value !== (settings.model_mismatch_on_error === true) ||
+    probeEnabled.value !== savedProbe.value.enabled ||
+    intervalMinutes.value !== savedProbe.value.intervalMinutes ||
+    notifyOnChangeOnly.value !== savedProbe.value.notifyOnChangeOnly
+  )
+})
+
+const requestClose = () => {
+  if (dirty.value) {
+    pendingClose.value = true
+    return
+  }
+  emit('close')
+}
+
+const discardAndClose = () => {
+  pendingClose.value = false
+  emit('close')
+}
 
 const runtimeCountdown = computed(() =>
   getSchedulingRuntimeCountdown(
@@ -310,6 +390,11 @@ const load = async () => {
     probeEnabled.value = probe.enabled
     intervalMinutes.value = probe.interval_minutes
     notifyOnChangeOnly.value = probe.notify_on_change_only === true
+    savedProbe.value = {
+      enabled: probe.enabled,
+      intervalMinutes: probe.interval_minutes,
+      notifyOnChangeOnly: probe.notify_on_change_only === true
+    }
     livenessIntervalMinutes.value = intervalFromExpression(settings.check_interval)
     livenessFailureThreshold.value = settings.failure_threshold
     livenessEnabled.value = settings.liveness_enabled !== false
@@ -362,7 +447,23 @@ const save = async () => {
       interval_minutes: intervalMinutes.value,
       notify_on_change_only: notifyOnChangeOnly.value
     })
-    emit('saved')
+    savedProbe.value = {
+      enabled: probeEnabled.value,
+      intervalMinutes: intervalMinutes.value,
+      notifyOnChangeOnly: notifyOnChangeOnly.value
+    }
+    // Read the settings back so "switched" reflects the server, not the form.
+    const fresh = await adminAPI.superPriority.get()
+    currentSettings.value = fresh
+    livenessRuntime.value = fresh.liveness_runtime ?? livenessRuntime.value
+    if (fresh.base_strategy !== strategy.value) {
+      strategy.value = fresh.base_strategy
+      pendingClose.value = false
+      emit('error', new Error(t('admin.accounts.schedulingRules.switchMismatch', { mode: strategyLabel(fresh.base_strategy) })))
+      return
+    }
+    pendingClose.value = false
+    emit('saved', strategy.value)
   } catch (error) {
     emit('error', error)
   } finally {

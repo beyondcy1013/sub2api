@@ -211,7 +211,7 @@ func TestAnthropicCompatTransportFailureNeverFinalizesSuccess(t *testing.T) {
 			return r.Usage.InputTokens, e
 		}},
 		{"native_responses_buffered", false, func(resp *http.Response, c *gin.Context) (int, error) {
-			r, e := openai.handleResponsesBufferedFromNativeAnthropic(resp, c, "m", "m", "m", nil, time.Now(), mapping)
+			r, e := openai.handleResponsesBufferedFromNativeAnthropic(resp, c, "m", "m", "m", nil, nil, time.Now(), mapping)
 			if r == nil {
 				return 0, e
 			}
@@ -225,7 +225,7 @@ func TestAnthropicCompatTransportFailureNeverFinalizesSuccess(t *testing.T) {
 			return r.Usage.InputTokens, e
 		}},
 		{"native_responses_stream", true, func(resp *http.Response, c *gin.Context) (int, error) {
-			r, e := openai.handleResponsesStreamingFromNativeAnthropic(resp, c, "m", "m", "m", nil, time.Now(), mapping)
+			r, e := openai.handleResponsesStreamingFromNativeAnthropic(resp, c, "m", "m", "m", nil, nil, time.Now(), mapping)
 			if r == nil {
 				return 0, e
 			}

@@ -123,6 +123,10 @@ The client has these runtime guarantees:
   all-failed results alone show the retry view;
 - stale or duplicate WebView failure callbacks are guarded by selected origin
   and navigation generation;
+- native refresh/settings actions stay hidden behind a small floating handle at
+  the right edge, centered about one third of the way down the screen. Tapping
+  the handle expands both actions; either action collapses them again, and the
+  WebView keeps its full layout without a reserved native toolbar;
 - update checks concurrently race the corresponding webClx artifact endpoints.
   Read-only verification on 2026-08-23 found the update API returns `404` on
   both Sub2API `:18381` service origins and `200` on the paired `:11111` and
@@ -435,6 +439,10 @@ Both profiles must preserve all of the following:
   whitespace and ignores case.
 - Status, groups, and capacity cells use plain text rather than badge/card
   styling.
+- When an account currently holds concurrency slots (current_concurrency > 0,
+  shown amber in the capacity column), its name in the name column also turns
+  amber (text-amber-600 dark:text-amber-400) so the in-use account is easy to
+  spot.
 - Usage auto-load runs only for active accounts; manual refresh remains
   available for every status.
 - Usage progress bars remain compact and contain only window label, progress,
@@ -650,9 +658,13 @@ writes; they never affect request routing or account status display.
   monopolize a shared load snapshot. The same equal-rate rotation applies when
   load batching is unavailable. Expensive accounts are not persistently disabled.
 - `lowest_cost` does not honor movable `session_hash` affinity, so a historical
-  expensive binding cannot override a cheaper eligible account. Strict
-  non-movable `previous_response_id` affinity remains intact because a response
-  chain cannot safely change accounts.
+  expensive binding cannot override a cheaper eligible account. This applies to
+  both the advanced scheduler and the legacy load-batched sticky layer: a sticky
+  account is reused only while its persisted rate ties the cheapest eligible
+  account. Once a zero-rate account becomes eligible, the next request rebinds
+  to it without changing the status of the previous account. Strict non-movable
+  `previous_response_id` affinity remains intact because a response chain cannot
+  safely change accounts.
 - `accounts.rate_multiplier` is the single scheduling and upstream-cost
   multiplier. Every account has `extra.scheduling_rate_sync_mode`:
   `auto_overwrite` (default) or `manual_lock`. A successful upstream billing
@@ -811,17 +823,26 @@ browser reload can retain cached version state; after deployment use
 
 ### 测智历史动画预览
 
-- 历史详情优先显示动画，复用实时结果的 `pelicanPreviewDocument` 与 `sandbox="allow-scripts"` 隔离；不得直接把生成 HTML 插入管理页 DOM。
-- 动画在提示词与折叠源码之前展示；普通文本/失败详情默认展开输出。切换历史记录重新加载对应预览，不发起上游请求。
+- 测智历史用结果区上方的单个下拉列表展示（`pelican-history-select`），不再有独立历史面板、详情栏或历史/自动分页签；选中一条记录会把该次结果原样还原进结果卡片，与刚测完时的卡片完全一致（状态徽章、结果摘要、规则证据、预览/源码/输出/明细标签、耗时与缓存时间）。
+- 历史渲染复用实时结果的 `pelicanPreviewDocument` 与 `sandbox="allow-scripts"` 隔离；不得直接把生成 HTML 插入管理页 DOM。
+- 普通文本/失败详情在卡片的输出/明细标签查看。切换历史记录重新加载对应预览，不发起上游请求；卡片底部的「用户评价」按账号 + 测试时间写回该条缓存。
 - 测智过程中的流式输出、失败原因、提示词、历史原文和 HTML 源码完整换行显示，不使用 `...`、`line-clamp` 或固定最大高度截断。预览 iframe 仍保持视口高度。
 - 旧缓存缺少 `has_html` 或结果结构时，从已有 HTML/SVG 原始输出（包括 Markdown 代码块）恢复预览；保留原始输出和提示词。
-- 回归：`frontend/src/components/admin/account/__tests__/AccountPelicanModal.spec.ts`。
+- `srcdoc` iframe 会继承宿主文档的 CSP。服务端 CSP 为 `script-src 'self' 'nonce-…'`（无 `unsafe-inline`），因此 `pelicanPreviewDocument` 必须把宿主 nonce（`script[nonce]` 的 `.nonce`）注入生成内容与自带适配脚本的每个 `<script>`；否则模型的内联动画脚本被静默拦截，预览只剩静态首帧。CSP 关闭时 nonce 为空，保持不注入。
+- 本机缓存历史条目的状态以能力判定为准：`result.has_html && !downgraded` 即通过，旧缓存或流尾异常写入的 `failed` 在读取时纠正，避免历史列表把“未降智”标成红色失败。
+- 临时不可调度账号的状态单元格直接显示三行堆叠详情：状态文字（可点击）/「剩余时间 约 N 分钟 · 解除时间 YYYY/MM/DD HH:mm」/错误详情，后两行单行截断并用 `title` 提供全文；点击状态文字仍打开完整弹窗（触发时间、错误码、关键词、规则序号、恢复状态）。外层容器必须用 `inline-grid`（不能用 `flex-col`），因为 `DataTable` 的 `single-line-cells` 会把 `[class~='flex-col']` 强制为 `flex-direction: row`，否则详情会被压成一行并把状态列撑到 600px 以上。
+- 服务端检测历史（`account_detection_records`，含手动/定时/请求触发）必须能按生成时的样子回看：`DetectionHistory` 每条记录提供「查看结果」，展开 `DetectionRecordViewer` 的「动画预览 / HTML 源码 / 最终结果（原文）」三标签，复用 `extractPelicanPreviewHtml` + `pelicanPreviewDocument` 的 allow-scripts sandbox iframe；无 HTML 的记录只有原文标签。默认折叠，点击后才创建 iframe，避免一次渲染上百条动画。
+- 回归：`frontend/src/components/admin/account/__tests__/AccountPelicanModal.spec.ts`、`frontend/src/utils/__tests__/pelicanPreviewDocument.spec.ts`、`frontend/src/modules/qualityevidence/__tests__/DetectionHistory.spec.ts`、`frontend/src/modules/qualityevidence/__tests__/DetectionRecordViewer.spec.ts`。
 
 ### 测智模型目录本地加载
 
 - 鹈鹕测智的“测试大模型”下拉与账号模型目录只请求 `GET /admin/accounts/:id/models?catalog=local`：服务端跳过 OpenAI 上游模型发现（Codex manifest / `{base_url}/models`），直接返回本地目录（`model_mapping` 白名单或写死的默认模型集），单账号一次上游往返最慢会顶满 15s 超时。同样的 `catalog=local` 也用于测试连接弹窗（管理员 `admin/account/AccountTestModal.vue` 与用户侧 `account/AccountTestModal.vue`）和账号调度面板的模型选项（`AccountsView.vue` `handleSchedule`），避免弹窗打开时被上游目录请求阻塞；显式“同步上游支持的模型”仍走 `models/sync-upstream` 不变。
 - 不带 `catalog` 参数的默认行为保持上游实时发现，供连接测试等弹窗继续使用；上游失败时仍回退本地目录。
-- 批量测智只保留一个“测试大模型”组合控件：下拉选择本地目录或历史值，旁边输入框可手动输入任意模型 ID；非空输入会保存到 `sub2api:account-pelican-model-history:v1`，供后续下拉和 datalist 建议使用。留空时内部按各账号本地目录的首个模型测试，不再在结果卡片中重复显示可编辑的“账号模型”控件。
+- 批量测智只保留一个“测试大模型”组合控件：下拉选择本地目录或历史值，旁边输入框可手动输入任意模型 ID；非空输入会保存到 `sub2api:account-pelican-model-history:v1`，供后续下拉和输入建议列表使用。留空时内部按各账号本地目录的首个模型测试，不再在结果卡片中重复显示可编辑的“账号模型”控件。
+- 历史模型保存到 `sub2api:account-pelican-model-history:v1`（最多 30 条，新的在前）：实际测过的模型（含留空时各账号自身目录选中的模型）都会写入，并在“测试大模型”下拉与输入建议列表中同时出现。
+- 自由输入框使用页面内主题化的建议列表（`AccountTestModelPicker` 的 `pelican-model-suggestions`），不再使用原生 `<datalist>`：深色模式下浏览器原生 datalist 弹窗是系统黑底，与主题下拉不一致。支持聚焦列出、按输入过滤、方向键选择与回车填入；输入值本身始终可作为模型 ID 提交。
+- “测试大模型”右侧的「清除历史模型」只清空本机这条历史（`clearPelicanModelHistory`），不动账号模型目录、不触发上游请求；没有历史时按钮不显示。
+- `utils/pelicanModelCatalog.ts` 在模块级缓存每个账号已成功加载的本地目录：账号状态重建、弹窗重开和单次目录请求失败都不得让“测试大模型”下拉变空；失败时沿用上次目录，先用缓存渲染再由本次会话刷新。
 - 回归：`backend/internal/handler/admin/account_handler_available_models_test.go`（LocalCatalogSkipsUpstream）、`frontend/src/components/admin/account/__tests__/AccountPelicanModal.spec.ts`。
 
 ### 测试连接手动触发
@@ -834,14 +855,14 @@ browser reload can retain cached version state; after deployment use
 
 ### 测智历史账号隔离
 
-- 历史面板只读取当前已选账号 ID 的记录，不按 OpenAI/API Key 类型、名称或模型合并账号；同名账号仍独立。
-- 多账号历史可按账号筛选，从账号行进入详情时锁定该账号；取消选择后同步更新列表与详情，空选择不显示其他缓存。
-- 保留全部原始缓存及动画预览，筛选不删除历史、不触发上游请求。
+- 历史下拉只列出当前测试卡片里的账号记录，不按 OpenAI/API Key 类型、名称或模型合并账号；同名账号仍独立。
+- 每条历史的选项文案是“测试题目前 24 个字符 · 返回模型 · 判定结果 · 测试时间”，不显示账号名（账号已在对应结果卡片里）；选中后只还原对应账号的卡片，其他账号保持不变。
+- 取消选择账号后，该账号的记录同步从下拉移除，空选择不显示其他缓存；保留全部原始缓存及动画预览，切换不删除历史、不触发上游请求。
 
 ### 账号检测中心与测智检测记录
 
 - 账号管理页提供统一的「账号检测」入口，弹窗内保留「立即检测」「定时检测」「请求降智检测」「检测记录」「测智规则」页签。立即检测复用原有连接测试和鹈鹕批量测智弹窗；定时检测与规则库复用 `ScheduledTestsPanel`；请求降智检测复用共享账号、模型选择控件，自动请求只选择一道测智规则。不要把这几套能力重新拆成互不相关的入口。
-- 自动测智配置明确区分 `model_scope=selected` 和 `all`；新配置默认全部模型，显式 selected 的空列表不检测任何模型。每个命中请求独立执行测智，不再因近期证明或普通业务成功免测；`allow_business_success` / `recent_minutes` 仅兼容旧客户端。详见后文「每次请求并发降智检测」。
+- 自动测智配置明确区分 `model_scope=selected` 和 `all`；新配置默认全部模型，显式 selected 的空列表不检测任何模型。每个命中请求受 `reuse_seconds` 复用窗口约束：窗口内同账号、同模型、同一道题已通过则直接放行，失败/异常/取消不复用；`reuse_seconds=0` 恢复每次请求独立测智。`allow_business_success` / `recent_minutes` 仅兼容旧客户端。详见后文「每次请求并发降智检测」。
 - 测智检测记录与历史证明按「账号 ID + 模型 ID + 规则内容指纹」隔离并持久化到 `account_detection_records`；规则提示词、判定器或参数变更后旧证明自动失效。同一账号、模型和规则的新失败记录会使较早的成功证明失效，且查询和证明匹配均忽略模型 ID 大小写；这些历史证明不参与新请求的放行。
 - 连接/传输失败、用户停止和超时不等于测智不通过：这些结果分别保存为 `failed`、`cancelled`，不写入 `pelican_downgraded`，也不清除既有降智标记。只有探测请求完整返回且规则判定失败时才标记降智；定时任务对非 success 结果不再改写降智状态或触发自动恢复。
 - 每个账号最多保留 200 条检测记录，超出后自动清理最旧记录。管理端检测记录接口按账号、来源和模型过滤，并用 `before_id` 游标分页；历史中的 HTML 动画必须先提取再进入 sandbox iframe，不允许把普通文本或半截 HTML 当作动画预览。
@@ -967,12 +988,14 @@ browser reload can retain cached version state; after deployment use
 - 使用日志的“请求时测智参考”必须按每行账号、模型和记录时间独立查询 `finished_at <= created_at` 的最新能力检测，后续检测不得改变旧请求参考。相同账号/模型的不同请求时间不得合并；没有请求时间或当时没有检测时不展示最新检测兜底。检测仅作为参考，请求成功/失败以 HTTP 状态列为准；账号管理的降智状态仍显示最新近期检测。
 - 账号表“降智状态”支持按最新能力检测结果进行服务端全结果集排序，遵循配置的近期窗口；升序依次为疑似降智、检测失败、取消、跳过、通过，降序反转，无记录/过期/未来记录始终排后。同时间检测按更大的记录 ID 取最新，普通连接测试不参与；保留原有固定账号和置顶规则。
 - 质量门丢弃的每个业务账号尝试必须立即作为 `request_quality_probe_failed` 错误出现在使用日志（全部/错误筛选），保留请求 ID、账号、模型、端点和本次拒绝原因；后续换号成功不得丢失前面的记录。复用使用日志现有错误数据源，拒绝尝试不调用计费/额度扣减，也不重复计为独立客户端 SLA 失败；客户端取消不伪装成质量失败。最终请求结果仍单独记录。
+- 客户端在响应返回前断开（访问日志 499）的请求仍会排空上游并按上游用量计费，但使用日志状态列必须显示 `499 客户端断开`，不得回退成 `200 成功`。终态由 `usage_logs.client_disconnected`（迁移 246）持久化：OpenAI `/v1/responses` 流在检测到下游写入失败后把 `ClientDisconnect` 带回转发结果，记账时写入该列；DTO 暴露 `client_disconnected` 并把状态映射为 `client_disconnected` / 499。该行仍是计费行（`isRowError` 为假，Token 与费用照常显示），也不写入质量失败错误行（客户端取消不伪装成质量失败）。此时同请求的测智记录通常是 `cancelled`（检测取消，未判定）。
 - 账号管理顶部仅保留「全局降智设置」入口；总开关位于设置弹窗内，桌面与手机均可操作。读取失败不得伪装成关闭。调度规则仅提供设置跳转，不再读取或顺带覆盖测智配置。完整设置统一位于「账号检测 → 请求降智检测」，检测记录查看请求触发来源。
-- 默认关闭，默认检测范围为全部账号、全部模型；旧的显式范围保留。启用后，命中范围的每次业务账号尝试同时启动业务与一道独立测智请求，使用同一账号和模型，遵循账号原有上游地址、代理和模型映射。自动检测最多选一道规则（未选用内置数学题，旧多选配置取第一道），不复用近期能力证明、业务成功或其他并发请求的探测结果。旧免测字段仅保留 API 兼容。
+- 默认关闭，默认检测范围为全部账号、全部模型；旧的显式范围保留。启用后，命中范围的业务账号尝试同时启动业务与一道独立测智请求，使用同一账号和模型，遵循账号原有上游地址、代理和模型映射。自动检测最多选一道规则（未选用内置数学题，旧多选配置取第一道）。同一账号、模型和规则内容在 `reuse_seconds`（默认 300 秒，0 为关闭）内已有通过记录时，本次请求直接放行且不发送探测；只复用通过结果，失败、异常、取消以及规则内容变更均不复用，仍逐个窗口独立探测，也不复用并发请求的探测结果。业务成功和旧免测字段仍不参与放行。
 - HTTP 非流式及 SSE 原响应的正文和响应头均在本次测智通过前暂存；通过后放行已暂存内容并继续正常流式返回。内存最多暂存 256 KiB，较大响应写入 0600 且创建后立即 unlink 的临时文件，结束时关闭，不截断内容。暂存阶段的 Flush 不阻塞原业务请求发往上游。检测失败丢弃该账号原响应，交由原有有界 failover；只有规则完整判定失败才写 `pelican_downgraded=true`，网络/取消/超时不写降智状态。
 - OpenAI WebSocket 的 ctx_pool/http_bridge/passthrough 入口逐轮独立检测，所有业务事件在该轮测智通过后才写给客户端；同一轮多帧共享判定。连接的 previous_response_id 亲和与既有重连/故障转移边界保持原约束，不将失败账号正文拼接给客户端。
 - 关闭后，新请求直接使用原 writer/forwarder，不启动探测或增加响应等待；已启动的账号尝试完成自身判定。该开关不启动后台全账号扫描，也不改变既有手动/定时检测任务和历史降智标记。
-- 回归：`TestRequestQuality*`（handler/service）、`TestAccountHandler.*Quality`、WebSocket ingress/passthrough 回归；`RequestQualityControl.spec.ts`、`AccountDetectionCenter.spec.ts`、`SchedulingRulesModal.spec.ts`、账号页与移动入口回归。
+- 复用窗口按成功记录的 `rule_fingerprint` 和 `finished_at` 判定，读取失败时回退为探测而不是放行；窗口内出现更新失败记录立即恢复探测。前端 `RequestQualityProbeForm` 暴露秒数（0–3600），账号/模型/规则范围只决定哪些请求参与，不缩短窗口。
+- 回归：`TestRequestQuality*`（handler/service，含 `TestRequestQualityProbeReuse*`）、`TestAccountHandler.*Quality`、WebSocket ingress/passthrough 回归；`RequestQualityControl.spec.ts`、`AccountDetectionCenter.spec.ts`、`SchedulingRulesModal.spec.ts`、账号页与移动入口回归。
 
 ### 账号行测试入口回退（2026-10-17）
 
@@ -1012,6 +1035,8 @@ browser reload can retain cached version state; after deployment use
 - 单账号设置保存至全局配置 `account_overrides`，覆盖账号范围（全部／异常／指定），不改变总开关或模型范围。全局关闭时明确标注；账号开关不能绕过总开关和模型范围。
 - 全局降智设置显示单独设置的账号，可切换或恢复跟随账号范围。多个账号同时保存串行读取最新配置，保留其他账号设置；同页读取合并，避免每行独立请求。
 - 原顶部总开关移除，总开关统一在全局降智设置内保存；使用记录降智证据复用相同范围判定。
+- 降智设置保存路径对超出当前上限的历史值做收敛（`setting_request_quality_probe.go` 的 `normalizeRequestQualityProbeSettings`：`timeout_seconds`、`recent_minutes`、`status_recent_minutes`、`reuse_seconds`）。此前库中存在 `timeout_seconds=600`（上限 120），导致每次 PUT 都被校验以 400 拒绝、账号降智开关无法切换；读取路径同样归一化后回显值合法，切换恢复。写入校验仍拒绝越界的新值。
+- 账号编辑弹窗（`EditAccountModal.vue` 状态区块下方）提供同一个降智检测开关（`frontend/src/modules/qualitycontrol/AccountQualitySwitch.vue`）：读取当前有效参与状态，切换即写入 `account_overrides` 并立即生效，不走账号保存流程；存在覆盖时提供“跟随账号范围”清除覆盖。读取失败显示读取失败且禁用开关，保存失败提示错误并保留原状态。
 
 ### 测智管理入口归一化（2026-10-17）
 
@@ -1055,7 +1080,7 @@ browser reload can retain cached version state; after deployment use
 
 - OpenAI Responses、Messages、兼容 Responses/Chat Completions 的流式账号切换发送 SSE 注释 `: x`（当前账号尝试失败）和 `: ---`（下一不同账号已获得执行机会）。同账号内部重试不冒充账号切换，选不出下一账号不提前发送 `---`，客户端取消停止通知。标准 SSE 解析器会忽略注释，客户端如需界面可见进度应单独解析这些注释；符号不注入模型正文、工具参数或计费 Token。
 - 进度不阻止后续账号切换；发出进度后终止失败必须使用协议对应的流内错误，Responses 发 `response.failed`，禁止在已提交 SSE 后拼接 JSON 错误。使用日志继续按最终失败而非传输层已提交的 HTTP 200 记账。
-- 非流式接口保持单个 JSON 响应，不为符号擅自改成流式。最终服务器失败时，查本次实际尝试过的账号及转发模型在请求开始前五分钟内的业务使用记录；仅匹配时附加近期状态变化的复核建议。请求开始后的并发成功、其他账号/模型、普通连接测试不能触发提醒；数据库失败不推测成功。提醒不绕过质量门，不确定降智发生时间，也不声称历史操作已确认降智。
+- 非流式接口保持单个 JSON 响应，不为符号擅自改成流式。最终服务器失败时，必须先有本请求实际测智完成（status=success 且 downgraded=true）的证据，再仅查询这些被判降智账号及其转发模型在请求开始前五分钟内的业务成功记录；仅匹配时附加复核建议。普通 502、连接拒绝、超时、测智异常或其他账号的成功记录均不触发提醒。请求开始后的并发成功、其他账号/模型、普通连接测试不能触发提醒；数据库失败不推测成功。提醒不绕过质量门，不确定降智发生时间，也不声称历史操作已确认降智。
 - 实现位于 `internal/modules/{rotationnotice,qualityevidence}`，handler 和 repository 仅注册/适配。定向回归覆盖流式全失败/后续工具调用成功、取消、非流式 JSON、历史窗口与消息幂等。
 
 ### 账号测智流式思考与最终结果（2026-10-17）
@@ -1108,3 +1133,123 @@ browser reload can retain cached version state; after deployment use
 
 - 交付验收（2026-10-18）：webClx 部署请求 `103800-18df48cff52da3f7` 完成，全量前端 434 文件 / 3328 测试通过（1 跳过），后端全量及定向检查通过。main/free 首页均 HTTP 200，自动策略管理接口未登录均 HTTP 401；两个磁盘文件和两个运行进程 SHA-256 均为 `c9f808251679cff3c38fa3a40d40c5a1ee2fe66bb49065f71ea1d99e49ba392a`。各保留 `sub2api.bak.20261018-104511-208049` / `sub2freeApi.bak.20261018-104511-208049` 一份，旧备份共归档 2 份、删除 0 份。
 - 浏览器验收请求 `104734-18df48cff52da408` 通过：对已部署 main/free 资源分别验证 1440px 中文、390px 中文、320px 英文，共六组；覆盖所有/指定账号、选择校验、恢复选项保存、无标准试题禁止开启周期测智、费率范围保存和视口布局。管理 API 全模拟，未借验收启用真实生产策略或修改账号。首次失败来自新手引导遮罩；测试夹具已按现有用户引导已读键消除干扰，保留普通点击与布局断言。
+
+## Pool relay transport restart tolerance (2026-10-18)
+
+- OpenAI pool-mode accounts default to at least three persistent network failures
+  spanning 15 seconds before the existing ten-minute transport cooldown applies.
+  A gap over 60 seconds starts a new streak; a successful real upstream request
+  clears all preceding evidence. Counters are process-local and bounded.
+- Confirmation uses subsequent real requests, with ordinary failover on each
+  failure; it does not sleep, replay requests, or generate billable background
+  probes. Explicit proxy authentication rejection still pauses immediately.
+- The dedicated guard owns these network failures; the rolling HTTP health
+  breaker must not count the synthetic 502 and bypass confirmation. Other HTTP
+  errors retain their existing configured policies. Pool retry count remains a
+  per-request limit, independent of this confirmation window.
+- Implementation: `backend/internal/modules/transportguard` with service adapters
+  in `openai_upstream_transport_error.go` and `openai_account_scheduler.go`.
+  Preserve module timing/concurrency/reset tests and handler integration tests.
+
+- Account create/edit dialogs expose the confirmation switch and count/span/gap
+  under the Temp Unschedulable heading, independent of HTTP keyword rules. The
+  values persist in `credentials.pool_transport_guard` (`enabled`, `min_failures`,
+  `span_seconds`, `max_gap_seconds`). Defaults are true/3/15/60. Disabling
+  confirmation restores immediate durable-network cooldown; success still resets
+  evidence. Changes discard pending evidence on the next failure. UI code lives
+  in `frontend/src/modules/transportguard`; malformed backend values fall back
+  to defaults. The existing ten-minute cooldown duration remains unchanged.
+
+## Pool mode consecutive error cooldown (2026-10-28)
+
+- Pool-mode accounts still skip account-level state on individual upstream
+  errors, but the skip now feeds a Redis consecutive-error counter
+  (pool_mode_error_count:account:<id>, 30-minute window). At 5 consecutive
+  errors the account enters a 10-minute temporary cooldown
+  (temp_unschedulable) instead of staying a permanently failing first pick
+  under lowest_cost scheduling. The counter resets on any successful real
+  upstream request, on ClearRateLimit/recover-state, and when the cooldown is
+  applied. Counter or Redis failures preserve the legacy pool-mode skip.
+- Explicit temp-unschedulable keyword rules still take precedence, and custom
+  error code accounts keep their configured policies. Permanent status=error
+  remains off-limits for pool mode: upstream errors do not prove local
+  credential invalidity.
+- Implementation: service/pool_mode_error_counter.go,
+  repository/pool_mode_error_counter_cache.go, the pool-mode branch of
+  RateLimitService.HandleUpstreamError, and success reset in
+  openai_gateway_usage.go. Unit tests:
+  ratelimit_service_pool_mode_error_counter_test.go.
+
+## Server detection history in account tests and logs (2026-10-19)
+
+- Account-test History includes persisted manual, scheduled and request-triggered
+  records using the same DetectionHistory component as the Logs detection tab.
+  Browser output cache is separately labelled and clearing it never removes
+  server records. History shows evidence ID, source, finish time, model, reason,
+  question snapshot when available and raw response, with cursor pagination.
+- Probe transport failure is inconclusive capability evidence; a later passing
+  manual test does not erase earlier failed or downgraded attempts.
+- Automatic retention only trims passing records. Failed, cancelled, skipped
+  and downgraded records must not be evicted by later successful probes.
+  Records removed by the previous retention policy cannot be reconstructed from
+  current state; no synthetic historical successes/failures are inserted.
+- Regression: DetectionHistory.spec.ts, AccountPelicanModal.spec.ts,
+  LogsView.spec.ts and TestAccountDetectionRepositorySaveBoundsHistoryPerAccount.
+
+## Probe billing failure classification (2026-10-19)
+
+- Preserve HTTP probe failures as typed status/body evidence through in-memory
+  test SSE capture. A probe HTTP 402 enters the existing RateLimitService billing
+  branch immediately, retaining provider-specific account blocking and cache
+  invalidation; do not infer billing failure from a model answer containing 402.
+- Stop remaining test questions after payment-required, persist a failed,
+  inconclusive detection record, and carry 402/body through the response gate to
+  normal account failover and attempt logging. Do not wrap it as quality 502,
+  set a downgrade flag, or trigger a recent-success downgrade warning.
+- Regression: TestAccountDetectionPaymentRequiredPreservesBillingFailure,
+  TestRequestQualityProbePaymentRequiredIsNotQualityRejection and
+  TestRequestQualityGatePreservesPaymentRequired.
+
+## Upstream forbidden details and probe classification (2026-10-19)
+
+- Preserve typed probe HTTP 403 through detection history, quality gate and normal
+  account rotation logging, as with HTTP 402. Stop remaining probe questions;
+  permission denial is inconclusive capability evidence, not a quality rejection
+  or downgrade. A model-specific 403 must not enter the billing handler.
+- At failover exhaustion, ordinary upstream 403 returns permission_error with
+  `Upstream HTTP 403` and the extracted, sanitized upstream message (including
+  model/group restrictions). Missing structured messages use a fixed fallback;
+  raw HTML or response bodies are not returned. Existing explicit passthrough
+  rules and credential-specific safe responses retain precedence.
+- Apply to Responses, Messages and Chat protocol adapters. Once SSE headers have
+  committed, retain HTTP 200 and send the final protocol error in-stream; record
+  intended 403 rather than pretending the committed HTTP status can be changed.
+- Regression: TestAccountDetectionForbiddenPreservesPermissionFailure,
+  TestRequestQualityProbeForbiddenIsNotQualityRejection,
+  TestRequestQualityGatePreservesForbidden and TestUpstreamForbidden*.
+
+## Detection provenance in usage and history (2026-10-20)
+
+- Admin usage includes a separate server detection-history tab, reusing the same
+  component/API as account tests and Logs. Local probes do not become business
+  successes, user charges, or recent-success evidence merely to display them.
+  Token/cost data not collected by probes is unknown, not zero.
+- New result JSON stores `origin`: trigger (`manual_connection`, `manual_quality`,
+  `scheduled_connection`, `scheduled_quality`, `request_quality`), main/free profile,
+  source account ID, Cron plan ID when applicable, and automatic/explicit model
+  choice for policy/plan execution. Broad manual/scheduled/request filters remain
+  compatible. Legacy records explicitly lack detailed origin; do not infer it
+  from current settings or rewrite historical evidence.
+- API-key account tests append `Sub2API-Detection/1` provenance to their outgoing
+  User-Agent; existing client identity is retained. OAuth identities are unchanged.
+  A receiving Sub2API instance displays the client-declared source beneath the
+  model in usage and error tables using the already persisted User-Agent. This
+  hint never controls authorization, billing, probe participation or scheduling.
+  Incoming cross-instance probes remain normal billable API calls on that instance.
+- Regression: `TestDetectionOrigin*`, `DetectionOriginLabel.spec.ts`,
+  `DetectionHistory.spec.ts`, and admin `UsageView.spec.ts`.
+
+## 账号测试题目下拉单行摘要（2026-10-26）
+
+- 统一账号测试的题目下拉复用共享 `Select`，选项使用空白归一化、最多 28 字符的题干摘要，超长省略并保持单行；Android 不再使用会展开完整题干的原生选项列表。
+- 选项值仍为原题目 ID，选中后的题目编辑区和实际测试请求保留完整题干。

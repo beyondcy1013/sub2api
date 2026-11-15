@@ -5,12 +5,14 @@
     </div>
     <p v-if="error" role="alert" class="mb-3 text-sm text-red-600">{{ error }}</p>
     <AutomaticDetectionPolicies
+      ref="policiesPanel"
       v-show="mode === 'policies'"
       :accounts="pool"
       :accounts-loading="loading || !!error"
       :has-standard="standardReady"
       :model-options="modelOptions"
       @saved="emit('saved')"
+      @schedules="editSchedule"
     />
     <div v-show="mode === 'request'" class="space-y-4">
       <RequestQualityProbeForm :model-value="settings" :accounts="pool" :rules="rules" :disabled="loading || saving || !!error" @rules="mode = 'rules'" />
@@ -18,9 +20,10 @@
     </div>
     <ScheduledTestsPanel
       v-if="mode === 'scheduled' || mode === 'rules'"
-      :key="mode"
+      :key="`${mode}-${editingScheduleId ?? 'all'}`"
       :show="show"
-      :account-id="mode === 'scheduled' ? initialAccountId ?? null : null"
+      :account-id="mode === 'scheduled' && !editingScheduleId ? initialAccountId ?? null : null"
+      :initial-plan-id="editingScheduleId"
       :model-options="modelOptions ?? []"
       embedded
       :rules-only="mode === 'rules'"
@@ -54,6 +57,9 @@ const props = defineProps<{
 }>()
 const modes = ['policies', 'request', 'scheduled', 'rules'] as const
 const mode = ref<typeof modes[number]>('policies')
+const policiesPanel = ref<InstanceType<typeof AutomaticDetectionPolicies> | null>(null)
+const editingScheduleId = ref<number | undefined>()
+function editSchedule(id: number) { editingScheduleId.value = id; mode.value = 'scheduled' }
 const pool = ref<Account[]>([])
 const rules = ref<DegradationRule[]>([])
 const settings = reactive(defaultRequestQualitySettings())
@@ -65,7 +71,8 @@ async function refreshRules() {
   const updated = await adminAPI.accounts.getRequestQualityProbeSettings()
   standardReady.value = Boolean(updated.rule_ids?.length)
 }
-watch(mode, async (_value, previous) => {
+watch(mode, async (value, previous) => {
+  if (value === 'policies' && previous === 'scheduled') await policiesPanel.value?.refreshRuntime?.()
   if (previous === 'rules' && props.show) {
     try { await refreshRules() } catch (e) { error.value = extractApiErrorMessage(e) }
   }
@@ -73,6 +80,7 @@ watch(mode, async (_value, previous) => {
 watch(() => props.show, async visible => {
   const current = ++generation
   if (!visible) return
+  editingScheduleId.value = undefined
   mode.value = props.initialMode ?? 'policies'
   loading.value = true; error.value = ''; pool.value = []; standardReady.value = false
   try {

@@ -694,6 +694,12 @@ func validateClaude55Request(body []byte, model string) error {
 	if isHaiku55 {
 		modelName = "claude-haiku-5-5"
 	}
+	if claude.IsFable52(model) {
+		modelName = "claude-fable-5-2"
+	}
+	if claude.IsMythos52(model) {
+		modelName = "claude-mythos-5-2"
+	}
 	// haiku-5-5 接受强制 tool_choice（响应以 tool call 开头、无 thinking 块），
 	// 与 opus/sonnet-5-5 不同，不拦截。见官方 migration guide。
 	if !isHaiku55 {

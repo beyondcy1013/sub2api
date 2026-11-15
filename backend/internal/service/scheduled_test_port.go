@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/modules/detectionorigin"
 	"github.com/Wei-Shaw/sub2api/internal/modules/qualityevidence"
 	"time"
 )
@@ -129,12 +130,15 @@ type RuleOutcome struct {
 
 // ScheduledTestResult represents a single test execution result.
 type ScheduledTestResult struct {
+	Origin          *detectionorigin.Origin   `json:"origin,omitempty"`
+	UpstreamFailure *AccountTestUpstreamError `json:"upstream_failure,omitempty"`
 	QualityQuestion *qualityevidence.Question `json:"quality_question,omitempty"`
 	QuestionSummary string                    `json:"question_summary,omitempty"`
 	ID              int64                     `json:"id"`
 	PlanID          int64                     `json:"plan_id"`
 	Status          string                    `json:"status"`
 	ResponseText    string                    `json:"response_text"`
+	Reasoning       string                    `json:"reasoning,omitempty"`
 	ErrorMessage    string                    `json:"error_message"`
 	Downgraded      bool                      `json:"downgraded"`
 	DowngradeReason string                    `json:"downgrade_reason"`

@@ -256,7 +256,9 @@ func createOpenAIRuleProbePayload(model string, isOAuth bool, prompt string, acc
 		"stream": true,
 	}
 	if effort != "" && effort != "none" {
-		payload["reasoning"] = map[string]any{"effort": effort}
+		// Request the readable reasoning summary so a failed answer keeps the
+		// model's thinking for later inspection; OpenAI models omit it otherwise.
+		payload["reasoning"] = map[string]any{"effort": effort, "summary": "auto"}
 	}
 	if isOAuth {
 		payload["store"] = false

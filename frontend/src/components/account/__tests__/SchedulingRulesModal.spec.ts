@@ -86,7 +86,8 @@ describe('SchedulingRulesModal', () => {
   })
 
   it('saves the selected lowest-cost rule, disables the legacy overlay, and updates the probe interval', async () => {
-    api.getSuperPriority.mockResolvedValue({ mode: 'super_priority', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', liveness_enabled: true, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: true })
+    const initial = { mode: 'super_priority', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', liveness_enabled: true, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: true }
+    api.getSuperPriority.mockResolvedValueOnce(initial).mockResolvedValue({ ...initial, base_strategy: 'lowest_cost' })
     api.getProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30, notify_on_change_only: false })
     api.deactivate.mockResolvedValue({ message: 'ok' })
     api.updateSuperPriority.mockResolvedValue({ message: 'ok', restart_required: false })
@@ -122,7 +123,7 @@ describe('SchedulingRulesModal', () => {
       model_mismatch_on_error: true
     }))
     expect(api.updateProbeSettings).toHaveBeenCalledWith({ enabled: true, interval_minutes: 5, notify_on_change_only: true })
-    expect(wrapper.emitted('saved')).toHaveLength(1)
+    expect(wrapper.emitted('saved')).toEqual([['lowest_cost']])
     wrapper.unmount()
   })
 
@@ -186,6 +187,79 @@ describe('SchedulingRulesModal', () => {
     expect(runtime.text()).toContain('admin.accounts.schedulingRules.runtimeLastResult')
     expect(wrapper.find('[data-testid="scheduling-rule-liveness-include-unschedulable"]').exists()).toBe(false)
 
+    wrapper.unmount()
+  })
+
+  it('shows the server mode and marks a pending switch before saving', async () => {
+    api.getSuperPriority.mockResolvedValue({ mode: 'normal', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', liveness_enabled: true, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: false })
+    api.getProbeSettings.mockResolvedValue({ enabled: false, interval_minutes: 30, notify_on_change_only: false })
+    const wrapper = mount(SchedulingRulesModal, {
+      props: { show: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
+    })
+    await flush()
+    await flush()
+
+    expect(wrapper.get('[data-testid="scheduling-rules-effective-mode"]').text()).toBe('admin.accounts.schedulingRules.default')
+    expect(wrapper.get('[data-testid="scheduling-rule-mode-badge"]').text()).toBe('admin.accounts.schedulingRules.modeActive')
+    expect(wrapper.get('[data-testid="scheduling-rule-default"]').attributes('aria-checked')).toBe('true')
+
+    await wrapper.get('[data-testid="scheduling-rule-lowest-cost"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="scheduling-rule-mode-badge"]').text()).toBe('admin.accounts.schedulingRules.modeUnsaved')
+    expect(wrapper.get('[data-testid="scheduling-rule-lowest-cost"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="scheduling-rule-default"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.get('[data-testid="scheduling-rules-effective-mode"]').text()).toBe('admin.accounts.schedulingRules.default')
+    wrapper.unmount()
+  })
+
+  it('reports a switch that the server did not apply', async () => {
+    const initial = { mode: 'normal', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', liveness_enabled: true, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: false }
+    api.getSuperPriority.mockResolvedValue(initial)
+    api.getProbeSettings.mockResolvedValue({ enabled: false, interval_minutes: 30, notify_on_change_only: false })
+    api.deactivate.mockResolvedValue({ message: 'ok' })
+    api.updateSuperPriority.mockResolvedValue({ message: 'ok', restart_required: false })
+    api.updateProbeSettings.mockResolvedValue({ enabled: false, interval_minutes: 30 })
+    const wrapper = mount(SchedulingRulesModal, {
+      props: { show: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
+    })
+    await flush()
+    await flush()
+
+    await wrapper.get('[data-testid="scheduling-rule-lowest-cost"]').trigger('click')
+    await wrapper.get('[data-testid="scheduling-rule-save"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(wrapper.emitted('error')).toHaveLength(1)
+    expect(String((wrapper.emitted('error')![0] as unknown[])[0])).toContain('switchMismatch')
+    expect(wrapper.get('[data-testid="scheduling-rules-effective-mode"]').text()).toBe('admin.accounts.schedulingRules.default')
+    wrapper.unmount()
+  })
+
+  it('asks before closing with unsaved changes', async () => {
+    api.getSuperPriority.mockResolvedValue({ mode: 'normal', base_strategy: 'default', failure_threshold: 2, check_interval: '@every 1m', liveness_enabled: true, test_model_id: '', test_prompt: '', activated_at: '', demoted_at: '', is_active: false })
+    api.getProbeSettings.mockResolvedValue({ enabled: false, interval_minutes: 30, notify_on_change_only: false })
+    const wrapper = mount(SchedulingRulesModal, {
+      props: { show: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' } } }
+    })
+    await flush()
+    await flush()
+
+    await wrapper.get('[data-testid="scheduling-rule-lowest-cost"]').trigger('click')
+    await wrapper.get('[data-testid="scheduling-rule-cancel"]').trigger('click')
+
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.find('[data-testid="scheduling-rule-unsaved-prompt"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="scheduling-rule-keep-editing"]').trigger('click')
+    expect(wrapper.find('[data-testid="scheduling-rule-unsaved-prompt"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="scheduling-rule-cancel"]').trigger('click')
+    await wrapper.get('[data-testid="scheduling-rule-discard-close"]').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
     wrapper.unmount()
   })
 

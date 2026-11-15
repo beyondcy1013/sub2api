@@ -123,6 +123,63 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+describe('UsageFilters — account selection identity', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    mockAccountsList.mockReset().mockResolvedValue({ items: [] })
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('clears the previous account ID when editing and submits the new selection', async () => {
+    mockAccountsList.mockResolvedValue({ items: [{ id: 11, name: 'First account' }] })
+    const wrapper = mountFilters()
+    const input = wrapper.findAll('input[type="text"]')[2]
+    await input.trigger('focus')
+    await flushPromises()
+    await wrapper.findAll('.usage-filter-dropdown')[2].find('button').trigger('click')
+    expect(wrapper.props('modelValue').account_id).toBe(11)
+
+    mockAccountsList.mockResolvedValue({ items: [{ id: 22, name: 'Other account' }] })
+    await input.setValue('Other')
+    expect(wrapper.props('modelValue').account_id).toBeUndefined()
+    expect((input.element as HTMLInputElement).value).toBe('Other')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    const option = wrapper.findAll('.usage-filter-dropdown')[2].find('button')
+    expect(option.text()).toContain('#22')
+    await option.trigger('click')
+    expect(wrapper.props('modelValue').account_id).toBe(22)
+    expect((input.element as HTMLInputElement).value).toBe('Other account')
+    wrapper.unmount()
+  })
+
+  it('ignores late focus and search responses after another query or selection', async () => {
+    const focus = deferred<{ items: Array<{ id: number; name: string }> }>()
+    const oldSearch = deferred<{ items: Array<{ id: number; name: string }> }>()
+    mockAccountsList.mockReturnValueOnce(focus.promise).mockReturnValueOnce(oldSearch.promise)
+      .mockResolvedValue({ items: [{ id: 22, name: 'Latest account' }] })
+    const wrapper = mountFilters()
+    const input = wrapper.findAll('input[type="text"]')[2]
+    await input.trigger('focus')
+    await input.setValue('old')
+    await vi.advanceTimersByTimeAsync(300)
+    await input.setValue('latest')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    focus.resolve({ items: [{ id: 1, name: 'Stale focus' }] })
+    await flushPromises()
+    const option = wrapper.findAll('.usage-filter-dropdown')[2].find('button')
+    expect(option.text()).toContain('#22')
+    await option.trigger('click')
+    oldSearch.resolve({ items: [{ id: 2, name: 'Stale search' }] })
+    await flushPromises()
+    expect(wrapper.props('modelValue').account_id).toBe(22)
+    expect((input.element as HTMLInputElement).value).toBe('Latest account')
+    expect(wrapper.text()).not.toContain('Stale search')
+    wrapper.unmount()
+  })
+})
+
 describe('UsageFilters — user search dropdown', () => {
   beforeEach(() => {
     vi.useFakeTimers()

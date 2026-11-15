@@ -14,15 +14,29 @@
 
     <!-- Main Status Badge (shown when not rate limited/overloaded) -->
     <template v-else>
-      <button
-        v-if="isTempUnschedulable"
-        type="button"
-        :class="['text-xs font-medium cursor-pointer underline', statusTextClass]"
-        :title="t('admin.accounts.status.viewTempUnschedDetails')"
-        @click="handleTempUnschedClick"
-      >
-        {{ statusText }}
-      </button>
+      <!-- 临时不可调度：直接展示解除时间、剩余时间和错误详情，无需点开弹窗 -->
+      <div v-if="isTempUnschedulable" class="inline-grid max-w-[260px] min-w-0 justify-items-start gap-0.5 text-left">
+        <button
+          type="button"
+          :class="['text-xs font-medium cursor-pointer underline', statusTextClass]"
+          :title="t('admin.accounts.status.viewTempUnschedDetails')"
+          @click="handleTempUnschedClick"
+        >
+          {{ statusText }}
+        </button>
+        <span
+          v-if="tempUnschedRemainingText"
+          data-test="temp-unsched-inline-remaining"
+          class="max-w-full truncate text-[11px] text-gray-500 dark:text-gray-400"
+          :title="tempUnschedRemainingText"
+        >{{ tempUnschedRemainingText }}</span>
+        <span
+          v-if="tempUnschedReason"
+          data-test="temp-unsched-inline-reason"
+          class="max-w-full truncate text-[11px] text-red-600 dark:text-red-400"
+          :title="tempUnschedReason"
+        >{{ tempUnschedReason }}</span>
+      </div>
       <span v-else :class="['text-xs font-medium', statusTextClass]">
         {{ statusText }}
       </span>
@@ -385,6 +399,21 @@ const statusText = computed(() => {
   }
   return t(`admin.accounts.status.${props.account.status}`)
 })
+
+// 解除时间 + 剩余时间，随表格刷新更新；过期后显示“已到期”。
+const tempUnschedRemainingText = computed(() => {
+  const until = props.account.temp_unschedulable_until
+  if (!until) return ''
+  const target = new Date(until).getTime()
+  if (!Number.isFinite(target)) return ''
+  const untilText = formatDateTimeToMinute(until)
+  const diff = target - Date.now()
+  if (diff <= 0) return `${t('admin.accounts.tempUnschedulable.expired')} · ${untilText}`
+  const minutes = Math.max(1, Math.ceil(diff / 60000))
+  return `${t('admin.accounts.tempUnschedulable.remaining')} ${t('admin.accounts.tempUnschedulable.remainingMinutes', { minutes })} · ${t('admin.accounts.tempUnschedulable.until')} ${untilText}`
+})
+
+const tempUnschedReason = computed(() => (props.account.temp_unschedulable_reason || '').trim())
 
 const handleTempUnschedClick = () => {
   if (!isTempUnschedulable.value) return

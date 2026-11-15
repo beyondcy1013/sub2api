@@ -695,6 +695,7 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	HealthObservationHandled bool // A dedicated guard already owns this failure's cooldown decision.
 	OperatorPaused           bool // Explicit local pause is not an upstream health failure.
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配

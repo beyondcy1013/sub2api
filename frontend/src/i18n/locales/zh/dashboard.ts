@@ -396,6 +396,8 @@ export default {
     status: '状态',
     statusSuccess: '成功',
     statusFailed: '失败',
+    statusClientDisconnected: '客户端断开',
+    statusClientDisconnectedHint: '客户端在响应返回前断开；上游用量仍按实际消耗计费，本次请求的测智通常被取消（未判定）。',
     tokens: 'Token',
     cost: '费用',
     firstToken: '首 Token',

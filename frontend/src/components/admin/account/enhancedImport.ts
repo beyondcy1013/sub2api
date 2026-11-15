@@ -1,3 +1,4 @@
+import '@/modules/account-interchange/core.js'
 import type { AdminDataAccount, AdminDataPayload, AccountPlatform } from '@/types'
 
 export type EnhancedImportErrorCode =
@@ -71,7 +72,7 @@ const cliCredentials = (
   sourceName: string
 ): Record<string, unknown> => {
   const token = isRecord(source.token) ? source.token : {}
-  const credentials: Record<string, unknown> = {}
+  const credentials: Record<string, unknown> = { ...source, ...token }
   const tokenSource = provider === 'gemini' ? token : source
 
   for (const key of [
@@ -117,6 +118,8 @@ const cliCredentials = (
   if (!nonEmptyString(credentials.access_token) && !nonEmptyString(credentials.refresh_token)) {
     throw new EnhancedImportError('missing_credentials', sourceName, provider)
   }
+  delete credentials.type
+  delete credentials.account_id
   return credentials
 }
 
@@ -152,6 +155,9 @@ const convertCLIAuth = (
 
 const normalizeParsedValue = (value: unknown, sourceName: string): AdminDataPayload => {
   if (isNativePayload(value)) return validateNativePayload(value, sourceName)
+  if (isRecord(value) && (value.format || value['api-keys'])) {
+    return globalThis.AccountInterchange.sub2api(globalThis.AccountInterchange.parse(value)) as AdminDataPayload
+  }
 
   const authItems = Array.isArray(value) ? value : [value]
   if (authItems.length === 0 || authItems.some(item => !isRecord(item))) {

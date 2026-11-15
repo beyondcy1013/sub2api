@@ -1891,7 +1891,7 @@ func TestGPT61SolWorkBuddyRelayKeepsChatTools(t *testing.T) {
 	// Parsing/conversion reaches a tool-capable relay instead of returning the
 	// generic GPT-6.1 Sol Chat-only rejection.
 	_, err := (&OpenAIGatewayService{cfg: &config.Config{}}).forwardResponsesViaRawChatCompletions(
-		context.Background(), c, accountAllows, body,
+		context.Background(), c, accountAllows, body, time.Now(),
 	)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "requires Responses for tool calls")
@@ -1922,7 +1922,7 @@ func TestGPT61SolRelayChatToolsReachChatUpstream(t *testing.T) {
 		Body:       io.NopCloser(bytes.NewReader(upstreamBody)),
 	}}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}}, httpUpstream: recorder}
-	_, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body)
+	_, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, body, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "http://upstream.example/v1/chat/completions", recorder.lastReq.URL.String())

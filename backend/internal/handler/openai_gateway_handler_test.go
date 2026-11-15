@@ -2495,10 +2495,18 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 	h.Responses(c)
 
 	require.Equal(t, []int64{9912, 9912}, upstream.calls())
-	require.Equal(t, http.StatusTooManyRequests, rec.Code)
-	require.Equal(t, "1", rec.Header().Get("Retry-After"))
-	require.Equal(t, "rate_limit_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-	require.Equal(t, "Upstream rate limit exceeded, please retry later", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	// Progress commits SSE after the account's internal pool retry is exhausted.
+	// Preserve the intended 429 in Ops and terminate through response.failed.
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "text/event-stream", rec.Result().Header.Get("Content-Type"))
+	require.Equal(t, 1, strings.Count(rec.Body.String(), ": x\n\n"))
+	require.NotContains(t, rec.Body.String(), ": ---\n\n")
+	_, streamError := parseResponsesFailedSSE(t, strings.TrimPrefix(rec.Body.String(), ": x\n\n"))
+	require.Equal(t, "rate_limit_exceeded", streamError["code"])
+	require.Contains(t, streamError["message"], "Upstream rate limit exceeded, please retry later")
+	failure, ok := service.GetOpsStreamError(c)
+	require.True(t, ok)
+	require.Equal(t, http.StatusTooManyRequests, failure.IntendedStatus)
 }
 
 func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T) {

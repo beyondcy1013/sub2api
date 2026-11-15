@@ -204,6 +204,7 @@ func (c *accountBalanceSignInClient) doJSON(ctx context.Context, method, path st
 		return "request_build_failed"
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Internal-Service", "sub2api")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -286,7 +287,41 @@ func selectAccountBalanceSignInSite(
 	if len(originMatches) > 1 {
 		return nil, "site_ambiguous"
 	}
+
+	// 若 origin 精确匹配未命中，尝试根域名智能匹配（例如 api.xxx.com 与 ai.xxx.com）
+	baseRootDomain := accountBalanceURLRootDomain(accountBaseURL)
+	if baseRootDomain != "" {
+		rootDomainMatches := make([]int, 0, 1)
+		for index, site := range sites {
+			if !accountBalanceSignInSiteIsSingleAccount(site) {
+				continue
+			}
+			if accountBalanceURLRootDomain(site.LoginURL) == baseRootDomain || accountBalanceURLRootDomain(site.SignInURL) == baseRootDomain {
+				rootDomainMatches = append(rootDomainMatches, index)
+			}
+		}
+		if len(rootDomainMatches) == 1 {
+			return &sites[rootDomainMatches[0]], ""
+		}
+		if len(rootDomainMatches) > 1 {
+			return nil, "site_ambiguous"
+		}
+	}
+
 	return nil, "site_not_found"
+}
+
+func accountBalanceURLRootDomain(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	parts := strings.Split(host, ".")
+	if len(parts) <= 2 {
+		return host
+	}
+	return parts[len(parts)-2] + "." + parts[len(parts)-1]
 }
 
 func accountBalanceSignInSiteIsSingleAccount(site accountBalanceSignInSite) bool {
@@ -320,6 +355,9 @@ func parseAccountBalanceSignInAmount(raw string) (float64, string, bool) {
 	case strings.HasPrefix(value, "￥"):
 		unit = "CNY"
 		value = strings.TrimSpace(strings.TrimPrefix(value, "￥"))
+	case strings.HasPrefix(value, "¥"):
+		unit = "CNY"
+		value = strings.TrimSpace(strings.TrimPrefix(value, "¥"))
 	}
 	value = strings.ReplaceAll(value, ",", "")
 	if value == "" {

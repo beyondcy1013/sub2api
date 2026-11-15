@@ -91,7 +91,11 @@ func (x automaticDetectionExecutor) Probe(ctx context.Context, p autodetection.P
 			model = models[0]
 		}
 	}
-	ctx = WithAccountDetectionSource(ctx, "scheduled")
+	mode := AccountTestModeDefault
+	if p.Kind == "quality" {
+		mode = AccountTestModePelican
+	}
+	ctx = withDetectionOrigin(ctx, "scheduled", mode, snapshot.ID, 0, strings.TrimSpace(p.ModelID) == "")
 	var result *ScheduledTestResult
 	if p.Kind == "quality" {
 		settings, loadErr := a.tests.SettingService().GetRequestQualityProbeSettings(ctx)

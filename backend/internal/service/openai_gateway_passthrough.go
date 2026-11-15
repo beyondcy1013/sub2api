@@ -770,7 +770,8 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 		return false
 	}
 	switch statusCode {
-	case http.StatusInternalServerError,
+	case http.StatusNotFound,
+		http.StatusInternalServerError,
 		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
 		http.StatusGatewayTimeout,

@@ -743,7 +743,11 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		CacheTTLOverridden:        l.CacheTTLOverridden,
 		BillingMode:               l.BillingMode,
 		CreatedAt:                 l.CreatedAt,
-		Status:                    func() string {
+		ClientDisconnected:        l.ClientDisconnected,
+		Status: func() string {
+			if l.ClientDisconnected {
+				return "client_disconnected"
+			}
 			if l.Status != "" {
 				return l.Status
 			}
@@ -753,6 +757,10 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 			return "success"
 		}(),
 		StatusCode: func() *int {
+			if l.ClientDisconnected {
+				code := 499
+				return &code
+			}
 			if l.StatusCode != nil {
 				return l.StatusCode
 			}
@@ -762,14 +770,14 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 			}
 			return &code
 		}(),
-		ErrorID:                   l.ErrorID,
-		ErrorMessage:              l.ErrorMessage,
-		ErrorType:                 l.ErrorType,
-		ErrorPhase:                l.ErrorPhase,
-		User:                      UserFromServiceShallow(l.User),
-		APIKey:                    APIKeyFromService(l.APIKey),
-		Group:                     GroupFromServiceShallow(l.Group),
-		Subscription:              UserSubscriptionFromService(l.Subscription),
+		ErrorID:      l.ErrorID,
+		ErrorMessage: l.ErrorMessage,
+		ErrorType:    l.ErrorType,
+		ErrorPhase:   l.ErrorPhase,
+		User:         UserFromServiceShallow(l.User),
+		APIKey:       APIKeyFromService(l.APIKey),
+		Group:        GroupFromServiceShallow(l.Group),
+		Subscription: UserSubscriptionFromService(l.Subscription),
 	}
 }
 

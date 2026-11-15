@@ -596,6 +596,16 @@ export default {
 
     // Usage Records
     usage: {
+      qualityEvidence: {
+        column: 'Quality reference at request time',
+        disabled: 'Degradation detection off',
+        not_required: 'Not required',
+        disabled_not_required: 'Off and not required',
+        unavailable: 'Detection status unavailable',
+        noRecord: 'No test at request time',
+        latestHint: 'Shows only same-account/model tests no later than this request record. Later tests cannot change old rows. This is a quality reference; the status column determines request success. Switch and scope reflect current settings.',
+        passed: 'Passed', downgraded: 'Suspected degradation', failed: 'Test error (undetermined)', cancelled: 'Cancelled (undetermined)', skipped: 'Skipped (undetermined)'
+      },
       title: 'Usage Records',
       description: 'View and manage all user usage records',
       userFilter: 'User',

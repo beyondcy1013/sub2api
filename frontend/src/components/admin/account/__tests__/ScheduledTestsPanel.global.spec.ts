@@ -262,3 +262,19 @@ describe('ScheduledTestsPanel pelican mode', () => {
     expect(wrapper.text()).toContain('gpt-4o-mini')
   })
 })
+
+describe('ScheduledTestsPanel task-table entry', () => {
+  it('opens the requested plan with its saved schedule and type', async () => {
+    listAll.mockResolvedValue([{ id: 19, account_id: 11, model_id: 'gpt-5.4', cron_expression: '*/15 * * * *', enabled: true, max_results: 50, mode: 'pelican', rule_ids: [], auto_recover: true }])
+    listRules.mockResolvedValue([])
+    listAccounts.mockResolvedValue({ items: [], total: 0 })
+    getAllGroups.mockResolvedValue([])
+    const wrapper = mountPanel({ initialPlanId: 19 })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    const form = wrapper.findComponent({ name: 'ScheduledDetectionPlanForm' })
+    expect(form.exists()).toBe(true)
+    expect(form.props('modelValue')).toMatchObject({ model_id: 'gpt-5.4', cron_expression: '*/15 * * * *', mode: 'pelican', auto_recover: true })
+    wrapper.unmount()
+  })
+})

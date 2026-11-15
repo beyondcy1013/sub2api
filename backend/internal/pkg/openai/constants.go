@@ -199,7 +199,7 @@ func CodexBaseInstructionsForModel(model string) string {
 // IsGPT6SolOrLunaModelSpelling recognizes official IDs and existing local effort/compact suffixes.
 func IsGPT6SolOrLunaModelSpelling(model string) bool {
 	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
-	for _, base := range []string{"gpt-6-luna"} {
+	for _, base := range []string{"gpt-6-sol", "gpt-6-luna"} {
 		if canonical == base {
 			return true
 		}

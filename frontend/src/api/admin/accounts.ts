@@ -31,6 +31,7 @@ import type {
   UpstreamBillingProbeSettings,
   RequestQualityProbeSettings,
   AccountDetectionRecord,
+  AccountQualitySummary,
   ScheduledTestResult,
   AccountBalanceQueryConfig,
   AccountBalanceQueryResult,
@@ -1523,6 +1524,8 @@ export const accountsAPI = {
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
   listDetectionRecords,
+  getQualityStatus,
+  getDegradationCounts,
   runQualityRules,
   getRequestQualityProbeSettings,
   updateRequestQualityProbeSettings,
@@ -1634,4 +1637,17 @@ export async function listDetectionRecords(params: { account_id?: number; model_
 export async function runQualityRules(accountId: number, modelId: string, ruleIds: number[], signal?: AbortSignal): Promise<ScheduledTestResult> {
   const { data } = await apiClient.post<ScheduledTestResult>(`/admin/accounts/${accountId}/quality-test`, { model_id: modelId, rule_ids: ruleIds }, { signal })
   return data
+}
+
+export async function getQualityStatus(ids: number[]): Promise<AccountQualitySummary[]> {
+ const { data } = await apiClient.get<AccountQualitySummary[]>('/admin/accounts/detection-records', { params: { account_ids: ids.join(',') } })
+ return data
+}
+
+export async function getDegradationCounts(ids: number[], range = '7d'): Promise<Record<string, number>> {
+  if (!ids.length) return {}
+  const { data } = await apiClient.get<{ counts: Record<string, number>; range: string }>('/admin/accounts/degradation-counts', {
+    params: { account_ids: ids.join(','), range }
+  })
+  return data?.counts ?? {}
 }

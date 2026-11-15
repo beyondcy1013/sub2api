@@ -106,12 +106,18 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	if openai.RequiresResponsesForToolCalls(upstreamModel) && !accountAllowsGPT61SolChatTools(account) &&
 		(len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) {
 		err := fmt.Errorf("%s requires Responses for tool calls; %s only supports Chat Completions", normalizeKnownOpenAICodexModel(upstreamModel), accountErrorIdentifier(account))
+		if failoverErr := s.accountCapabilityFailover(err.Error()); failoverErr != nil {
+			return nil, failoverErr
+		}
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
 	if openai.IsGPT6SolOrLunaModelSpelling(upstreamModel) && !accountAllowsGPT61SolChatTools(account) &&
 		(len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0) && gjson.GetBytes(body, "reasoning_effort").String() != "none" {
 		err := fmt.Errorf("%s requires Responses for tool calls with reasoning; %s only supports Chat Completions. Use reasoning_effort=none or a Responses-capable account", upstreamModel, accountErrorIdentifier(account))
+		if failoverErr := s.accountCapabilityFailover(err.Error()); failoverErr != nil {
+			return nil, failoverErr
+		}
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}

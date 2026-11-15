@@ -15,7 +15,7 @@ describe('AccountBulkActionsBar compact mobile menu', () => {
   it('closes the sheet before emitting selected-scope actions through one helper', () => {
     expect(accountBulkActionsBarSource).toContain('const closeAndRun = async (action: () => void) => {')
     expect(accountBulkActionsBarSource).toContain('await nextTick()')
-    expect(accountBulkActionsBarSource).toContain("closeAndRun(() => $emit('test-and-mark'))")
+    expect(accountBulkActionsBarSource).toContain("closeAndRun(() => $emit('pelican-test'))")
     expect(accountBulkActionsBarSource).toContain("closeAndRun(() => $emit('delete'))")
     expect(accountBulkActionsBarSource).toContain("closeAndRun(() => $emit('permanent-delete'))")
     expect(accountBulkActionsBarSource).toContain("closeAndRun(() => $emit('toggle-schedulable', true))")

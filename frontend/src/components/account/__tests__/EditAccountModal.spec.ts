@@ -331,6 +331,37 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('loads and saves pool transport confirmation independently of HTTP cooldown rules', async () => {
+    const account = buildAccount()
+    account.credentials.pool_mode = true
+    account.credentials.pool_transport_guard = {
+      enabled: true, min_failures: 5, span_seconds: 30, max_gap_seconds: 120
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    const panel = wrapper.get('[data-testid="pool-transport-guard"]')
+    expect((panel.get('[data-testid="span_seconds"]').element as HTMLInputElement).value).toBe('30')
+    await panel.get('[data-testid="span_seconds"]').setValue('45')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.pool_transport_guard).toEqual({
+      enabled: true, min_failures: 5, span_seconds: 45, max_gap_seconds: 120
+    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.temp_unschedulable_enabled).toBeUndefined()
+  })
+
+  it('saves disabled confirmation and hides the panel outside pool mode', async () => {
+    const account = buildAccount()
+    const regular = mountModal(account)
+    expect(regular.find('[data-testid="pool-transport-guard"]').exists()).toBe(false)
+    regular.unmount()
+    account.credentials.pool_mode = true
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="pool-transport-guard"] input[type="checkbox"]').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.pool_transport_guard.enabled).toBe(false)
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
     showErrorMock.mockReset()
@@ -357,6 +388,65 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.platform).toBe('openai')
     expect(updateAccountMock.mock.calls[0]?.[1]?.type).toBe('apikey')
+  })
+
+  it('never rewrites a configured base_url when the platform toggle is clicked', async () => {
+    const account = buildAccount()
+    account.credentials.base_url = 'http://127.0.0.1:18371'
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    const baseUrlInput = wrapper.get('input[placeholder="https://api.openai.com"]')
+    // 误点 anthropic 再点回 openai：旧实现在回切时不再还原，把
+    // https://api.anthropic.com 留在输入框里并被保存。
+    await wrapper.get('[data-testid="edit-account-platform-anthropic"]').trigger('click')
+    await wrapper.get('[data-testid="edit-account-platform-openai"]').trigger('click')
+    await wrapper.get('[data-testid="edit-account-platform-anthropic"]').trigger('click')
+
+    // 平台按钮只切换目标协议，用户没有输入过的地址不能被自动填成平台默认值，
+    // 也不能在没点保存时产生任何写请求。
+    expect((baseUrlInput.element as HTMLInputElement).value).toBe('http://127.0.0.1:18371')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.platform).toBe('anthropic')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.base_url).toBe('http://127.0.0.1:18371')
+  })
+
+  it('does not refill an emptied base_url when the platform toggle is clicked', async () => {
+    const account = buildAccount()
+    account.credentials.base_url = 'http://127.0.0.1:18371'
+    updateAccountMock.mockReset().mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const baseUrlInput = wrapper.get('input[placeholder="https://api.openai.com"]')
+    await baseUrlInput.setValue('')
+    await wrapper.get('[data-testid="edit-account-platform-anthropic"]').trigger('click')
+
+    expect((baseUrlInput.element as HTMLInputElement).value).toBe('')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks implicit submit from single-line inputs but keeps textarea newlines', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const apiKeyInput = wrapper.get('[data-testid="edit-api-key"]').element
+    const enterInInput = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    apiKeyInput.dispatchEvent(enterInInput)
+
+    expect(enterInInput.defaultPrevented).toBe(true)
+    expect(updateAccountMock).not.toHaveBeenCalled()
+
+    const notesTextarea = wrapper.get('textarea').element
+    const enterInTextarea = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    notesTextarea.dispatchEvent(enterInTextarea)
+
+    expect(enterInTextarea.defaultPrevented).toBe(false)
+    expect(updateAccountMock).not.toHaveBeenCalled()
   })
 
   it('saves and restores Excel BPS independently of existing OAuth settings', async () => {

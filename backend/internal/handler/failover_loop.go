@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,10 +38,6 @@ const (
 	// maxRequestScopedRetryDelay 限制请求级瞬时错误的指数退避上限，避免高重试配置
 	// 将单次请求拖入分钟级等待。
 	maxRequestScopedRetryDelay = 8 * time.Second
-	// singleAccountBackoffDelay 单账号分组 503 退避重试固定延时。
-	// Service 层在 SingleAccountRetry 模式下已做充分原地重试（最多 3 次、总等待 30s），
-	// Handler 层只需短暂间隔后重新进入 Service 层即可。
-	singleAccountBackoffDelay = 2 * time.Second
 	// maxProfitVetoAttempts 单次请求内允许的分组利润门终检否决次数上限。
 	// 利润否决不产生上游请求，因此不会推进 SwitchCount；没有独立上限的话，
 	// 「选号 → 终检否决 → 重选」在候选池与账号快照短暂不一致时可以空转很久。
@@ -77,7 +72,7 @@ func sameAccountRetryDelayFor(failoverErr *service.UpstreamFailoverError, retryC
 }
 
 func sameAccountRetryAllowed(failoverErr *service.UpstreamFailoverError, retryCount, retryLimit int) bool {
-	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
+	if failoverErr == nil || failoverErr.Reason == "request_quality_probe_failed" || !failoverErr.RetryableOnSameAccount {
 		return false
 	}
 	if !sameAccountRetryDeadlineAllows(failoverErr) {
@@ -131,11 +126,8 @@ type FailoverState struct {
 	ForceCacheBilling     bool
 	hasBoundSession       bool
 
-	// profitVetoedAccountIDs 记录被分组利润门终检否决的账号，是 FailedAccountIDs
-	// 的子集。之所以单独维护：HandleSelectionExhausted 的 503 退避分支会清空
-	// FailedAccountIDs，而利润否决在同一请求内的判定不会改变（下游倍率 D 已在
-	// 请求开始冻结），被清空的账号会被立即重选并再次否决，形成没有任何上游请求、
-	// SwitchCount 也不前进的活锁。清空后必须把它们放回排除集。
+	// profitVetoedAccountIDs tracks local policy vetoes for diagnostics. Like all
+	// other exclusions, these accounts remain excluded for the whole request.
 	profitVetoedAccountIDs map[int64]struct{}
 	// profitVetoCount 本次请求累计的利润否决次数，用于 maxProfitVetoAttempts 上限。
 	profitVetoCount int
@@ -234,7 +226,7 @@ func (s *FailoverState) HandleFailoverError(
 	}
 
 	// 同账号重试用尽，执行临时封禁
-	if failoverErr.RetryableOnSameAccount {
+	if failoverErr.RetryableOnSameAccount && failoverErr.Reason != "request_quality_probe_failed" {
 		gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
 	}
 
@@ -266,54 +258,11 @@ func (s *FailoverState) HandleFailoverError(
 	return FailoverContinue
 }
 
-// HandleSelectionExhausted 处理选号失败（所有候选账号都在排除列表中）时的退避重试决策。
-// 针对 Antigravity 单账号分组的 503 (MODEL_CAPACITY_EXHAUSTED) 场景：
-// 清除排除列表、等待退避后重新选号。
-//
-// 返回 FailoverContinue 时，调用方应设置 SingleAccountRetry context 并 continue。
-// 返回 FailoverExhausted 时，调用方应返回错误响应。
-// 返回 FailoverCanceled 时，调用方应直接 return。
+// HandleSelectionExhausted ends this request's single traversal. Failed
+// accounts stay excluded even when the last failure is a transient 503.
 func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAction {
-	// 客户端已断开时选号失败是 context canceled 的必然结果，
-	// 不代表账号耗尽，直接按取消终止。
 	if ctx.Err() != nil {
 		return FailoverCanceled
-	}
-
-	if s.LastFailoverErr != nil &&
-		s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable &&
-		s.SwitchCount <= s.MaxSwitches {
-
-		// 排除列表全由利润门否决贡献时，清空后会被原样恢复：退避重试拿不到
-		// 任何新候选，而利润否决不推进 SwitchCount，退避条件将永远成立。
-		// 这里直接判定耗尽，避免每 2s 空转一轮的活锁。
-		if s.allExclusionsAreProfitVetoed() {
-			logger.FromContext(ctx).Warn("gateway.failover_selection_exhausted_by_profit_veto",
-				zap.Int("profit_veto_count", s.profitVetoCount),
-				zap.Int("excluded_accounts", len(s.FailedAccountIDs)),
-			)
-			return FailoverExhausted
-		}
-
-		logger.FromContext(ctx).Warn("gateway.failover_single_account_backoff",
-			zap.Duration("backoff_delay", singleAccountBackoffDelay),
-			zap.Int("switch_count", s.SwitchCount),
-			zap.Int("max_switches", s.MaxSwitches),
-		)
-		if !sleepWithContext(ctx, singleAccountBackoffDelay) {
-			return FailoverCanceled
-		}
-		logger.FromContext(ctx).Warn("gateway.failover_single_account_retry",
-			zap.Int("switch_count", s.SwitchCount),
-			zap.Int("max_switches", s.MaxSwitches),
-		)
-		s.FailedAccountIDs = make(map[int64]struct{})
-		// 利润门否决的账号不参与退避重试的解除：判定依据（冻结的下游倍率）在
-		// 同一请求内不变，放它们回池只会被再次否决。
-		for id := range s.profitVetoedAccountIDs {
-			s.FailedAccountIDs[id] = struct{}{}
-		}
-		return FailoverContinue
 	}
 	return FailoverExhausted
 }

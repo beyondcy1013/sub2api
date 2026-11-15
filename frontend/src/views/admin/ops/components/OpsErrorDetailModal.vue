@@ -233,6 +233,7 @@ import { useAppStore } from '@/stores'
 import { opsAPI, type OpsErrorDetail } from '@/api/admin/ops'
 import { formatDateTime } from '@/utils/format'
 import { resolveUpstreamPayload } from '../utils/errorDetailResponse'
+import { splitRoutingDiagnostics } from '@/modules/logcenter/routingDiagnostics'
 
 interface Props {
   show: boolean
@@ -259,11 +260,14 @@ const showUpstreamList = computed(() => props.errorType === 'request')
 
 const requestId = computed(() => detail.value?.request_id || detail.value?.client_request_id || '')
 
-type DiagnosticPayloadKey = 'client' | 'upstream_message' | 'upstream_detail' | 'upstream_events'
+type DiagnosticPayloadKey = 'client' | 'routing' | 'upstream_message' | 'upstream_detail' | 'upstream_events'
+
+const routingDiagnostics = computed(() => splitRoutingDiagnostics(detail.value?.error_body))
 
 const rootCauseMessage = computed(() => {
   const current = detail.value
   if (!current) return ''
+  if (current.phase === 'routing' && routingDiagnostics.value.summary) return routingDiagnostics.value.summary
   for (const candidate of [current.upstream_error_message, current.upstream_error_detail, current.message, current.error_body]) {
     const value = meaningfulPayload(candidate)
     if (value) return value
@@ -275,7 +279,8 @@ const diagnosticPayloadSections = computed(() => {
   const current = detail.value
   if (!current) return []
   const candidates: Array<{ key: DiagnosticPayloadKey; value: string }> = [
-    { key: 'client', value: meaningfulPayload(current.error_body) },
+    { key: 'routing', value: routingDiagnostics.value.summary },
+    { key: 'client', value: meaningfulPayload(routingDiagnostics.value.client) },
     { key: 'upstream_message', value: meaningfulPayload(current.upstream_error_message) },
     { key: 'upstream_detail', value: meaningfulPayload(current.upstream_error_detail) },
     { key: 'upstream_events', value: meaningfulPayload(current.upstream_errors) }

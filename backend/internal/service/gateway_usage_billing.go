@@ -9,7 +9,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
@@ -1367,6 +1366,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		CacheCreation5mTokens:    result.Usage.CacheCreation5mTokens,
 		CacheCreation1hTokens:    result.Usage.CacheCreation1hTokens,
 		ImageOutputTokens:        result.Usage.ImageOutputTokens,
+		ClientDisconnected:       result.ClientDisconnect,
 		RateMultiplier:           multiplier,
 		AccountRateMultiplier:    &accountRateMultiplier,
 		BillingType:              billingType,

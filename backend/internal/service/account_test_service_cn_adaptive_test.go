@@ -3,6 +3,7 @@
 package service
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -289,4 +290,67 @@ func TestAccountTestService_AnthropicProtocol401MarksAccountError(t *testing.T) 
 	require.Contains(t, err.Error(), "Anthropic endpoint returned 401")
 	repo := svc.accountRepo.(*openAIAccountTestRepo)
 	require.Equal(t, account.ID, repo.setErrorID)
+}
+
+func TestAccountTestService_AnthropicProtocolSubmitsCustomPromptInRuleAndDefaultModes(t *testing.T) {
+	account := anthropicProtocolCNAccount(315, PlatformZhipu, map[string]any{
+		"base_url": "https://open.bigmodel.cn/api/anthropic",
+	})
+
+	t.Run("rule mode submits prompt verbatim", func(t *testing.T) {
+		svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNAnthropicTestResponse())
+		c, _ := newTestContext()
+		customPrompt := "只回答数字。在一个黑色的袋子里..."
+		err := svc.TestAccountConnection(c, account.ID, "glm-4.7", customPrompt, AccountTestModeRule)
+		require.NoError(t, err)
+		require.Len(t, upstream.bodies, 1)
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(upstream.bodies[0], &payload))
+		messages, ok := payload["messages"].([]any)
+		require.True(t, ok)
+		require.Len(t, messages, 1)
+		msgMap := messages[0].(map[string]any)
+		require.Equal(t, "user", msgMap["role"])
+		require.Equal(t, customPrompt, msgMap["content"])
+		// Verify no default Claude Code system prompt was injected
+		require.Nil(t, payload["system"])
+	})
+
+	t.Run("default mode with non-empty prompt submits custom prompt", func(t *testing.T) {
+		svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNAnthropicTestResponse())
+		c, _ := newTestContext()
+		customPrompt := "What is 2+2?"
+		err := svc.TestAccountConnection(c, account.ID, "glm-4.7", customPrompt, AccountTestModeDefault)
+		require.NoError(t, err)
+		require.Len(t, upstream.bodies, 1)
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(upstream.bodies[0], &payload))
+		messages, ok := payload["messages"].([]any)
+		require.True(t, ok)
+		require.Len(t, messages, 1)
+		msgMap := messages[0].(map[string]any)
+		require.Equal(t, "user", msgMap["role"])
+		require.Equal(t, customPrompt, msgMap["content"])
+		require.Nil(t, payload["system"])
+	})
+
+	t.Run("default mode with empty prompt sends default test payload", func(t *testing.T) {
+		svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNAnthropicTestResponse())
+		c, _ := newTestContext()
+		err := svc.TestAccountConnection(c, account.ID, "glm-4.7", "", AccountTestModeDefault)
+		require.NoError(t, err)
+		require.Len(t, upstream.bodies, 1)
+
+		var payload map[string]any
+		require.NoError(t, json.Unmarshal(upstream.bodies[0], &payload))
+		require.NotNil(t, payload["system"])
+		messages, ok := payload["messages"].([]any)
+		require.True(t, ok)
+		msgMap := messages[0].(map[string]any)
+		contents := msgMap["content"].([]any)
+		firstContent := contents[0].(map[string]any)
+		require.Equal(t, "hi", firstContent["text"])
+	})
 }

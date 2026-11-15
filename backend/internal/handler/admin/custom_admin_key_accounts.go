@@ -226,12 +226,7 @@ func (h *AccountHandler) ScopedAdminKeyAccounts(c *gin.Context) {
 	}
 	response.Success(c, gin.H{"id": a.ID, "status": a.Status})
 }
-func accountGroupIDs(a *service.Account) []int64 {
-	if a == nil {
-		return nil
-	}
-	return a.GroupIDs
-}
+
 func accountType(a *service.Account) string {
 	if a == nil {
 		return ""

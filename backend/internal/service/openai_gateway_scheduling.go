@@ -15,7 +15,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -294,11 +293,18 @@ func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool,
 	if details != "" {
 		message += " (" + details + ")"
 	}
-	return openAINoAvailableSelectionError{message: message}
+	return openAINoAvailableSelectionError{message: message, summary: details}
 }
 
 type openAINoAvailableSelectionError struct {
 	message string
+	summary string
+}
+
+// RoutingFailureSummary contains only scheduler-generated counts and reason
+// codes. It is persisted for administrators separately from the client reply.
+func (e openAINoAvailableSelectionError) RoutingFailureSummary() string {
+	return e.summary
 }
 
 func (e openAINoAvailableSelectionError) Error() string {
@@ -1267,7 +1273,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	stickySpillover := false
 	if sessionHash != "" {
 		accountID := stickyAccountID
-		if accountID > 0 && !isExcluded(accountID) {
+		if accountID > 0 && !isExcluded(accountID) && stickyAccountMatchesLowestSchedulingRate(accountID, accounts, s.cfg) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
 			if err == nil {
 				clearSticky := shouldClearStickySession(account, requestedModel)

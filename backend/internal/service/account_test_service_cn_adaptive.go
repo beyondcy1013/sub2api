@@ -226,14 +226,41 @@ func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, acco
 // instead of the provider's own Anthropic-compatible endpoint. The probe uses
 // GetAnthropicProtocolBaseURL (same resolution as real /v1/messages forwarding,
 // including per-platform defaults) and the shared API-key auth header.
-func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testCNProviderAnthropicConnection(
+	c *gin.Context,
+	account *Account,
+	modelID string,
+	prompt string,
+	modeAndOpts ...any,
+) error {
 	ctx := c.Request.Context()
+
+	mode := AccountTestModeDefault
+	var testOpts AccountTestOptions
+	for _, arg := range modeAndOpts {
+		switch v := arg.(type) {
+		case string:
+			mode = normalizeAccountTestMode(v)
+		case AccountTestOptions:
+			testOpts = v
+		case []AccountTestOptions:
+			testOpts = firstAccountTestOptions(v)
+		}
+	}
+	if mode == AccountTestModePelican {
+		testOpts.Evaluator = resolveDirectProbeEvaluator(prompt, testOpts.Evaluator)
+		if strings.TrimSpace(prompt) == "" {
+			prompt = DefaultPelicanPrompt
+		}
+	}
 
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = claude.DefaultTestModel
 	}
-	testModelID = account.GetMappedModel(testModelID)
+	if mode != AccountTestModePelican && mode != AccountTestModeCandy && mode != AccountTestModeRule {
+		testModelID = account.GetMappedModel(testModelID)
+	}
 
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
@@ -255,9 +282,25 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	payload, err := createTestPayload(testModelID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create Anthropic test payload")
+	var payload map[string]any
+	testPrompt := strings.TrimSpace(prompt)
+	if mode == AccountTestModePelican || mode == AccountTestModeCandy || mode == AccountTestModeRule || testPrompt != "" {
+		if testPrompt == "" {
+			if mode == AccountTestModePelican || mode == AccountTestModeCandy {
+				testPrompt = DefaultPelicanPrompt
+			} else {
+				testPrompt = "hi"
+			}
+		}
+		payload, err = createClaudeTestPayloadWithPrompt(testModelID, testPrompt)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create Anthropic test payload")
+		}
+	} else {
+		payload, err = createTestPayload(testModelID)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create Anthropic test payload")
+		}
 	}
 	payloadBytes, _ := json.Marshal(payload)
 
@@ -273,12 +316,15 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	for key, value := range claude.DefaultHeaders() {
 		req.Header.Set(key, value)
 	}
+	req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
 	// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，其余保持
 	// extra/default 行为。
 	setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetAnthropicProtocolBaseURL())
 	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
+
+	markDetectionRequest(req, account)
 
 	resp, err := s.doCNProviderAdaptiveRequest(req, account)
 	if err != nil {
@@ -294,7 +340,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 		return s.sendErrorAndEnd(c, errMsg)
 	}
 
-	return s.processClaudeStream(c, resp.Body)
+	return s.processClaudeStreamWithMode(c, resp.Body, mode, testModelID, testOpts)
 }
 
 // cnAnthropicBaseURLMisconfigHint reports an actionable error when an

@@ -34,6 +34,28 @@ describe('OpsErrorDetailModal', () => {
     mocks.listRequestErrorUpstreamErrors.mockResolvedValue({ items: [] })
   })
 
+  it('shows local selection evidence separately from the client response', async () => {
+    const client = { error: { type: 'api_error', message: 'Service temporarily unavailable' } }
+    const summary = 'pool=3, filtered: account_model_not_owned=3'
+    mocks.getRequestErrorDetail.mockResolvedValue({
+      id: 2, phase: 'routing', status_code: 503, account_id: null,
+      message: client.error.message,
+      error_body: JSON.stringify({ ...client, routing_diagnostics: { summary } })
+    })
+    const wrapper = shallowMount(OpsErrorDetailModal, {
+      props: { show: true, errorId: 2, errorType: 'request' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.ops.errorDetail.payloads.routing')
+    const payloads = wrapper.findAll('pre').map(pre => pre.text())
+    expect(payloads).toContain(summary)
+    const response = payloads.find(payload => payload.trim().startsWith('{'))
+    expect(JSON.parse(response!)).toEqual(client)
+    expect(payloads.join(' ')).not.toContain('routing_diagnostics')
+    wrapper.unmount()
+  })
+
   it('prioritizes upstream root cause and deduplicates diagnostic payloads', async () => {
     mocks.getRequestErrorDetail.mockResolvedValue({
       id: 1,

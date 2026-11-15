@@ -9,6 +9,7 @@
       v-if="account"
       id="edit-account-form"
       @submit.prevent="handleSubmit"
+      @keydown.enter="preventImplicitSubmit"
       class="space-y-5"
     >
       <div
@@ -1738,6 +1739,11 @@
           </button>
         </div>
 
+        <PoolTransportGuardSettings
+          v-if="account?.platform === 'openai' && poolModeEnabled"
+          v-model="poolTransportGuard"
+        />
+
         <div v-if="tempUnschedEnabled" class="space-y-3">
           <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
@@ -2262,23 +2268,6 @@
         <OpenAIImageSizeTiersField v-model="openAIImageSizeTiers" />
       </div>
 
-      <div
-        v-if="account?.type === 'apikey'"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-          </p>
-        </div>
-        <Toggle
-          :model-value="upstreamBillingAutoProbeEnabled"
-          data-testid="upstream-billing-auto-probe"
-          :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          @update:model-value="handleUpstreamBillingAutoProbeChange"
-        />
-      </div>
       <OllamaCloudUsageSettings
         v-if="account?.ollama_cloud_usage?.eligible"
         :account="account"
@@ -3257,6 +3246,11 @@
           <Select v-model="form.status" :options="statusOptions" />
         </div>
 
+        <!-- 降智检测（逐账号参与开关） -->
+        <div v-if="account" class="mt-3">
+          <AccountQualitySwitch :account="account" />
+        </div>
+
         <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
         <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
           <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
@@ -3379,6 +3373,8 @@
 </template>
 
 <script setup lang="ts">
+import PoolTransportGuardSettings from '@/modules/transportguard/PoolTransportGuardSettings.vue'
+import { normalizePoolTransportGuard } from '@/modules/transportguard/policy'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -3432,6 +3428,7 @@ import {
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
+import AccountQualitySwitch from '@/modules/qualitycontrol/AccountQualitySwitch.vue'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -3838,6 +3835,7 @@ const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
 const GROK_CLIENT_TOOL_CACHE_EXTRA_KEY = 'grok_client_tool_cache_enabled'
+const poolTransportGuard = ref(normalizePoolTransportGuard())
 const poolModeEnabled = ref(false)
 const explicitCacheUpstreamEnabled = ref(false)
 const explicitCacheUpstreamMaxTTL = ref<string | number>('')
@@ -4087,8 +4085,6 @@ const autoPause7dDisabled = ref(false)
 const autoResetCreditEnabled = ref(false)
 const autoResetCredit5hThreshold = ref(100)
 const autoResetCredit7dThreshold = ref(100)
-const upstreamBillingAutoProbeEnabled = ref(false)
-const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
 const upstreamRequestIdHeader = ref('')
@@ -4497,9 +4493,7 @@ const form = reactive({
 })
 
 const selectedPlatform = ref<'anthropic' | 'openai'>(
-  props.account?.platform === 'anthropic' || props.account?.platform === 'openai'
-    ? props.account.platform
-    : 'anthropic'
+  props.account?.platform === 'openai' ? 'openai' : 'anthropic'
 )
 const canSwitchOpenAIApiKeyPlatform = computed(() =>
   props.account?.type === 'apikey' &&
@@ -4511,11 +4505,11 @@ const platformWillChange = computed(() =>
   selectedPlatform.value !== props.account.platform
 )
 
-watch(selectedPlatform, (platform) => {
-  if (platformWillChange.value) {
-    editBaseUrl.value = platform === 'openai' ? 'https://api.openai.com' : 'https://api.anthropic.com'
-  }
-})
+// 平台按钮只决定目标协议，任何情况下都不改写 base_url，包括输入框为空时。
+// 用户没有在输入框里填写过的地址不能因为切换平台/账号类型而被自动填入或保存
+// （2026-10-20 事故：误点 anthropic 后账号 308 的 base_url 被自动改成
+// https://api.anthropic.com，导致上游 403 与后续 503）。
+// 空值只在提交时由后端/提交兜底处理，不在这里预填。
 
 const statusOptions = computed(() => {
   const options = [
@@ -4602,9 +4596,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
   selectedPlatform.value =
-    newAccount.platform === 'anthropic' || newAccount.platform === 'openai'
-      ? newAccount.platform
-      : selectedPlatform.value
+    newAccount.platform === 'openai'
+      ? 'openai'
+      : newAccount.platform === 'anthropic'
+        ? 'anthropic'
+        : selectedPlatform.value
   form.proxy_id = newAccount.proxy_id
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -4652,9 +4648,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		typeof extra?.auto_reset_credit_5h_threshold === 'number' ? extra.auto_reset_credit_5h_threshold * 100 : 100
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
-	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
-  upstreamBillingRateSyncEnabled.value =
-    upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   excelBPSEnabled.value = false
@@ -5275,6 +5268,9 @@ const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
 }
 
 const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
+  if (poolModeEnabled.value) {
+    credentials.pool_transport_guard = normalizePoolTransportGuard(poolTransportGuard.value)
+  }
   if (!tempUnschedEnabled.value) {
     delete credentials.temp_unschedulable_enabled
     delete credentials.temp_unschedulable_rules
@@ -5293,6 +5289,7 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
 }
 
 function loadTempUnschedRules(credentials?: Record<string, unknown>) {
+  poolTransportGuard.value = normalizePoolTransportGuard(credentials?.pool_transport_guard)
   tempUnschedEnabled.value = credentials?.temp_unschedulable_enabled === true
   const rawRules = credentials?.temp_unschedulable_rules
   if (!Array.isArray(rawRules)) {
@@ -5519,6 +5516,14 @@ const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
+}
+
+// 只有点击底部「保存」才会提交：单行输入框里按回车不再隐式提交表单，
+// 避免用户只是切换平台/类型或编辑字段时意外落库。多行文本保留换行行为。
+const preventImplicitSubmit = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  if (target?.tagName === 'TEXTAREA' || target?.tagName === 'BUTTON') return
+  event.preventDefault()
 }
 
 const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Account): Promise<Account> => {

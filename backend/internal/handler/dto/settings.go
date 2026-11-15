@@ -34,27 +34,27 @@ type SystemSettings struct {
 	OpenAICodexTicketFailClosed         bool                            `json:"openai_codex_ticket_fail_closed"`
 	OpenAICodexTicketStrategy           string                          `json:"openai_codex_ticket_strategy"`
 	RegistrationEnabled                 bool                            `json:"registration_enabled"`
-	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
-	RegistrationEmailDomainQuotaEnabled bool                     `json:"registration_email_domain_quota_enabled"`
-	GlobalModelExcludePatterns          []string                 `json:"global_model_exclude_patterns"`
-	PromoCodeEnabled                    bool                     `json:"promo_code_enabled"`
-	PasswordResetEnabled                bool                     `json:"password_reset_enabled"`
-	FrontendURL                         string                   `json:"frontend_url"`
-	InvitationCodeEnabled               bool                     `json:"invitation_code_enabled"`
-	TotpEnabled                         bool                     `json:"totp_enabled"`                   // TOTP 双因素认证
-	TotpEncryptionKeyConfigured         bool                     `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
-	PasskeyEnabled                      bool                     `json:"passkey_enabled"`
-	PasskeyConfigured                   bool                     `json:"passkey_configured"`
-	PasskeyRPID                         string                   `json:"passkey_rp_id"`
-	PasskeyRPOrigins                    []string                 `json:"passkey_rp_origins"`
-	SessionBindingEnabled               bool                     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
-	StepUpEnabled                       bool                     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
-	AuditLogRetentionDays               int                      `json:"audit_log_retention_days"` // 审计日志保留天数
-	LoginAgreementEnabled               bool                     `json:"login_agreement_enabled"`
-	LoginAgreementMode                  string                   `json:"login_agreement_mode"`
-	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
-	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
+	EmailVerifyEnabled                  bool                            `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist    []string                        `json:"registration_email_suffix_whitelist"`
+	RegistrationEmailDomainQuotaEnabled bool                            `json:"registration_email_domain_quota_enabled"`
+	GlobalModelExcludePatterns          []string                        `json:"global_model_exclude_patterns"`
+	PromoCodeEnabled                    bool                            `json:"promo_code_enabled"`
+	PasswordResetEnabled                bool                            `json:"password_reset_enabled"`
+	FrontendURL                         string                          `json:"frontend_url"`
+	InvitationCodeEnabled               bool                            `json:"invitation_code_enabled"`
+	TotpEnabled                         bool                            `json:"totp_enabled"`                   // TOTP 双因素认证
+	TotpEncryptionKeyConfigured         bool                            `json:"totp_encryption_key_configured"` // TOTP 加密密钥是否已配置
+	PasskeyEnabled                      bool                            `json:"passkey_enabled"`
+	PasskeyConfigured                   bool                            `json:"passkey_configured"`
+	PasskeyRPID                         string                          `json:"passkey_rp_id"`
+	PasskeyRPOrigins                    []string                        `json:"passkey_rp_origins"`
+	SessionBindingEnabled               bool                            `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
+	StepUpEnabled                       bool                            `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
+	AuditLogRetentionDays               int                             `json:"audit_log_retention_days"` // 审计日志保留天数
+	LoginAgreementEnabled               bool                            `json:"login_agreement_enabled"`
+	LoginAgreementMode                  string                          `json:"login_agreement_mode"`
+	LoginAgreementUpdatedAt             string                          `json:"login_agreement_updated_at"`
+	LoginAgreementDocuments             []LoginAgreementDocument        `json:"login_agreement_documents"`
 
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`
@@ -156,6 +156,8 @@ type SystemSettings struct {
 	GoogleOAuthFrontendRedirectURL    string `json:"google_oauth_frontend_redirect_url"`
 
 	SiteName                    string           `json:"site_name"`
+	InstanceName                string           `json:"instance_name"`
+	InstanceColor               string           `json:"instance_color"`
 	SiteLogo                    string           `json:"site_logo"`
 	SiteSubtitle                string           `json:"site_subtitle"`
 	APIBaseURL                  string           `json:"api_base_url"`
@@ -209,29 +211,29 @@ type SystemSettings struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   string `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               string `json:"openai_codex_client_version"`
-	OpenAICodexClientVersionSynced         string `json:"openai_codex_client_version_synced"`
-	OpenAICodexVersionAutoSyncEnabled      bool   `json:"openai_codex_version_auto_sync_enabled"`
-	ClaudeCodeClientVersion                string `json:"claude_code_client_version"`
-	ClaudeCodeClientVersionSynced          string `json:"claude_code_client_version_synced"`
-	ClaudeCodeVersionAutoSyncEnabled       bool   `json:"claude_code_version_auto_sync_enabled"`
-	OpenAICodexTicketEnabled               bool     `json:"openai_codex_ticket_enabled"`
-	OpenAICodexTicketHarvestProxyURL       string   `json:"openai_codex_ticket_harvest_proxy_url"`
-	OpenAICodexTicketStaticProxyURL        string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
+	OpenAITTFTMode                          string   `json:"openai_ttft_mode"`
+	EnableFingerprintUnification            bool     `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough               bool     `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                        bool     `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection  bool     `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                 string   `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks           string   `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection      bool     `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl              bool     `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization       bool     `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion             string   `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                    string   `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion                string   `json:"openai_codex_client_version"`
+	OpenAICodexClientVersionSynced          string   `json:"openai_codex_client_version_synced"`
+	OpenAICodexVersionAutoSyncEnabled       bool     `json:"openai_codex_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                 string   `json:"claude_code_client_version"`
+	ClaudeCodeClientVersionSynced           string   `json:"claude_code_client_version_synced"`
+	ClaudeCodeVersionAutoSyncEnabled        bool     `json:"claude_code_version_auto_sync_enabled"`
+	OpenAICodexTicketEnabled                bool     `json:"openai_codex_ticket_enabled"`
+	OpenAICodexTicketHarvestProxyURL        string   `json:"openai_codex_ticket_harvest_proxy_url"`
+	OpenAICodexTicketStaticProxyURL         string   `json:"openai_codex_ticket_static_proxy_url,omitempty"`
 	OpenAICodexTicketHarvestProxyConfigured bool     `json:"openai_codex_ticket_harvest_proxy_configured"`
-	OpenAICodexTicketModels                []string `json:"openai_codex_ticket_models"`
+	OpenAICodexTicketModels                 []string `json:"openai_codex_ticket_models"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -409,6 +411,8 @@ type PublicSettings struct {
 	AliyunCaptchaPrefix                 string                   `json:"aliyun_captcha_prefix"`
 	AliyunCaptchaRegion                 string                   `json:"aliyun_captcha_region"`
 	SiteName                            string                   `json:"site_name"`
+	InstanceName                        string                   `json:"instance_name"`
+	InstanceColor                       string                   `json:"instance_color"`
 	SiteLogo                            string                   `json:"site_logo"`
 	SiteSubtitle                        string                   `json:"site_subtitle"`
 	APIBaseURL                          string                   `json:"api_base_url"`

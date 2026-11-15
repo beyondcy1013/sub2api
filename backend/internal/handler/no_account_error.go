@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/routingdiagnostics"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -38,7 +39,10 @@ var selectionModelRateLimitedPattern = regexp.MustCompile(`(?:model_rate_limited
 
 // classifySelectionFailureError preserves the scheduler's compact reason when
 // every model-capable account is temporarily rate limited.
-func classifySelectionFailureError(err error, fallback noAccountErrorClassification) noAccountErrorClassification {
+func classifySelectionFailureError(err error, fallback noAccountErrorClassification, contexts ...*gin.Context) noAccountErrorClassification {
+	for _, c := range contexts {
+		routingdiagnostics.Capture(c, err)
+	}
 	if err == nil {
 		return fallback
 	}

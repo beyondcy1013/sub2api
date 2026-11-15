@@ -1879,6 +1879,43 @@ func TestAnthropicEventToResponses_CacheTokensFromMessageDelta(t *testing.T) {
 	assert.Equal(t, 11, completed.Response.Usage.InputTokensDetails.CachedTokens)
 }
 
+func TestFable52ResponsesAdaptiveThinkingAndToolChoice(t *testing.T) {
+	for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max"} {
+		req := &ResponsesRequest{Model: "claude-fable-5-2", Input: json.RawMessage(`"hello"`), Reasoning: &ResponsesReasoning{Effort: effort}}
+		out, err := ResponsesToAnthropicRequest(req)
+		require.NoError(t, err)
+		require.Equal(t, "adaptive", out.Thinking.Type)
+		require.Zero(t, out.Thinking.BudgetTokens)
+		if effort == "" {
+			effort = "medium"
+		}
+		require.Equal(t, effort, out.OutputConfig.Effort)
+	}
+	for _, choice := range []string{`"required"`, `{"type":"function","name":"lookup"}`} {
+		_, err := ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-fable-5-2", Input: json.RawMessage(`"hello"`), ToolChoice: json.RawMessage(choice)})
+		require.ErrorContains(t, err, "forced tool_choice")
+	}
+	_, err := ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-fable-5-2", Input: json.RawMessage(`"hello"`), Reasoning: &ResponsesReasoning{Effort: "none"}})
+	require.ErrorContains(t, err, "reasoning effort")
+}
+
+func TestFable52SignedThinkingResponsesRoundTrip(t *testing.T) {
+	block := AnthropicContentBlock{Type: "thinking", Thinking: "", Signature: "upstream-signed-block"}
+	response := AnthropicToResponsesResponse(&AnthropicResponse{Model: "claude-fable-5-2", Content: []AnthropicContentBlock{block, {Type: "tool_use", ID: "toolu_1", Name: "lookup", Input: json.RawMessage(`{}`)}}})
+	require.Len(t, response.Output, 2)
+	require.NotEmpty(t, response.Output[0].EncryptedContent)
+	raw, err := json.Marshal(response.Output)
+	require.NoError(t, err)
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(raw, &items))
+	items = append(items, ResponsesInputItem{Type: "function_call_output", CallID: response.Output[1].CallID, Output: "ok"})
+	raw, err = json.Marshal(items)
+	require.NoError(t, err)
+	converted, err := ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-fable-5-2", Input: raw})
+	require.NoError(t, err)
+	require.Len(t, converted.Messages, 2)
+}
+
 func TestOpus55ResponsesAdaptiveThinkingAndToolChoice(t *testing.T) {
 	for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max"} {
 		req := &ResponsesRequest{Model: "claude-opus-5-5", Input: json.RawMessage(`"hello"`), Reasoning: &ResponsesReasoning{Effort: effort}}

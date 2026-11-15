@@ -135,7 +135,7 @@ const UsageFiltersStub = defineComponent({
   template: '<div><span data-test="user-filter-label">{{ userKeyword }}</span><slot name="after-reset" /></div>',
 })
 const UsageTableStub = {
-  props: ['columns'],
+  props: ['columns', 'data'],
   emits: ['userClick'],
   template: '<div data-test="usage-table"><button class="user-click" @click="$emit(\'userClick\', 2)">user</button></div>',
 }
@@ -171,7 +171,7 @@ const GroupDistributionChartStub = {
 const mountRouteFilteredUsageView = () => mount(UsageView, {
   global: { stubs: {
     AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
-    UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+    UsageTable: UsageTableStub, UsageExportProgress: true, UsageCleanupDialog: true,
     UserBalanceHistoryModal: true, Pagination: true, Select: true,
     DateRangePicker: true, Icon: true, TokenUsageTrend: true,
     ModelDistributionChart: true, GroupDistributionChart: true,
@@ -214,6 +214,21 @@ describe('admin UsageView route filters', () => {
     expect(getById).toHaveBeenCalledWith(42, true)
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ user_id: 42 }), expect.anything())
     expect(wrapper.find('[data-test="user-filter-label"]').text()).toBe('route-user@test.com')
+  })
+
+  it('clears previous account rows when the next filtered request fails', async () => {
+    list.mockResolvedValueOnce({ items: [{ id: 1, account_id: 307 }], total: 1 })
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    expect(wrapper.findComponent(UsageTableStub).props('data')).toEqual([{ id: 1, account_id: 307 }])
+
+    list.mockRejectedValueOnce(new Error('filtered query failed'))
+    ;(wrapper.vm as any).filters.account_id = 308
+    ;(wrapper.vm as any).refreshData()
+    await flushPromises()
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ account_id: 308 }), expect.anything())
+    expect(wrapper.findComponent(UsageTableStub).props('data')).toEqual([])
+    wrapper.unmount()
   })
 
   it('does not apply a stale routed user label after user_id changes', async () => {
@@ -447,21 +462,17 @@ describe('admin UsageView distribution metric toggles', () => {
     const groupChart = wrapper.find('[data-test="group-chart"]')
 
     expect(modelChart.find('.metric').text()).toBe('tokens')
-    expect(groupChart.find('.metric').text()).toBe('tokens')
+    expect(groupChart.exists()).toBe(false)
 
     await modelChart.find('.switch-metric').trigger('click')
     await flushPromises()
 
     expect(modelChart.find('.metric').text()).toBe('actual_cost')
-    expect(groupChart.find('.metric').text()).toBe('tokens')
+    expect(groupChart.exists()).toBe(false)
     expect(getSnapshotV2).toHaveBeenCalledTimes(1)
 
-    await groupChart.find('.switch-metric').trigger('click')
-    await flushPromises()
-
-    expect(modelChart.find('.metric').text()).toBe('actual_cost')
-    expect(groupChart.find('.metric').text()).toBe('actual_cost')
-    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
+    expect(wrapper.findComponent({ name: 'EndpointDistributionChart' }).exists()).toBe(false)
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ include_group_stats: false }))
   })
 })
 
@@ -715,17 +726,21 @@ describe('admin UsageView ranking tab', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
         UserTokenRanking: UserTokenRankingStub, AccountTokenRanking: AccountTokenRankingStub,
+        DetectionHistory: { template: '<div data-test="usage-detection-history" />' },
         OpsErrorLogTable: true, OpsErrorDetailModal: true,
       } },
     })
     vi.advanceTimersByTime(120)
     await flushPromises()
 
+    expect(wrapper.findComponent({ name: 'DetectionHistory' }).exists()).toBe(false)
     // 懒挂载:切到排行 tab 前不渲染
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(false)
 
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(5)
+    await tabs[4].trigger('click')
+    expect(wrapper.find('[data-test="usage-detection-history"]').exists()).toBe(true)
     await tabs[2].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(true)
@@ -749,6 +764,7 @@ describe('admin UsageView ranking tab', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
         UserTokenRanking: UserTokenRankingStub, AccountTokenRanking: AccountTokenRankingStub,
+        DetectionHistory: { template: '<div data-test="usage-detection-history" />' },
         OpsErrorLogTable: true, OpsErrorDetailModal: true,
       } },
     })
@@ -758,7 +774,7 @@ describe('admin UsageView ranking tab', () => {
     expect(wrapper.find('[data-test="account-ranking"]').exists()).toBe(false)
 
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(5)
     await tabs[3].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="account-ranking"]').exists()).toBe(true)

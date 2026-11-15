@@ -2632,6 +2632,11 @@
           </button>
         </div>
 
+        <PoolTransportGuardSettings
+          v-if="form.platform === 'openai' && poolModeEnabled"
+          v-model="poolTransportGuard"
+        />
+
         <div v-if="tempUnschedEnabled" class="space-y-3">
           <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
               <p class="text-xs text-blue-700 dark:text-blue-400">
@@ -4110,9 +4115,12 @@
 </template>
 
 <script setup lang="ts">
+import PoolTransportGuardSettings from '@/modules/transportguard/PoolTransportGuardSettings.vue'
+import { normalizePoolTransportGuard } from '@/modules/transportguard/policy'
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAdminSettingsStore } from '@/stores/adminSettings'
 
 import {
   claudeModels,
@@ -4172,6 +4180,7 @@ import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import { applyExplicitCacheUpstreamCredentials, isOfficialGeminiBaseUrl } from '@/utils/geminiExplicitCache'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
 import {
   applyAntigravityProjectID,
@@ -4239,6 +4248,24 @@ interface OAuthFlowExposed {
 
 const { t } = useI18n()
 const browserTimeZone = getBrowserTimeZone()
+const adminSettingsStore = (() => {
+  try {
+    return useAdminSettingsStore()
+  } catch {
+    // Graceful fallback when rendered outside active Pinia in isolated tests
+    return null
+  }
+})()
+
+const isModelGloballyExcluded = (model: string): boolean => {
+  return adminSettingsStore?.isModelGloballyExcluded(model) ?? false
+}
+
+const getEligiblePlatformModels = (platform: string): string[] => {
+  return getModelsByPlatform(platform).filter(
+    (m) => !isModelGloballyExcluded(m)
+  )
+}
 
 const oauthStepTitle = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
@@ -4611,10 +4638,16 @@ const syncPreviewCredentials = computed(() => {
   const baseUrl = isMultiProtocolPlatform.value && apiProtocol.value === 'adaptive'
     ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
     : apiKeyBaseUrl.value.trim()
+  const eligibleAllowedModels = allowedModels.value.filter(
+    (m) => !isModelGloballyExcluded(m)
+  )
+  const eligibleMappings = modelMappings.value.filter(
+    (m) => !isModelGloballyExcluded(m.from) && !isModelGloballyExcluded(m.to)
+  )
   const modelMapping = buildModelMappingObject(
     modelRestrictionMode.value,
-    allowedModels.value,
-    modelMappings.value
+    eligibleAllowedModels,
+    eligibleMappings
   )
   return {
     platform: form.platform,
@@ -4650,6 +4683,7 @@ const upstreamModelsPreviewed = ref(false)
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
+const poolTransportGuard = ref(normalizePoolTransportGuard())
 const poolModeEnabled = ref(false)
 const explicitCacheUpstreamEnabled = ref(false)
 const explicitCacheUpstreamMaxTTL = ref<string | number>('')
@@ -5157,14 +5191,11 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      // Default gpt-5.5 for OpenAI platform
-      if (form.platform === 'openai') {
-
-        allowedModels.value = ['gpt-5.5']
-      } else {
-        allowedModels.value = [...getModelsByPlatform(form.platform)]
+      if (adminSettingsStore && !adminSettingsStore.loaded) {
+        adminSettingsStore.fetch().catch(() => {})
       }
+      // Modal opened - fill related models (filtered by global exclusion rules)
+      allowedModels.value = getEligiblePlatformModels(form.platform)
       applyNewAccountRoutingDefaults()
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
@@ -5188,6 +5219,9 @@ watch(
 )
 
 onMounted(() => {
+  if (adminSettingsStore && !adminSettingsStore.loaded) {
+    adminSettingsStore.fetch().catch(() => {})
+  }
   if (props.show) {
     applyNewAccountRoutingDefaults()
   }
@@ -5387,10 +5421,23 @@ watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
     if (newMode === 'whitelist' && !isOpenAIModelRestrictionDisabled.value) {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      allowedModels.value = getEligiblePlatformModels(form.platform)
     }
   }
 )
+
+if (adminSettingsStore) {
+  watch(
+    () => adminSettingsStore.globalModelExcludePatterns,
+    (patterns) => {
+      if (patterns && patterns.length > 0 && modelRestrictionMode.value === 'whitelist') {
+        allowedModels.value = allowedModels.value.filter(
+          (m) => !isModelGloballyExcluded(m)
+        )
+      }
+    }
+  )
+}
 
 watch(
   [antigravityModelRestrictionMode, () => form.platform],
@@ -5557,6 +5604,9 @@ const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
 }
 
 const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
+  if (poolModeEnabled.value) {
+    credentials.pool_transport_guard = normalizePoolTransportGuard(poolTransportGuard.value)
+  }
   if (!tempUnschedEnabled.value) {
     delete credentials.temp_unschedulable_enabled
     delete credentials.temp_unschedulable_rules
@@ -5582,6 +5632,7 @@ const splitTempUnschedKeywords = (value: string) => {
 }
 
 const loadTempUnschedRules = (credentials?: Record<string, unknown>) => {
+  poolTransportGuard.value = normalizePoolTransportGuard(credentials?.pool_transport_guard)
   tempUnschedEnabled.value = credentials?.temp_unschedulable_enabled === true
   const rawRules = credentials?.temp_unschedulable_rules
   if (!Array.isArray(rawRules)) {
@@ -5590,14 +5641,20 @@ const loadTempUnschedRules = (credentials?: Record<string, unknown>) => {
   }
   tempUnschedRules.value = rawRules.map((rule) => {
     const entry = rule as Record<string, unknown>
+    const errorCode = typeof entry.error_code === 'number' ? entry.error_code : null
     const keywords = Array.isArray(entry.keywords)
       ? entry.keywords.map((keyword) => String(keyword)).join(', ')
       : String(entry.keywords || '')
+    const scopeStr = typeof entry.scope === 'string' ? entry.scope.trim().toLowerCase() : ''
+    const scope: TempUnschedulableScope = (scopeStr === 'account' || scopeStr === 'model')
+      ? scopeStr
+      : (errorCode === 401 ? 'account' : 'model')
     return {
-      error_code: typeof entry.error_code === 'number' ? entry.error_code : null,
+      error_code: errorCode,
       keywords,
       duration_minutes: typeof entry.duration_minutes === 'number' ? entry.duration_minutes : null,
-      description: typeof entry.description === 'string' ? entry.description : ''
+      description: typeof entry.description === 'string' ? entry.description : '',
+      scope
     }
   })
 }
@@ -5983,6 +6040,7 @@ const resetForm = () => {
   vertexLocation.value = 'global'
   vertexAuthMode.value = 'service_account'
   vertexApiKey.value = ''
+  poolTransportGuard.value = normalizePoolTransportGuard()
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -6574,9 +6632,15 @@ const handleSubmit = async () => {
     }
   }
 
-  // Add model mapping if configured（OpenAI 开启自动透传时不应用）
+  // Add model mapping if configured（OpenAI 开启自动透传时不应用，自动清除命中全局排除规则的模型）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const eligibleAllowedModels = allowedModels.value.filter(
+      (m) => !isModelGloballyExcluded(m)
+    )
+    const eligibleMappings = modelMappings.value.filter(
+      (m) => !isModelGloballyExcluded(m.from) && !isModelGloballyExcluded(m.to)
+    )
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, eligibleAllowedModels, eligibleMappings)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }

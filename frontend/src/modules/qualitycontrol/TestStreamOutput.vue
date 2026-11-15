@@ -1,13 +1,12 @@
 <template>
   <section class="min-w-0 space-y-2 rounded-lg border border-gray-200 p-3 text-xs dark:border-dark-600" data-test="test-stream-output">
     <div class="flex flex-wrap items-center justify-between gap-2 text-gray-600 dark:text-gray-300">
-      <span role="status">{{ t(`admin.accounts.accountTesting.${running ? 'streaming' : 'finished'}`) }} · {{ t('admin.accounts.accountTesting.characters', { reasoning: reasoning.length, answer: content.length }) }}</span>
+      <span role="status">{{ t(`admin.accounts.accountTesting.${running ? 'streaming' : incomplete ? 'interrupted' : 'finished'}`) }} · {{ t('admin.accounts.accountTesting.characters', { reasoning: reasoning.length, answer: content.length }) }}</span>
       <div class="flex gap-3">
         <button type="button" class="text-primary-600 dark:text-primary-400" @click="follow = true; scrollToEnd()">{{ t('admin.accounts.accountTesting.follow') }}</button>
         <button type="button" class="text-primary-600 dark:text-primary-400" @click="copyOutput">{{ t('admin.accounts.copyOutput') }}</button>
       </div>
     </div>
-    <p v-if="incomplete" class="text-amber-600 dark:text-amber-400">{{ t('admin.accounts.accountTesting.incomplete') }}</p>
     <div ref="viewport" class="max-h-[420px] overflow-y-auto overscroll-contain rounded-lg bg-gray-900 p-3 font-mono" @scroll="onScroll">
       <details open class="mb-3 text-gray-400">
         <summary class="cursor-pointer">{{ t('admin.accounts.accountTesting.reasoning') }}</summary>

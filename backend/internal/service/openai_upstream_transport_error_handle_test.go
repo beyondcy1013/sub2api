@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/modules/transportguard"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -151,6 +152,65 @@ func TestTempUnscheduleOpenAITransportError_DisabledPreservesExistingState(t *te
 			require.Equal(t, previousGeneration, currentGeneration)
 			require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 		})
+	}
+}
+
+func TestHandleOpenAIUpstreamTransportError_PoolNetworkConfirmation(t *testing.T) {
+	repo := &openaiTransportAccountRepoStub{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := openAIHealthPoolAccount()
+	c, _ := newOpenAITransportErrTestContext()
+	err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, errors.New("connect: connection refused"), false)
+	var fo *UpstreamFailoverError
+	require.ErrorAs(t, err, &fo)
+	require.Empty(t, repo.tempUnschedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	_, _, eligible := classifyOpenAIAPIKeyHealthFailure(err)
+	require.False(t, eligible, "rolling HTTP breaker must not bypass transport confirmation")
+
+	// Seed a historical streak without sleeping; exercise the real handler's
+	// persistence and runtime block only once the time and count both qualify.
+	svc.poolTransportGuard.Success(account.ID)
+	svc.poolTransportGuard.Failure(account.ID, time.Now().Add(-20*time.Second))
+	svc.poolTransportGuard.Failure(account.ID, time.Now().Add(-16*time.Second))
+	svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, errors.New("connection refused"), false)
+	require.Len(t, repo.tempUnschedCalls, 1)
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
+func TestHandleOpenAIUpstreamTransportError_PoolProxyAuthStillEvicts(t *testing.T) {
+	repo := &openaiTransportAccountRepoStub{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	c, _ := newOpenAITransportErrTestContext()
+	svc.handleOpenAIUpstreamTransportError(context.Background(), c, openAIHealthPoolAccount(), errors.New("proxy authentication required"), false)
+	require.Len(t, repo.tempUnschedCalls, 1)
+}
+
+func TestPoolTransportConfirmation_ScheduleSuccessResets(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := openAIHealthPoolAccount()
+	now := time.Now()
+	svc.poolTransportGuard.Failure(account.ID, now.Add(-20*time.Second))
+	svc.poolTransportGuard.Failure(account.ID, now.Add(-16*time.Second))
+	svc.ReportOpenAIAccountScheduleResult(account, "test-model", true, nil)
+	require.False(t, svc.poolTransportGuard.Failure(account.ID, now))
+}
+
+func TestPoolTransportConfirmation_UsesSavedPolicy(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		repo := &openaiTransportAccountRepoStub{}
+		svc := &OpenAIGatewayService{accountRepo: repo}
+		account := openAIHealthPoolAccount()
+		account.Credentials["pool_transport_guard"] = map[string]any{
+			"enabled": enabled, "min_failures": float64(2), "span_seconds": float64(5),
+		}
+		if enabled {
+			policy := transportguard.PolicyFromCredentials(account.Credentials)
+			svc.poolTransportGuard.FailureWithPolicy(account.ID, time.Now().Add(-6*time.Second), policy)
+		}
+		c, _ := newOpenAITransportErrTestContext()
+		svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, errors.New("connection refused"), false)
+		require.Len(t, repo.tempUnschedCalls, 1, "saved policy must control confirmation")
 	}
 }
 

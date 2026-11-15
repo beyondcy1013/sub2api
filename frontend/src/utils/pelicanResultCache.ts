@@ -1,4 +1,5 @@
 import { reactive } from 'vue'
+import type { RuleOutcome } from '@/types'
 
 export interface PelicanTestResult {
   has_html: boolean
@@ -26,6 +27,8 @@ export interface PelicanCachedResult {
   error?: string
   elapsedMs?: number
   testedAt: number
+  reasoning?: string
+  ruleOutcomes?: RuleOutcome[]
   output?: string
   prompt?: string
   userRating?: PelicanUserRating
@@ -48,6 +51,16 @@ const MAX_HISTORY_PER_ACCOUNT = 20
 
 const history = reactive(new Map<number, PelicanCachedResult[]>())
 
+// 历史条目的状态必须以已完成的能力判定为准：生成完整 HTML 且未降智就是通过。
+// 旧缓存或流尾异常可能把已完成的结果写成 failed，直接在读取时纠正，避免
+// 历史列表把“未降智”的结果标成红色失败。
+function normalizeStatus(item: { status: PelicanCachedResult['status']; result?: PelicanTestResult }): PelicanCachedResult['status'] {
+  if (item.result?.has_html) return item.result.downgraded ? 'downgraded' : 'success'
+  if (item.status === 'downgraded') return 'downgraded'
+  if (item.status === 'success') return 'success'
+  return 'failed'
+}
+
 function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
   return {
     account: {
@@ -58,7 +71,7 @@ function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
     testMode: stored.testMode,
     images: stored.images,
     logs: stored.logs,
-    status: stored.status,
+    status: normalizeStatus(stored),
     result: stored.result,
     responseModel: stored.responseModel,
     reason: stored.reason,
@@ -66,6 +79,8 @@ function toCachedResult(stored: StoredPelicanResult): PelicanCachedResult {
     elapsedMs: stored.elapsedMs,
     testedAt: stored.testedAt,
     output: stored.output,
+    reasoning: stored.reasoning,
+    ruleOutcomes: stored.ruleOutcomes,
     prompt: stored.prompt,
     userRating: stored.userRating === 'accurate' || stored.userRating === 'inaccurate' ? stored.userRating : undefined
   }
@@ -87,6 +102,8 @@ function toStoredResult(item: PelicanCachedResult): StoredPelicanResult {
     elapsedMs: item.elapsedMs,
     testedAt: item.testedAt,
     output: item.output,
+    reasoning: item.reasoning,
+    ruleOutcomes: item.ruleOutcomes,
     prompt: item.prompt,
     userRating: item.userRating
   }
@@ -172,7 +189,7 @@ export function setCachedPelicanResult(item: PelicanCachedResult): void {
   if (existingIndex >= 0) {
     results.splice(existingIndex, 1)
   }
-  results.unshift(item)
+  results.unshift({ ...item, status: normalizeStatus(item) })
   results.sort((a, b) => b.testedAt - a.testedAt)
   history.set(item.account.id, results.slice(0, MAX_HISTORY_PER_ACCOUNT))
   trimToStorageLimit()

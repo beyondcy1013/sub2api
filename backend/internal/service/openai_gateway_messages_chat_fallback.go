@@ -69,6 +69,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	}
 	if openai.RequiresResponsesForToolCalls(upstreamModel) && len(anthropicReq.Tools) > 0 && !accountAllowsGPT61SolChatTools(account) {
 		err := fmt.Errorf("%s requires Responses for tool calls; %s only supports Chat Completions", normalizeKnownOpenAICodexModel(upstreamModel), accountErrorIdentifier(account))
+		if failoverErr := s.accountCapabilityFailover(err.Error()); failoverErr != nil {
+			return nil, failoverErr
+		}
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}

@@ -17,7 +17,7 @@
 | 社区分支参考 | https://github.com/ranxi2001/sub2api | `ranxi`，只读参考，不作为合并来源 |
 | OpenAI Basis Points 插件 | `github.com/Wei-Shaw/sub2api-oai-basispoints` | `.s2plugin` 的源 module（经 `replace ../../backend` 复用宿主 plugin API）；对应 GitHub 仓库目前公网不可见，安装包按厂商分发件处理 |
 
-插件协议实现另有两个来源参考（见 `backend/internal/service/basispoints/NOTICE.md`）：
+插件协议实现另有两个来源参考（见 `backend/internal/modules/basispoints/NOTICE.md`）：
 协议代码移植自 https://github.com/hloolx/codex2api（MIT，公网可访问），复核参考
 https://github.com/JaxsonWang/cpa-plugin-oai-basispoints——后者是 CPA 插件 ABI，
 与本部署使用的 `.s2plugin` 不兼容，不得混用。

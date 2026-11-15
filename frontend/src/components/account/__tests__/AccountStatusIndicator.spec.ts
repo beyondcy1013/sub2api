@@ -313,4 +313,26 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).toContain('admin.accounts.status.proxyQuarantined')
     expect(wrapper.text()).toContain('admin.accounts.status.modelRuntimeBlocked')
   })
+
+  it('临时不可调度时直接在状态单元格显示解除时间、剩余时间和错误详情', () => {
+    const until = new Date(Date.now() + 9 * 60000).toISOString()
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          id: 308,
+          name: 'WorkBuddy2apiRs18371',
+          temp_unschedulable_until: until,
+          temp_unschedulable_reason: 'upstream transport error (proxy/network): connection refused'
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.tempUnschedulable')
+    const remaining = wrapper.get('[data-test="temp-unsched-inline-remaining"]').text()
+    expect(remaining).toContain('admin.accounts.tempUnschedulable.remaining')
+    expect(remaining).toContain('admin.accounts.tempUnschedulable.remainingMinutes')
+    expect(remaining).toContain('admin.accounts.tempUnschedulable.until')
+    expect(wrapper.get('[data-test="temp-unsched-inline-reason"]').text()).toContain('connection refused')
+  })
 })

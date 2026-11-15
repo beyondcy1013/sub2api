@@ -36,7 +36,7 @@
         <p v-if="recordsError" role="alert" class="text-sm text-red-600">{{ recordsError }}</p>
         <p v-if="records.length === 0 && !loadingRecords && !recordsError" class="text-sm text-gray-500">{{ t('admin.scheduledTests.noResults') }}</p>
         <div v-for="record in records" :key="record.id" class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
-          <div class="flex flex-wrap justify-between gap-2 text-sm"><span>{{ record.account_name }} #{{ record.account_id }} · {{ t('admin.usage.qualityEvidence.column') }} #{{ record.id }} · {{ t(`admin.accounts.detection.sources.${record.source}`) }}</span><span class="text-xs text-gray-500">{{ formatDateTime(record.finished_at) }}</span></div>
+          <div class="flex flex-wrap justify-between gap-2 text-sm"><span>{{ record.account_name }} #{{ record.account_id }} · {{ t('admin.usage.qualityEvidence.column') }} #{{ record.id }} · <DetectionOriginLabel :origin="record.result.origin" :source="record.source" /></span><span class="text-xs text-gray-500">{{ formatDateTime(record.finished_at) }}</span></div>
           <DetectionResultSummary :status="record.result.status" :capability="record.mode === 'pelican' || !!record.rule_fingerprint" :downgraded="record.result.downgraded" :reason="record.result.downgrade_reason" :error="record.result.error_message" :model="record.model_id" :latency-ms="record.result.latency_ms" :outcomes="record.result.rule_results" />
           <details v-if="record.result.response_text"><summary class="cursor-pointer text-xs">{{ t('admin.scheduledTests.responseText') }}</summary>
             <iframe v-if="record.mode === 'pelican' && hasPreview(record.result.response_text)" sandbox="allow-scripts" :srcdoc="previewDocument(record.result.response_text)" :title="record.account_name" class="mt-2 h-80 w-full bg-white" />
@@ -49,6 +49,7 @@
   </BaseDialog>
 </template>
 <script setup lang="ts">
+import DetectionOriginLabel from '@/modules/qualityevidence/DetectionOriginLabel.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

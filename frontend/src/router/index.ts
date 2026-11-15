@@ -1,3 +1,4 @@
+import { prefixInstanceTitle, resolveInstanceAppearance } from '@/modules/instanceappearance/appearance'
 /**
  * Vue Router configuration for Sub2API frontend
  * Defines all application routes with lazy loading and navigation guards
@@ -870,7 +871,7 @@ router.beforeEach(async (to, _from, next) => {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
+  document.title = prefixInstanceTitle(resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems), resolveInstanceAppearance(appStore.cachedPublicSettings, window.location.origin).name)
 
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true

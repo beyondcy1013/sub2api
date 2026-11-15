@@ -551,7 +551,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	// Never persist ephemeral SSO/password secrets after OAuth conversion.
 	input.Credentials = SanitizeStoredCredentials(input.Platform, input.Credentials)
-	if err := s.validateAccountModelsNotGloballyExcluded(ctx, input.Credentials); err != nil {
+	if err := s.sanitizeAccountModelsGloballyExcluded(ctx, input.Credentials); err != nil {
 		return nil, err
 	}
 
@@ -708,7 +708,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
-		if err := s.validateAccountModelsNotGloballyExcluded(ctx, account.Credentials); err != nil {
+		if err := s.sanitizeAccountModelsGloballyExcluded(ctx, account.Credentials); err != nil {
 			return nil, err
 		}
 	}
@@ -1121,7 +1121,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// 影子账号绝不持有凭据:批量更新携带凭据时,目标中不得含影子(外审 G5,与单账号
 	// UpdateAccount 守卫对齐)。覆盖显式 IDs 与 filter 解析出的 IDs(此处 AccountIDs 已解析完成)。
 	if len(input.Credentials) > 0 {
-		if err := s.validateAccountModelsNotGloballyExcluded(ctx, input.Credentials); err != nil {
+		if err := s.sanitizeAccountModelsGloballyExcluded(ctx, input.Credentials); err != nil {
 			return nil, err
 		}
 		for _, acc := range cachedTargets {
@@ -1968,8 +1968,8 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account 
 	return mode
 }
 
-// validateAccountModelsNotGloballyExcluded 检查凭据中配置的模型映射或白名单是否包含已被全局排除的模型。
-func (s *adminServiceImpl) validateAccountModelsNotGloballyExcluded(ctx context.Context, creds map[string]any) error {
+// sanitizeAccountModelsGloballyExcluded 自动清除凭据中配置的模型映射或白名单中已被全局排除的模型。
+func (s *adminServiceImpl) sanitizeAccountModelsGloballyExcluded(ctx context.Context, creds map[string]any) error {
 	if s == nil || s.settingService == nil || len(creds) == 0 {
 		return nil
 	}
@@ -1978,56 +1978,60 @@ func (s *adminServiceImpl) validateAccountModelsNotGloballyExcluded(ctx context.
 		return nil
 	}
 
-	// 1. 检查 model_mapping
-	if rawMapping, ok := creds["model_mapping"]; ok && rawMapping != nil {
-		switch m := rawMapping.(type) {
-		case map[string]any:
-			for src, dst := range m {
-				if IsModelGloballyExcluded(patterns, src) {
-					return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
-						"模型 %q 已被全局排除规则屏蔽，禁止添加", src)
-				}
-				if dstStr, ok := dst.(string); ok && dstStr != "" {
-					if IsModelGloballyExcluded(patterns, dstStr) {
-						return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
-							"上游模型 %q 已被全局排除规则屏蔽，禁止添加", dstStr)
+	// 1. 自动清除 model_mapping / compact_model_mapping 中命中全局排除的模型
+	for _, mappingKey := range []string{"model_mapping", "compact_model_mapping"} {
+		if rawMapping, ok := creds[mappingKey]; ok && rawMapping != nil {
+			switch m := rawMapping.(type) {
+			case map[string]any:
+				for src, dst := range m {
+					if IsModelGloballyExcluded(patterns, src) {
+						delete(m, src)
+						continue
+					}
+					if dstStr, ok := dst.(string); ok && dstStr != "" {
+						if IsModelGloballyExcluded(patterns, dstStr) {
+							delete(m, src)
+						}
 					}
 				}
-			}
-		case map[string]string:
-			for src, dst := range m {
-				if IsModelGloballyExcluded(patterns, src) {
-					return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
-						"模型 %q 已被全局排除规则屏蔽，禁止添加", src)
-				}
-				if dst != "" && IsModelGloballyExcluded(patterns, dst) {
-					return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
-						"上游模型 %q 已被全局排除规则屏蔽，禁止添加", dst)
+			case map[string]string:
+				for src, dst := range m {
+					if IsModelGloballyExcluded(patterns, src) {
+						delete(m, src)
+						continue
+					}
+					if dst != "" && IsModelGloballyExcluded(patterns, dst) {
+						delete(m, src)
+					}
 				}
 			}
 		}
 	}
 
-	// 2. 检查 models 或 model_whitelist
+	// 2. 自动清除 models 或 model_whitelist 中命中全局排除的模型
 	for _, key := range []string{"models", "model_whitelist"} {
 		if rawList, ok := creds[key]; ok && rawList != nil {
 			switch list := rawList.(type) {
 			case []string:
+				filtered := make([]string, 0, len(list))
 				for _, m := range list {
-					if IsModelGloballyExcluded(patterns, m) {
-						return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
-							"模型 %q 已被全局排除规则屏蔽，禁止添加", m)
+					if !IsModelGloballyExcluded(patterns, m) {
+						filtered = append(filtered, m)
 					}
 				}
+				creds[key] = filtered
 			case []any:
+				filtered := make([]any, 0, len(list))
 				for _, item := range list {
 					if m, ok := item.(string); ok && m != "" {
-						if IsModelGloballyExcluded(patterns, m) {
-							return infraerrors.Newf(http.StatusBadRequest, "MODEL_GLOBALLY_EXCLUDED",
-								"模型 %q 已被全局排除规则屏蔽，禁止添加", m)
+						if !IsModelGloballyExcluded(patterns, m) {
+							filtered = append(filtered, item)
 						}
+					} else {
+						filtered = append(filtered, item)
 					}
 				}
+				creds[key] = filtered
 			}
 		}
 	}

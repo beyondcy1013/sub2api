@@ -42,7 +42,11 @@ func TestScopedAdminAccountListScopesCountAndPageInSQL(t *testing.T) {
 				return fmt.Errorf("分页和统计范围不同")
 			}
 			// 允许模型映射子字段投影，禁止读取完整 credentials。
-			projected := strings.ReplaceAll(actual, `"accounts"."credentials"->'model_mapping' AS model_mapping`, "model_mapping")
+			selectPart := actual
+			if idx := strings.Index(actual, " FROM "); idx >= 0 {
+				selectPart = actual[:idx]
+			}
+			projected := strings.ReplaceAll(selectPart, `"accounts"."credentials"->'model_mapping' AS model_mapping`, "model_mapping")
 			if strings.Contains(projected, `"credentials"`) || strings.Contains(projected, `"extra"`) {
 				return fmt.Errorf("读取了敏感字段")
 			}

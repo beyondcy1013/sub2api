@@ -385,14 +385,16 @@
                   target="_blank"
                   rel="noopener noreferrer"
                   data-test="account-name-value"
-                  class="font-medium text-gray-900 dark:text-white border-b border-dotted border-gray-300 dark:border-gray-600"
+                  class="font-medium border-b border-dotted border-gray-300 dark:border-gray-600"
+                  :class="(row.current_concurrency || 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white'"
                 >
                   {{ value }}
                 </a>
                 <span
                   v-else
                   data-test="account-name-value"
-                  class="font-medium text-gray-900 dark:text-white"
+                  class="font-medium"
+                  :class="(row.current_concurrency || 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white'"
                 >
                   {{ value }}
                 </span>
@@ -481,6 +483,21 @@
           </template>
           <template #cell-quality_status="{ row }">
             <AccountQualityStatus :summary="qualitySummaries[row.id]" :minutes="qualityRecentMinutes" :now="qualityStatusNow" :state="qualityStatusState" />
+          </template>
+          <template #cell-degradation_count="{ row }">
+            <div class="inline-flex items-center font-mono text-xs">
+              <span v-if="degradationCountsLoading" class="text-gray-400 dark:text-dark-400">...</span>
+              <span
+                v-else-if="(degradationCounts[row.id] ?? 0) > 0"
+                class="font-semibold text-amber-600 dark:text-amber-400 cursor-help"
+                :title="getDegradationCountTooltip(degradationCounts[row.id])"
+              >
+                {{ degradationCounts[row.id] }} 次
+              </span>
+              <span v-else class="text-gray-400 dark:text-dark-500">
+                0
+              </span>
+            </div>
           </template>
           <template #cell-today_cost="{ row }">
             <AccountTodayCostCell :stats="todayStatsByAccountId[String(row.id)] ?? null" />
@@ -580,6 +597,23 @@
           </template>
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
+          </template>
+          <template #header-degradation_count="{ column }">
+            <div class="inline-flex items-center gap-1.5 whitespace-nowrap" @click.stop>
+              <span class="shrink-0">{{ column.label }}</span>
+              <select
+                v-model="degradationTimeRange"
+                data-test="degradation-range-select"
+                class="h-5 text-[11px] rounded border border-gray-300 bg-white px-1 py-0 text-gray-700 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 cursor-pointer"
+                :title="t('admin.accounts.degradationRangeHint')"
+                @change="handleDegradationTimeRangeChange"
+              >
+                <option value="24h">{{ t('admin.accounts.degradationRanges.24h') }}</option>
+                <option value="7d">{{ t('admin.accounts.degradationRanges.7d') }}</option>
+                <option value="30d">{{ t('admin.accounts.degradationRanges.30d') }}</option>
+                <option value="all">{{ t('admin.accounts.degradationRanges.all') }}</option>
+              </select>
+            </div>
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center gap-1">
@@ -1940,6 +1974,11 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
+  if (key === 'degradation_count' && wasHidden) {
+    refreshDegradationCounts().catch((error) => {
+      console.error('Failed to load degradation counts after showing column:', error)
+    })
+  }
   if (key === 'scheduler_score' || key === 'scheduling_rate') {
     // These derived values are only returned when their columns are visible.
     syncAccountListDerivedParams()
@@ -1990,6 +2029,67 @@ const {
 })
 
 const { summaries: qualitySummaries, minutes: qualityRecentMinutes, now: qualityStatusNow, state: qualityStatusState } = useQualityStatus(accounts, qualitySettingsRevision)
+
+const DEGRADATION_RANGE_STORAGE_KEY = 'account-degradation-count-range'
+const degradationTimeRange = ref<string>(localStorage.getItem(DEGRADATION_RANGE_STORAGE_KEY) || '7d')
+const degradationCounts = ref<Record<number, number>>({})
+const degradationCountsLoading = ref(false)
+const degradationCountSort = ref<{ order: AccountSortOrder } | null>(null)
+let degradationCountsReqSeq = 0
+
+const getDegradationRangeLabel = (range: string): string => {
+  return t(`admin.accounts.degradationRanges.${range}`) || range
+}
+
+const getDegradationCountTooltip = (count: number): string => {
+  if (degradationTimeRange.value === 'all') {
+    return t('admin.accounts.degradationCountAllTooltip', { count })
+  }
+  return t('admin.accounts.degradationCountTooltip', {
+    range: getDegradationRangeLabel(degradationTimeRange.value),
+    count
+  })
+}
+
+const refreshDegradationCounts = async () => {
+  if (hiddenColumns.has('degradation_count')) {
+    degradationCountsLoading.value = false
+    return
+  }
+  const accountIDs = accounts.value.map(a => a.id)
+  const reqSeq = ++degradationCountsReqSeq
+  if (accountIDs.length === 0) {
+    degradationCounts.value = {}
+    degradationCountsLoading.value = false
+    return
+  }
+  degradationCountsLoading.value = true
+  try {
+    const counts = await adminAPI.accounts.getDegradationCounts(accountIDs, degradationTimeRange.value)
+    if (reqSeq !== degradationCountsReqSeq) return
+    const mapping: Record<number, number> = {}
+    for (const [idStr, cnt] of Object.entries(counts)) {
+      mapping[Number(idStr)] = cnt
+    }
+    degradationCounts.value = mapping
+  } catch (error) {
+    if (reqSeq !== degradationCountsReqSeq) return
+    console.error('Failed to load degradation counts:', error)
+  } finally {
+    if (reqSeq === degradationCountsReqSeq) {
+      degradationCountsLoading.value = false
+    }
+  }
+}
+
+const handleDegradationTimeRangeChange = () => {
+  localStorage.setItem(DEGRADATION_RANGE_STORAGE_KEY, degradationTimeRange.value)
+  void refreshDegradationCounts()
+}
+
+watch([accounts, degradationTimeRange], () => {
+  void refreshDegradationCounts()
+}, { immediate: true })
 
 // OAuth-authorized accounts (oauth / setup-token) always render above API-key style
 // accounts (apikey / upstream / bedrock / service_account); the outermost partition
@@ -2050,22 +2150,36 @@ const authFileStatusHint = (account: AccountListItem): string => {
 
 const sortedAccounts = computed(() => {
   const currentSort = usageWindowSort.value
-  const baseRows = !currentSort
-    ? accounts.value
-    : [...accounts.value]
-        .map((row, index) => ({ row, index }))
-        .sort((a, b) => {
-          const aValue = getUsageWindowSortValue(a.row, currentSort.metric)
-          const bValue = getUsageWindowSortValue(b.row, currentSort.metric)
-          if (aValue === null && bValue === null) return a.index - b.index
-          if (aValue === null) return 1
-          if (bValue === null) return -1
-          if (aValue !== bValue) {
-            return currentSort.order === 'asc' ? aValue - bValue : bValue - aValue
-          }
-          return a.index - b.index
-        })
-        .map(({ row }) => row)
+  const degradationSort = degradationCountSort.value
+  let baseRows = accounts.value
+  if (currentSort) {
+    baseRows = [...accounts.value]
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const aValue = getUsageWindowSortValue(a.row, currentSort.metric)
+        const bValue = getUsageWindowSortValue(b.row, currentSort.metric)
+        if (aValue === null && bValue === null) return a.index - b.index
+        if (aValue === null) return 1
+        if (bValue === null) return -1
+        if (aValue !== bValue) {
+          return currentSort.order === 'asc' ? aValue - bValue : bValue - aValue
+        }
+        return a.index - b.index
+      })
+      .map(({ row }) => row)
+  } else if (degradationSort) {
+    baseRows = [...accounts.value]
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const aVal = degradationCounts.value[a.row.id] ?? 0
+        const bVal = degradationCounts.value[b.row.id] ?? 0
+        if (aVal !== bVal) {
+          return degradationSort.order === 'asc' ? aVal - bVal : bVal - aVal
+        }
+        return a.index - b.index
+      })
+      .map(({ row }) => row)
+  }
 
   const pinnedRows = baseRows.filter(account => Boolean(account.extra?.pinned))
   const unpinnedRows = baseRows.filter(account => !account.extra?.pinned)
@@ -2310,6 +2424,12 @@ const handlePageSizeChange = (size: number) => {
 }
 
 const handleSort = (key: string, order: AccountSortOrder) => {
+  if (key === 'degradation_count') {
+    degradationCountSort.value = { order }
+    clearUsageWindowSort()
+    return
+  }
+  degradationCountSort.value = null
   if (isAccountUsageWindowSortMetric(key)) {
     usageWindowSort.value = { metric: key, order }
     persistUsageWindowSort()
@@ -2805,6 +2925,7 @@ const allColumns = computed(() => {
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'downgraded', label: t('admin.accounts.columns.downgraded'), sortable: false, width: '110px' },
     { key: 'quality_status', label: t('admin.accounts.columns.qualityStatus'), sortable: true, width: '110px' },
+    { key: 'degradation_count', label: t('admin.accounts.columns.degradationCount'), sortable: true, width: '130px' },
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false, width: '170px' },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
@@ -3764,9 +3885,14 @@ const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false }
 const openSchedulingRulesModal = () => { showSchedulingRules.value = true }
 const closeSchedulingRulesModal = () => { showSchedulingRules.value = false }
-const handleSchedulingRulesSaved = () => {
+const handleSchedulingRulesSaved = (strategy?: 'default' | 'lowest_cost') => {
   closeSchedulingRulesModal()
-  appStore.showSuccess(t('admin.accounts.schedulingRules.saved'))
+  const mode = strategy === 'lowest_cost'
+    ? t('admin.accounts.schedulingRules.lowestCost')
+    : strategy === 'default' ? t('admin.accounts.schedulingRules.default') : ''
+  appStore.showSuccess(mode
+    ? t('admin.accounts.schedulingRules.switched', { mode })
+    : t('admin.accounts.schedulingRules.saved'))
   void schedulingRuntimeSummaryRef.value?.refresh()
   enterAutoRefreshSilentWindow()
   void loadUpstreamBillingProbeGlobalState()

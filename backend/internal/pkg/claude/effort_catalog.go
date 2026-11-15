@@ -66,7 +66,6 @@ func IsFable52(model string) bool {
 func IsMythos52(model string) bool {
 	return normalizeEffortModelID(model) == "claude-mythos-5-2"
 }
-
 func normalizeEffortModelID(model string) string {
 	id := strings.ToLower(strings.TrimSpace(model))
 	id = strings.TrimPrefix(id, "models/")
@@ -88,6 +87,12 @@ func normalizeEffortModelID(model string) string {
 	}
 	if id == "claude-haiku-5.5" {
 		id = "claude-haiku-5-5"
+	}
+	if id == "claude-fable-5.2" {
+		id = "claude-fable-5-2"
+	}
+	if id == "claude-fable-5.1" {
+		id = "claude-fable-5-1"
 	}
 	if mapped, ok := ModelIDReverseOverrides[id]; ok {
 		id = mapped

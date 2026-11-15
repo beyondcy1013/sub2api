@@ -7,7 +7,7 @@
       <span v-if="latencyMs != null">{{ latencyMs }} ms</span>
     </div>
     <p v-if="error" class="whitespace-pre-wrap break-words text-red-600 dark:text-red-400">{{ error }}</p>
-    <p v-if="reason" class="whitespace-pre-wrap break-words">{{ reason }}</p>
+    <p v-if="reason && reason !== error" class="whitespace-pre-wrap break-words">{{ reason }}</p>
     <div v-for="outcome in outcomes" :key="outcome.rule_id" class="whitespace-pre-wrap break-words">
       {{ outcome.rule_name }}: {{ outcome.passed ? '✓' : '✗' }} {{ outcome.reason }}
     </div>

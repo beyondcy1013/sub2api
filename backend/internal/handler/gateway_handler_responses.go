@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/clienterror"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -225,7 +225,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, effectiveAPIKeyPlatform(c, apiKey))
-				cls = classifySelectionFailureError(err, cls)
+				cls = classifySelectionFailureError(err, cls, c)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -254,31 +254,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
-
-		if h.requestQualityProbe != nil {
-			if ok, reason, _ := h.requestQualityProbe.EnsureAccountQuality(c.Request.Context(), account, reqModel); !ok {
-				fs.FailedAccountIDs[account.ID] = struct{}{}
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-					selection.ReleaseFunc = nil
-				}
-				fs.LastFailoverErr = &service.UpstreamFailoverError{
-					StatusCode:       http.StatusBadGateway,
-					Stage:            service.GatewayFailureStageInference,
-					Scope:            service.GatewayFailureScopeAccount,
-					Reason:           "request_quality_probe_failed",
-					ClientStatusCode: http.StatusBadGateway,
-					ClientMessage:    fmt.Sprintf("Account %s (%d) failed quality probe for %s: %s", account.Name, account.ID, reqModel, reason),
-				}
-				reqLog.Warn("gateway.responses.account_skipped_quality_probe_failed",
-					zap.Int64("account_id", account.ID),
-					zap.String("account_name", account.Name),
-					zap.String("model", reqModel),
-					zap.String("reason", reason),
-				)
-				continue
-			}
-		}
 
 		// 4. Acquire account concurrency slot
 		accountReleaseFunc := selection.ReleaseFunc
@@ -329,6 +304,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// 5. Forward request
+		beginRotationAttempt(c, h.requestQualityProbe, account.ID, openAIChannelForwardModel(channelMapping, reqModel))
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardBody := body
 		if channelMapping.Mapped {
@@ -345,9 +321,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				return
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, openAIChannelForwardModel(channelMapping, reqModel), func() (*service.ForwardResult, error) {
+				return h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			})
 		} else {
-			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			result, err = forwardWithQualityGate(c, h.requestQualityProbe, account, openAIChannelForwardModel(channelMapping, reqModel), func() (*service.ForwardResult, error) {
+				return h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			})
 		}
 
 		if accountReleaseFunc != nil {
@@ -405,6 +385,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					return
 				}
 				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				if _, failed := fs.FailedAccountIDs[account.ID]; failed && action != FailoverCanceled {
+					failedRotationAttempt(c, account, failoverErr)
+				}
 				switch action {
 				case FailoverContinue:
 					continue
@@ -435,6 +418,11 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 // responsesErrorResponse writes an error in OpenAI Responses API format.
 func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code, message string) {
+	if rotationnotice.Committed(c) {
+		h.handleStreamingAwareErrorWithCode(c, status, code, "", message, true)
+		return
+	}
+	status, code, _, message = rotationnotice.FinalError(c, status, code, "", message)
 	message = clienterror.Prefix(code, message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
@@ -447,6 +435,7 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.
 func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	streamStarted = streamStarted || rotationnotice.Committed(c)
 	if lastErr != nil {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
 	}
@@ -466,15 +455,18 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 	} else if lastErr != nil && service.IsOpenAISilentRefusalErrorBody(lastErr.ResponseBody) {
 		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
 		status, code, message = http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage()
+	} else if detail, ok := upstreamForbiddenMessage(lastErr); ok {
+		status, code, message = http.StatusForbidden, "permission_error", detail
 	} else if lastErr != nil && statusCode == http.StatusTooManyRequests {
 		status, code, message = http.StatusTooManyRequests, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later."
 	}
+	status, code, _, message = rotationnotice.FinalError(c, status, code, "", message)
 	if streamStarted {
 		// A slot-wait heartbeat commits HTTP 200 before any upstream response.
 		// In that case a terminal frame is still required; once any semantic or
 		// official terminal bytes exist, preserve them without appending a second
 		// generic response.failed.
-		service.MarkOpsStreamError(c, code, message, status)
+		service.MarkOpsStreamErrorValue(c, service.OpsStreamError{ErrType: code, Code: code, Message: message, IntendedStatus: status})
 		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
 			writeResponsesFailedSSE(c, code, "", message)
 		}

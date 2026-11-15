@@ -6532,6 +6532,7 @@
               </p>
             </div>
             <div class="space-y-6 p-6">
+              <InstanceAppearanceSettings v-model:name="form.instance_name" v-model:color="form.instance_color" :profile="appStore.cachedPublicSettings?.deployment_profile" />
               <!-- Backend Mode -->
               <div
                 class="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20"
@@ -9224,6 +9225,7 @@ import type {
 } from "@/types";
 import type { ProviderInstance } from "@/types/payment";
 import AppLayout from "@/components/layout/AppLayout.vue";
+import InstanceAppearanceSettings from "@/modules/instanceappearance/InstanceAppearanceSettings.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select, { type SelectOption } from "@/components/common/Select.vue";
 import {
@@ -9942,6 +9944,8 @@ type SettingsForm = Omit<
   smtp_password: string;
   turnstile_secret_key: string;
   tencent_captcha_app_secret_key: string;
+  instance_name: string;
+  instance_color: string;
   tencent_captcha_cloud_secret_id: string;
   tencent_captcha_cloud_secret_key: string;
   aliyun_captcha_access_key_secret: string;
@@ -10024,6 +10028,8 @@ const form = reactive<SettingsForm>({
   default_subscriptions: [],
   force_email_on_third_party_signup: false,
   default_user_rpm_limit: 0,
+  instance_name: "",
+  instance_color: "",
   site_name: "Sub2API",
   site_logo: "",
   site_subtitle: "Subscription to API Conversion Platform",
@@ -11796,6 +11802,8 @@ async function saveSettings() {
       default_subscriptions: normalizedDefaultSubscriptions,
       force_email_on_third_party_signup: form.force_email_on_third_party_signup,
       default_user_rpm_limit: form.default_user_rpm_limit,
+      instance_name: form.instance_name,
+      instance_color: form.instance_color,
       site_name: form.site_name,
       site_logo: form.site_logo,
       site_subtitle: form.site_subtitle,

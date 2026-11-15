@@ -8,14 +8,18 @@ import {
   getCachedPelicanResult,
   setCachedPelicanResult
 } from '@/utils/pelicanResultCache'
+import { resetAccountModelCatalog } from '@/utils/pelicanModelCatalog'
 
 const questionAPI = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), run: vi.fn() }))
 let serverQuestions: any[] = []
 let nextQuestionID = 1
 
-const { copyToClipboard, updateDowngradedFlag, getAvailableModels } = vi.hoisted(() => ({
+const toastAPI = vi.hoisted(() => ({ showSuccess: vi.fn(), showWarning: vi.fn(), showError: vi.fn() }))
+
+const { copyToClipboard, updateDowngradedFlag, getAvailableModels, listDetectionRecords } = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
   updateDowngradedFlag: vi.fn().mockResolvedValue({}),
+  listDetectionRecords: vi.fn().mockResolvedValue([]),
   getAvailableModels: vi.fn().mockImplementation((id: number) => Promise.resolve([
     { id: `gpt-6-account-${id}-model`, type: 'model', display_name: `Account ${id} Model`, created_at: '' }
   ]))
@@ -27,10 +31,17 @@ vi.mock('@/composables/useClipboard', () => ({
   })
 }))
 
+vi.mock('@/stores/app', () => ({
+  useAppStore: () => toastAPI
+}))
+
 vi.mock('@/api', () => ({
   adminAPI: {
     degradationRules: questionAPI,
     accounts: {
+      listDetectionRecords: (...args: any[]) => listDetectionRecords(...args),
+      getRequestQualityProbeSettings: async () => ({ enabled: false, rule_ids: [] }),
+      updateRequestQualityProbeSettings: async (value: any) => value,
       runQualityRules: (...args: any[]) => questionAPI.run(...args),
       updateDowngradedFlag: (...args: any[]) => updateDowngradedFlag(...args),
       getAvailableModels: (...args: any[]) => getAvailableModels(...args)
@@ -89,7 +100,7 @@ function mountModal(
     },
     global: {
       stubs: {
-        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+        BaseDialog: { template: '<div><slot name="title-actions" /><slot /><slot name="footer" /></div>' },
         TextArea: {
           props: ['modelValue'],
           emits: ['update:modelValue'],
@@ -104,6 +115,9 @@ function mountModal(
 describe('AccountPelicanModal', () => {
   beforeEach(() => {
     localStorage.clear()
+    toastAPI.showSuccess.mockReset()
+    toastAPI.showWarning.mockReset()
+    toastAPI.showError.mockReset()
     serverQuestions = []
     nextQuestionID = 1
     questionAPI.list.mockReset().mockImplementation(async () => structuredClone(serverQuestions))
@@ -120,6 +134,7 @@ describe('AccountPelicanModal', () => {
     questionAPI.delete.mockReset().mockImplementation(async id => { serverQuestions = serverQuestions.filter(item => item.id !== id) })
     questionAPI.run.mockReset().mockResolvedValue({status:'success',response_text:'keyword present',downgraded:false})
     clearPelicanResultCache()
+    resetAccountModelCatalog()
     getAvailableModels.mockClear()
     getAvailableModels.mockImplementation((id: number) => Promise.resolve([
       { id: `gpt-6-account-${id}-model`, type: 'model', display_name: `Account ${id} Model`, created_at: '' }
@@ -138,18 +153,157 @@ describe('AccountPelicanModal', () => {
     vi.restoreAllMocks()
   })
 
-  it('keeps mobile history readable and falls back to source beside sandboxed animation', () => {
-    expect(accountPelicanModalSource).toContain('hidden grid-cols-')
-    expect(accountPelicanModalSource).toContain('lg:grid lg:grid-cols-[minmax(72px,84px)')
-    expect(accountPelicanModalSource).toContain('data-test="`pelican-history-tab-${tab}`"')
-    expect(accountPelicanModalSource).toContain('class="h-[56vh] min-h-[320px] w-full border-0"')
-    expect(accountPelicanModalSource).toContain('v-show="!mobilePreviewSource"')
-    expect(accountPelicanModalSource).not.toContain('lg:max-h-48')
-    expect(accountPelicanModalSource).not.toContain('lg:max-h-64')
-    expect(accountPelicanModalSource).not.toContain('line-clamp-4')
+  it('designates a saved question without starting an upstream test', async () => {
+    serverQuestions = [{id:7,name:'math',prompt:'Only answer 21',enabled:false,evaluator:'numeric_answer',params:{probe_evaluator:'numeric',expected_answer:21}}]
+    const wrapper = mountModal()
+    await flushPromises()
+    await wrapper.findComponent({ name: 'Select' }).setValue('rule-7')
+    const button = wrapper.get('[data-test="designate-auto-question"]')
+    expect(button.attributes('disabled')).toBeUndefined()
+    await button.trigger('click')
+    await flushPromises()
+    expect(questionAPI.update).toHaveBeenCalledWith(7, expect.objectContaining({enabled:true}))
+    expect((wrapper.vm as any).scenarioError).toBe('')
+    expect(button.text()).toContain('autoQuestionSelected')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(questionAPI.run).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('separates live reasoning from the answer before completion and retains it in history', async () => {
+    let finish: ((value: any) => void) | undefined
+    let reads = 0
+    const encoder = new TextEncoder()
+    vi.mocked(fetch).mockResolvedValue({ok: true, body: {getReader: () => ({
+      read: () => {
+        reads++
+        if (reads === 1) return Promise.resolve({done:false,value:encoder.encode('data: {"type":"reasoning","text":"compute <svg>thought</svg>"}\n\ndata: {"type":"content","text":"21"}\n\n')})
+        if (reads === 2) return new Promise(resolve => { finish = resolve })
+        return Promise.resolve({done:true})
+      }, releaseLock: vi.fn()
+    })}} as any)
+    const wrapper = mountModal([{id:1,name:'One',platform:'openai',type:'apikey',status:'active'}])
+    await flushPromises()
+    await wrapper.get('[data-test="account-test-evaluator"]').setValue('reply')
+    const running = (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    expect(wrapper.get('[data-test="test-stream-reasoning"]').text()).toBe('compute <svg>thought</svg>')
+    expect(wrapper.get('[data-test="test-stream-answer"]').text()).toContain('21')
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.find('[data-test="pelican-card-tab-preview"]').exists()).toBe(false)
+    await wrapper.get('[data-test="pelican-card-tab-output"]').trigger('click')
+    expect(wrapper.get('[data-test="account-test-output"]').text()).toBe('admin.accounts.accountTesting.finalPending')
+    finish!({done:false,value:encoder.encode('data: {"type":"pelican_result","data":{"downgraded":false,"reason":"passed"}}\n\ndata: {"type":"test_complete","success":true}')})
+    await running
+    await flushPromises()
+    expect(wrapper.get('[data-test="account-test-output"]').text()).toBe('21')
+    await wrapper.get('[data-test="pelican-card-tab-stream"]').trigger('click')
+    expect(wrapper.get('[data-test="test-stream-reasoning"]').text()).toContain('compute')
+    const cached = getCachedPelicanResult(1)
+    expect(cached).toMatchObject({output:'21',reasoning:'compute <svg>thought</svg>'})
+    reloadPelicanResultCacheFromStorage()
+    expect(getCachedPelicanResult(1)?.reasoning).toBe(cached?.reasoning)
+    wrapper.unmount()
+  })
+
+  it('shows one result toast for an individual test and none when replaying history', async () => {
+    const wrapper = mountModal([{ id: 1, name: 'One', platform: 'openai', type: 'apikey', status: 'active' }])
+    await flushPromises()
+    const vm = wrapper.vm as any
+    await vm.runSingleTest(vm.accountStates[0])
+    await flushPromises()
+    expect(toastAPI.showSuccess).toHaveBeenCalledOnce()
+    expect(toastAPI.showSuccess).toHaveBeenCalledWith('admin.accounts.accountTesting.notifySuccess')
+
+    toastAPI.showSuccess.mockClear()
+    const entry = vm.historyOptions[0]
+    await wrapper.get('[data-test="pelican-history-select"]').setValue(vm.historyEntryKey(entry))
+    expect(toastAPI.showSuccess).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('summarizes batch results in one toast instead of one per account', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    expect(toastAPI.showSuccess).toHaveBeenCalledOnce()
+    expect(toastAPI.showSuccess).toHaveBeenCalledWith('admin.accounts.accountTesting.notifyBatch')
+    expect(toastAPI.showSuccess).not.toHaveBeenCalledWith('admin.accounts.accountTesting.notifySuccess')
+    wrapper.unmount()
+  })
+
+  it('shows an error toast when an individual test result is failed', async () => {
+    vi.mocked(fetch).mockResolvedValue(createStreamResponse([
+      'data: {"type":"error","error":"upstream disconnected"}\n'
+    ]))
+    const wrapper = mountModal([{ id: 1, name: 'One', platform: 'openai', type: 'apikey', status: 'active' }])
+    await flushPromises()
+    const vm = wrapper.vm as any
+    await vm.runSingleTest(vm.accountStates[0])
+    await flushPromises()
+    expect(toastAPI.showError).toHaveBeenCalledOnce()
+    expect(toastAPI.showError).toHaveBeenCalledWith('admin.accounts.accountTesting.notifyFailed')
+    wrapper.unmount()
+  })
+
+  it('keeps failed partial output in the stream without presenting it as a final answer', async () => {
+    vi.mocked(fetch).mockResolvedValue(createStreamResponse([
+      'data: {"type":"reasoning","text":"thinking"}\n',
+      'data: {"type":"content","text":"partial"}\n',
+      'data: {"type":"error","error":"upstream disconnected"}\n'
+    ]))
+    const wrapper = mountModal([{id:1,name:'One',platform:'openai',type:'apikey',status:'active'}])
+    await flushPromises()
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    expect(wrapper.get('[data-test="test-stream-answer"]').text()).toBe('partial')
+    expect(wrapper.get('[data-test="test-stream-output"]').text()).toContain('admin.accounts.accountTesting.interrupted')
+    expect(wrapper.find('[data-test="pelican-card-tab-output"]').exists()).toBe(false)
+    expect(wrapper.text().match(/upstream disconnected/g)).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('shows upstream rotation separately from the evaluated answer after success', async () => {
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse([
+      'data: {"type":"routing_progress","text":"x"}\n\n',
+      'data: {"type":"routing_progress","text":"---"}\n\n',
+      'data: {"type":"content","text":"21"}\n\n',
+      'data: {"type":"pelican_result","data":{"downgraded":false,"reason":"passed"}}\n\n',
+      'data: {"type":"test_complete","success":true}\n\n'
+    ])) as any
+    const wrapper = mountModal([{ id: 1, name: 'Relay', platform: 'openai', type: 'apikey', status: 'active' }])
+    await flushPromises()
+    await (wrapper.vm as any).startAllTests()
+    await flushPromises()
+    expect(wrapper.find('[data-test="rotation-progress"]').text()).toContain('x ---')
+    expect((wrapper.vm as any).accountStates[0].streamingContent).toBe('21')
+    expect((wrapper.vm as any).accountStates[0].status).toBe('success')
+    wrapper.unmount()
+  })
+
+  it('历史使用单个下拉复用结果卡片，不再有独立历史面板或详情栏', () => {
+    expect(accountPelicanModalSource).toContain('data-test="pelican-history-select"')
+    expect(accountPelicanModalSource).not.toContain('pelican-history-detail-pane')
+    expect(accountPelicanModalSource).not.toContain('pelican-history-mode-')
+    expect(accountPelicanModalSource).not.toContain('pelican-global-history-entry')
+    expect(accountPelicanModalSource).not.toContain("t('admin.accounts.pelicanCachedAt'")
     expect(accountPelicanModalSource).toContain('data-test="pelican-streaming-output"')
     expect(accountPelicanModalSource).toContain('whitespace-pre-wrap break-words')
   })
+  it('keeps the workbench description behind the title help button', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('admin.accounts.accountTesting.description')
+    const help = wrapper.get('[data-test="account-test-help"]')
+    await help.trigger('click')
+    expect(wrapper.get('[role="tooltip"]').text()).toBe('admin.accounts.accountTesting.description')
+    await help.trigger('click')
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('suggests all available models from the account catalog', async () => {
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.6-sol', display_name: 'Old model' },
@@ -159,7 +313,9 @@ describe('AccountPelicanModal', () => {
     const wrapper = mountModal()
     await flushPromises()
 
-    expect(wrapper.findAll('#pelican-model-presets option').map(option => option.attributes('value'))).toEqual(['claude-sonnet', 'gpt-5.6-sol', 'gpt-6.1-sol'])
+    await wrapper.get('[data-test="pelican-model-input"]').trigger('focus')
+    expect(wrapper.findAll('[data-test="pelican-model-suggestion"]').map(option => option.attributes('data-value'))).toEqual(['claude-sonnet', 'gpt-5.6-sol', 'gpt-6.1-sol'])
+    expect(wrapper.find('datalist').exists()).toBe(false)
     expect((wrapper.vm as any).accountStates[0].selectedModel).toBe('gpt-5.6-sol')
     await wrapper.get('[data-test="pelican-model-input"]').setValue('claude-custom')
     await (wrapper.vm as any).startAllTests()
@@ -436,7 +592,7 @@ describe('AccountPelicanModal', () => {
       },
       global: {
         stubs: {
-          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          BaseDialog: { template: '<div><slot name="title-actions" /><slot /><slot name="footer" /></div>' },
           TextArea: true,
           Icon: true
         }
@@ -524,7 +680,7 @@ describe('AccountPelicanModal', () => {
     await wrapper.unmount()
   })
 
-  it('显式传入 autoStart 为 true 时自动启动测智', async () => {
+  it('即使旧调用方传入 autoStart 也不自动启动测智', async () => {
     const wrapper = mountModal(
       [{ id: 99, name: 'Auto Start Account', platform: 'openai', type: 'oauth', status: 'active' }],
       true
@@ -533,11 +689,11 @@ describe('AccountPelicanModal', () => {
     await new Promise(r => setTimeout(r, 120))
     await flushPromises()
 
-    expect(global.fetch).toHaveBeenCalled()
-    expect((wrapper.vm as any).accountStates[0].status).toBe('success')
+    expect(global.fetch).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
-  it('显式传入 autoStart 为 true 且存在上一次测智缓存时，使用上一次的测智参数自动开始测智', async () => {
+  it('存在上次测智缓存时仍需手动开始', async () => {
     setCachedPelicanResult({
       account: { id: 101, name: 'Previous Param Account' },
       status: 'success',
@@ -555,13 +711,8 @@ describe('AccountPelicanModal', () => {
     await new Promise(r => setTimeout(r, 120))
     await flushPromises()
 
-    expect(global.fetch).toHaveBeenCalled()
-    const requestCalls = (global.fetch as any).mock.calls
-    const testCall = requestCalls.find((call: any[]) => typeof call[0] === 'string' && call[0].includes('/admin/accounts/101/test'))
-    expect(testCall).toBeTruthy()
-    const body = JSON.parse(testCall[1].body)
-    expect(body.model_id).toBe('gpt-6.1-sol-previous')
-    expect(body.prompt).toBe('上一次的自定义测智题目')
+    expect(global.fetch).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('支持选择或输入大模型并正确传递至后端', async () => {
@@ -576,7 +727,7 @@ describe('AccountPelicanModal', () => {
     expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-model-history:v1') || '[]')).toEqual([
       'gpt-5.6-luna-custom'
     ])
-    expect(wrapper.findAll('#pelican-model-presets option').map(option => option.attributes('value'))).toContain('gpt-5.6-luna-custom')
+    expect(wrapper.findAll('select[aria-label="admin.accounts.pelicanModel"] option').map(option => option.attributes('value'))).toContain('gpt-5.6-luna-custom')
     ;(wrapper.vm as any).reasoningEffort = 'high'
     await flushPromises()
 
@@ -598,24 +749,37 @@ describe('AccountPelicanModal', () => {
     expect((wrapper.vm as any).reasoningEffort).toBe('low')
   })
 
-  it('新测试立即刷新历史并展示完整提示词、输出，重开后仍可读取', async () => {
+  it('新测智结果自动进入历史下拉，选中后把同一结果还原到结果卡片', async () => {
     const wrapper = mountModal()
+    const vm = wrapper.vm as any
     const prompt = '完整提示词\n' + '动画要求'.repeat(30)
-    ;(wrapper.vm as any).customPrompt = prompt
-    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(0)
-    await (wrapper.vm as any).startAllTests()
+    vm.customPrompt = prompt
     await flushPromises()
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]').length).toBeGreaterThan(0)
-    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
-    expect(wrapper.get('[data-test="pelican-history-prompt"]').text()).toBe(prompt)
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toContain('<svg>')
+    expect(wrapper.findAll('[data-test="pelican-history-select"] option')).toHaveLength(1)
+
+    await vm.startAllTests()
+    await flushPromises()
+
+    const options = wrapper.findAll('[data-test="pelican-history-select"] option')
+    expect(options).toHaveLength(3)
+    expect(options[1]!.text()).toContain('完整提示词')
+    expect(options[1]!.text()).toContain('gpt-5.6-sol')
+    // 历史选项用题目开头区分，不再重复显示账号名
+    expect(options[1]!.text()).not.toContain('OpenAI Account')
+
+    const entry = vm.historyOptions.find((item: any) => item.account.id === 1)
+    await wrapper.get('[data-test="pelican-history-select"]').setValue(vm.historyEntryKey(entry))
+    const state = vm.accountStates.find((item: any) => item.account.id === 1)
+    expect(state.status).toBe('success')
+    expect(state.prompt).toBe(prompt)
+    expect(state.result?.html).toContain('<svg')
+    expect(wrapper.find('[data-test="pelican-history-detail-pane"]').exists()).toBe(false)
     wrapper.unmount()
+
     reloadPelicanResultCacheFromStorage()
     const reopened = mountModal()
-    await reopened.get('[data-test="pelican-history-toggle"]').trigger('click')
-    expect(reopened.get('[data-test="pelican-history-prompt"]').text()).toBe(prompt)
-    expect(reopened.get('[data-test="pelican-history-output"]').text()).toContain('<svg>')
+    await flushPromises()
+    expect(reopened.findAll('[data-test="pelican-history-select"] option').length).toBe(3)
     reopened.unmount()
   })
 
@@ -624,27 +788,34 @@ describe('AccountPelicanModal', () => {
     { result: { has_html: false, html: '<svg><animate /></svg>', downgraded: true, reason: '' } },
     { output: '动画如下：\n```html\n<html><body><svg><animate /></svg></body></html>\n```' },
     { output: '```svg\n<svg><animate /></svg>\n```' }
-  ])('历史默认显示沙箱动画并折叠源码，兼容旧缓存 %#', async (content) => {
+  ])('历史条目复用结果卡片的动画预览与源码标签，兼容旧缓存 %#', async (content) => {
     setCachedPelicanResult({ account: { id: 20, name: 'Animation' }, status: 'success', testedAt: 1000, ...content })
     reloadPelicanResultCacheFromStorage()
     const wrapper = mountModal([{ id: 20, name: 'Animation', platform: 'openai', type: 'apikey', status: 'active' }])
-    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
-    const preview = wrapper.get('[data-test="pelican-history-preview"]')
+    await flushPromises()
+    const vm = wrapper.vm as any
+
+    const entry = vm.historyOptions[0]
+    await wrapper.get('[data-test="pelican-history-select"]').setValue(vm.historyEntryKey(entry))
+    await wrapper.get('[data-test="pelican-card-tab-preview"]').trigger('click')
+    const preview = wrapper.find('iframe')
     expect(preview.attributes('srcdoc')).toContain('<svg><animate /></svg>')
     expect(preview.attributes('srcdoc')).not.toContain('```')
     expect(preview.attributes('sandbox')).toBe('allow-scripts')
     expect(preview.attributes('srcdoc')).toContain("connect-src 'none'")
-    expect(wrapper.get('[data-test="pelican-history-source"]').attributes('open')).toBeUndefined()
+    await wrapper.get('[data-test="pelican-card-tab-source"]').trigger('click')
+    expect(wrapper.get('[data-test="pelican-card-source"]').text()).toContain('<svg>')
+
     setCachedPelicanResult({ account: { id: 20, name: 'Animation' }, status: 'failed', testedAt: 2000, output: '普通文本，无动画' })
     await flushPromises()
-    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
-    expect(wrapper.find('[data-test="pelican-history-preview"]').exists()).toBe(false)
-    expect(wrapper.get('[data-test="pelican-history-source"]').attributes('open')).toBeDefined()
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('普通文本，无动画')
+    const failedEntry = (wrapper.vm as any).historyOptions.find((item: any) => item.testedAt === 2000)
+    await wrapper.get('[data-test="pelican-history-select"]').setValue((wrapper.vm as any).historyEntryKey(failedEntry))
+    expect((wrapper.vm as any).accountStates[0].status).toBe('failed')
+    expect(wrapper.find('iframe').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('API Key 历史按账号 ID 隔离，单账号详情与选择变化不串号', async () => {
+  it('API Key 历史按账号 ID 隔离，历史下拉只还原对应账号', async () => {
     const accounts = [95, 96, 97].map(id => ({
       id, name: '同名账号', platform: 'openai', type: 'apikey', status: 'active'
     }))
@@ -657,27 +828,30 @@ describe('AccountPelicanModal', () => {
     }
     const wrapper = mountModal([accounts[0]])
     await wrapper.setProps({ allAccounts: accounts as any })
-    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(1)
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-95')
+    await flushPromises()
     const vm = wrapper.vm as any
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="pelican-history-select"] option')).toHaveLength(2)
+
     await vm.toggleAccountSelection(accounts[1])
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(2)
-    await vm.selectHistoryResult(vm.accountStates[1], 0)
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(1)
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-96')
-    await wrapper.get('[data-test="pelican-history-account"]').setValue('95')
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-95')
-    await vm.toggleAccountSelection(accounts[0])
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('output-96')
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="pelican-history-select"] option')).toHaveLength(3)
+
+    const entry96 = vm.historyOptions.find((item: any) => item.account.id === 96)
+    await wrapper.get('[data-test="pelican-history-select"]').setValue(vm.historyEntryKey(entry96))
+    const state96 = vm.accountStates.find((item: any) => item.account.id === 96)
+    expect(state96.responseModel).toBe('gpt-6-astra')
+    expect(state96.streamingContent).toBe('output-96')
+    expect(vm.accountStates.find((item: any) => item.account.id === 95).streamingContent).not.toBe('output-96')
+
     await vm.toggleAccountSelection(accounts[1])
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(0)
-    expect(wrapper.find('[data-test="pelican-history-output"]').exists()).toBe(false)
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="pelican-history-select"] option')).toHaveLength(2)
     expect(getCachedPelicanResult(97)?.output).toBe('output-97')
     wrapper.unmount()
   })
 
-  it('历史普通文本和失败详情可查看，标记不会改写原始提示词或新增记录', async () => {
+  it('历史普通文本和失败详情在结果卡片中查看，标记不会改写原始提示词或新增记录', async () => {
     setCachedPelicanResult({
       account: { id: 20, name: 'History Account' }, status: 'downgraded',
       testedAt: 1000, prompt: '原始提示词', output: '纯文本输出\n第二行'
@@ -685,23 +859,19 @@ describe('AccountPelicanModal', () => {
     const wrapper = mountModal([
       { id: 20, name: 'History Account', platform: 'openai', type: 'oauth', status: 'active' }
     ])
+    await flushPromises()
     const vm = wrapper.vm as any
     vm.customPrompt = '另一个提示词'
-    await vm.selectHistoryResult(vm.accountStates[0], 0)
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('纯文本输出\n第二行')
-    expect(wrapper.get('[data-test="pelican-history-prompt"]').text()).toBe('原始提示词')
+    await wrapper.get('[data-test="pelican-history-select"]').setValue(vm.historyEntryKey(vm.historyOptions[0]))
+    expect(wrapper.get('[data-test="account-test-output"]').text()).toBe('纯文本输出\n第二行')
+    await wrapper.get('[data-test="pelican-card-tab-details"]').trigger('click')
+    expect(wrapper.text()).toContain('原始提示词')
     await vm.manualMarkItem(vm.accountStates[0], false)
-    expect(vm.historyCount(20)).toBe(1)
     expect(getCachedPelicanResult(20)?.prompt).toBe('原始提示词')
-    setCachedPelicanResult({ account: { id: 20, name: 'History Account' }, status: 'failed', testedAt: 2000, error: 'HTTP 404 model missing' })
-    await flushPromises()
-    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
-    expect(wrapper.get('[data-test="pelican-history-output"]').text()).toBe('HTTP 404 model missing')
-    expect(wrapper.get('[data-test="pelican-history-prompt"]').text()).toBe('admin.accounts.pelicanPromptMissing')
     wrapper.unmount()
   })
 
-  it('点击账号历史按钮可展开并快速浏览历史结果', async () => {
+  it('历史下拉列出该账号每次测智，选中旧记录即可还原旧模型与判定', async () => {
     setCachedPelicanResult({
       account: { id: 20, name: 'History Account', type: 'oauth' },
       status: 'downgraded',
@@ -727,29 +897,36 @@ describe('AccountPelicanModal', () => {
       { id: 20, name: 'History Account', platform: 'openai', type: 'oauth', status: 'active' }
     ])
     await flushPromises()
+    const vm = wrapper.vm as any
 
-    expect((wrapper.vm as any).historyCount(20)).toBe(2)
-    expect(wrapper.find('iframe').exists()).toBe(true)
-    expect((wrapper.vm as any).accountStates[0].responseModel).toBe('new-model')
+    expect(wrapper.findAll('[data-test="pelican-history-select"] option')).toHaveLength(3)
+    expect(vm.accountStates[0].responseModel).toBe('new-model')
 
-    await wrapper.get('[data-test="pelican-history-toggle"]').trigger('click')
+    const oldEntry = vm.historyOptions.find((item: any) => item.testedAt === 1000)
+    await wrapper.get('[data-test="pelican-history-select"]').setValue(vm.historyEntryKey(oldEntry))
+    await flushPromises()
+    expect(vm.accountStates[0].status).toBe('downgraded')
+    expect(vm.accountStates[0].responseModel).toBe('old-model')
+    wrapper.unmount()
+  })
+
+  it('最新结果下拉项也带时间，便于和历史条目比较先后', async () => {
+    setCachedPelicanResult({
+      account: { id: 20, name: 'History Account', type: 'oauth' },
+      status: 'success',
+      testedAt: 2000,
+      prompt: 'p',
+      output: 'o'
+    })
+    const wrapper = mountModal([
+      { id: 20, name: 'History Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
     await flushPromises()
 
-    expect(wrapper.get('[data-test="pelican-history-panel"]').exists()).toBe(true)
-    expect(wrapper.findAll('[data-test="pelican-global-history-entry"]')).toHaveLength(2)
-    expect(wrapper.text()).toContain('old-model')
-    expect(wrapper.findAll('iframe')).toHaveLength(2)
-
-    await wrapper.get('[data-test="pelican-global-history-entry"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('old-model')
-    expect(wrapper.text()).toContain('new-model')
-
-    await (wrapper.vm as any).selectHistoryResult((wrapper.vm as any).accountStates[0], 1)
-    await flushPromises()
-    expect((wrapper.vm as any).accountStates[0].status).toBe('downgraded')
-    expect((wrapper.vm as any).accountStates[0].responseModel).toBe('old-model')
+    const latest = wrapper.findAll('[data-test="pelican-history-select"] option')[0]!
+    expect(latest.text()).toContain('admin.accounts.pelicanHistoryLatest')
+    expect(latest.text()).toContain(new Date(2000).toLocaleString())
+    wrapper.unmount()
   })
 
   it('使用下拉列表切换提示词方案并持久化选中与内容', async () => {
@@ -767,9 +944,13 @@ describe('AccountPelicanModal', () => {
     ;(wrapper.vm as any).addPromptScenario()
     await flushPromises()
 
-    const selects = wrapper.findAll('select')
-    expect(selects.map(select => (select.element as HTMLSelectElement).value)).toContain((wrapper.vm as any).selectedPromptId)
-    expect(selects.length).toBeGreaterThanOrEqual(3)
+    const questionPicker = wrapper.findComponent({ name: 'Select' })
+    expect(questionPicker.props('modelValue')).toBe((wrapper.vm as any).selectedPromptId)
+    expect(questionPicker.props('options')).toHaveLength(2)
+    for (const option of questionPicker.props('options')) {
+      expect(option.label).not.toMatch(/\n/)
+      expect(option.label.length).toBeLessThanOrEqual(31)
+    }
 
     expect((wrapper.vm as any).promptScenarios).toHaveLength(2)
     expect((wrapper.vm as any).customPrompt).toContain('admin.accounts.pelicanPromptDefault')
@@ -777,11 +958,11 @@ describe('AccountPelicanModal', () => {
       .not.toBe('default')
 
     const draftId = (wrapper.vm as any).selectedPromptId
-    await wrapper.get('[data-test="account-test-question"]').setValue('rule-1')
+    await wrapper.findComponent({ name: 'Select' }).setValue('rule-1')
     await flushPromises()
     expect((wrapper.vm as any).customPrompt).toBe('Pelican on spaceship')
 
-    await wrapper.get('[data-test="account-test-question"]').setValue(draftId)
+    await wrapper.findComponent({ name: 'Select' }).setValue(draftId)
     await flushPromises()
     expect((wrapper.vm as any).customPrompt).toBe('admin.accounts.pelicanPromptDefault')
   })
@@ -898,7 +1079,37 @@ describe('AccountPelicanModal', () => {
     wrapper.unmount()
   })
 
-  it('numeric templates send the exact prompt and expected answer and persist evaluator settings', async () => {
+  it.each([
+    ['connection', 'reply', 'admin.accounts.accountTesting.connectionPrompt', undefined],
+    ['numeric', 'numeric', 'admin.accounts.accountTesting.numericPrompt', 42],
+    ['animation', 'html', 'admin.accounts.pelicanPromptDefault', undefined]
+  ])('统一编辑器通过 %s 试题发送对应题目和判定方式', async (_kind, evaluator, prompt, expectedAnswer) => {
+    const wrapper = mountModal([{ id: 1, name: 'One', platform: 'anthropic', type: 'apikey', status: 'active' }])
+    await flushPromises()
+    await wrapper.get('[data-test="account-test-evaluator"]').setValue(evaluator)
+    await wrapper.get('textarea.textarea-stub').setValue(prompt)
+    if (expectedAnswer !== undefined) await wrapper.get('[data-test="account-test-expected-answer"]').setValue(String(expectedAnswer))
+    expect(fetch).not.toHaveBeenCalled()
+    await (wrapper.vm as any).startAllTests()
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)
+    expect(body).toMatchObject({mode: 'pelican', prompt, evaluator})
+    if (expectedAnswer !== undefined) expect(body.expected_answer).toBe(expectedAnswer)
+    wrapper.unmount()
+  })
+
+  it('图片试题使用同一题目编辑器并保留图片请求模式', async () => {
+    const wrapper = mountModal([{ id: 1, name: 'Image', platform: 'openai', type: 'apikey', status: 'active' }])
+    await flushPromises()
+    await wrapper.get('[data-test="account-test-evaluator"]').setValue('reply')
+    ;(wrapper.vm as any).selectedModel = 'gpt-image-1'
+    await wrapper.get('textarea.textarea-stub').setValue('Draw a blue square')
+    expect(fetch).not.toHaveBeenCalled()
+    await (wrapper.vm as any).startAllTests()
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string)).toMatchObject({mode:'default', prompt:'Draw a blue square'})
+    wrapper.unmount()
+  })
+
+  it('numeric questions send the exact prompt and expected answer and persist evaluator settings', async () => {
     const wrapper = mountModal([{ id: 1, name: 'One', platform: 'anthropic', type: 'apikey', status: 'active' }])
     await flushPromises()
     await wrapper.get('[data-test="account-test-evaluator"]').setValue('numeric')
@@ -970,8 +1181,8 @@ describe('AccountPelicanModal', () => {
     localStorage.clear()
     const android = mountModal()
     await flushPromises()
-    expect(android.get('[data-test="account-test-question"]').text()).toContain('Only answer 0')
-    await android.get('[data-test="account-test-question"]').setValue('rule-1')
+    expect(JSON.stringify(android.findComponent({ name: 'Select' }).props('options'))).toContain('Only answer 0')
+    await android.findComponent({ name: 'Select' }).setValue('rule-1')
     expect((android.vm as any).probeExpectedAnswer).toBe('0')
     expect(questionAPI.create).toHaveBeenCalledOnce()
     android.unmount()
@@ -981,7 +1192,7 @@ describe('AccountPelicanModal', () => {
     serverQuestions = [{id:7, name:'Question', prompt:'Say original', evaluator:'refusal_only', enabled:true, params:{}, created_at:'', updated_at:''}]
     const desktop = mountModal()
     await flushPromises()
-    await desktop.get('[data-test="account-test-question"]').setValue('rule-7')
+    await desktop.findComponent({ name: 'Select' }).setValue('rule-7')
     await desktop.get('textarea.textarea-stub').setValue('Say updated')
     await desktop.get('[data-test="pelican-prompt-save"]').trigger('click')
     await flushPromises()
@@ -1005,8 +1216,8 @@ describe('AccountPelicanModal', () => {
     serverQuestions = Array.from({length:25}, (_, i) => ({id:i+1,name:`Q${i}`,prompt:`Question ${i}`,evaluator:'refusal_only',enabled:false,params:{}}))
     const wrapper = mountModal()
     await flushPromises()
-    expect(wrapper.get('[data-test="account-test-question"]').findAll('option')).toHaveLength(26)
-    expect(wrapper.get('[data-test="account-test-question"]').text()).toContain('Question 24')
+    expect(wrapper.findComponent({ name: 'Select' }).props('options')).toHaveLength(26)
+    expect(JSON.stringify(wrapper.findComponent({ name: 'Select' }).props('options'))).toContain('Question 24')
     wrapper.unmount()
   })
 
@@ -1014,7 +1225,7 @@ describe('AccountPelicanModal', () => {
     serverQuestions = [{id:7,name:'Original',prompt:'Original',evaluator:'refusal_only',enabled:false,params:{}}]
     const wrapper = mountModal()
     await flushPromises()
-    await wrapper.get('[data-test="account-test-question"]').setValue('rule-7')
+    await wrapper.findComponent({ name: 'Select' }).setValue('rule-7')
     await wrapper.get('textarea.textarea-stub').setValue('Edited draft')
     questionAPI.update.mockRejectedValueOnce(new Error('offline'))
     await wrapper.get('[data-test="pelican-prompt-save"]').trigger('click')
@@ -1031,7 +1242,7 @@ describe('AccountPelicanModal', () => {
     serverQuestions = [{id:7,name:'Keywords',prompt:'Say keyword present',evaluator:'contains_keywords',enabled:false,params:{keywords:['keyword'],keyword_match:'all'}}]
     const wrapper = mountModal()
     await flushPromises()
-    await wrapper.get('[data-test="account-test-question"]').setValue('rule-7')
+    await wrapper.findComponent({ name: 'Select' }).setValue('rule-7')
     await (wrapper.vm as any).startAllTests()
     expect(fetch).not.toHaveBeenCalled()
     expect(questionAPI.run).toHaveBeenCalledWith(1, expect.any(String), [7], expect.any(AbortSignal))
@@ -1060,7 +1271,37 @@ describe('AccountPelicanModal', () => {
     wrapper.unmount()
   })
 
-  it('从该账号设置中的大模型拉取下拉列表且测试题目编辑区保持紧凑行高', async () => {
+  it('测过的模型进入历史下拉，可一键清除历史', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'gpt-5.6-sol', display_name: 'GPT 5.6 Sol' }])
+    const wrapper = mountModal([
+      { id: 43, name: 'History Model Account', platform: 'openai', type: 'oauth', status: 'active' }
+    ])
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const values = () => wrapper.get('select[aria-label="admin.accounts.pelicanModel"]')
+      .findAll('option').map(o => o.attributes('value'))
+
+    // 不填全局模型时，账号自身目录里实际测过的模型也应被记住
+    await vm.startAllTests()
+    await flushPromises()
+    expect(JSON.parse(localStorage.getItem('sub2api:account-pelican-model-history:v1') || '[]')).toContain('gpt-5.6-sol')
+
+    await wrapper.get('[data-test="pelican-model-input"]').setValue('claude-custom-history')
+    await vm.startAllTests()
+    await flushPromises()
+    expect(values()).toContain('claude-custom-history')
+
+    // 清除只影响本机历史，账号目录仍可用
+    await wrapper.get('[data-test="pelican-model-history-clear"]').trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('sub2api:account-pelican-model-history:v1')).toBeNull()
+    expect(values()).not.toContain('claude-custom-history')
+    expect(values()).toContain('gpt-5.6-sol')
+    expect(wrapper.find('[data-test="pelican-model-history-clear"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('从该账号设置中的大模型拉取下拉列表且腾出说明空间扩大题目编辑区', async () => {
     localStorage.setItem('sub2api:account-pelican-model-history:v1', JSON.stringify(['history-unrelated-model']))
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.6-sol', display_name: 'GPT 5.6 Sol' },
@@ -1071,24 +1312,28 @@ describe('AccountPelicanModal', () => {
     ])
     await flushPromises()
 
-    // 测试大模型下拉列表 <select> 应只从该账号设置中拉取，不被外部历史污染
+    // 测试大模型下拉同时保留该账号目录与过往下拉历史，用过的模型不会丢
     const selectOptions = wrapper.findAll('select[aria-label="admin.accounts.pelicanModel"] option')
       .map(o => o.attributes('value'))
     expect(selectOptions).toContain('')
     expect(selectOptions).toContain('gpt-4o')
     expect(selectOptions).toContain('gpt-5.6-sol')
-    expect(selectOptions).not.toContain('history-unrelated-model')
+    expect(selectOptions).toContain('history-unrelated-model')
 
-    // datalist 仍保留输入历史供自由输入自动完成
-    const datalistOptions = wrapper.findAll('#pelican-model-presets option')
-      .map(o => o.attributes('value'))
-    expect(datalistOptions).toContain('history-unrelated-model')
+    // 输入框使用页面内主题化建议列表（不再依赖原生 datalist 黑色弹窗）
+    await wrapper.get('[data-test="pelican-model-input"]').trigger('focus')
+    const suggestionOptions = wrapper.findAll('[data-test="pelican-model-suggestion"]')
+      .map(o => o.attributes('data-value'))
+    expect(suggestionOptions).toContain('history-unrelated-model')
+    expect(wrapper.find('datalist').exists()).toBe(false)
 
-    // 测试题目文本框保持为 2 行且带有紧凑高度限制，防止超出整页翻页
+    // 简化文本框通过 textarea-class 属性接收真实组件的高度限制。
     const textarea = wrapper.find('textarea[placeholder="admin.accounts.pelicanPromptPlaceholder"]')
     expect(textarea.exists()).toBe(true)
-    expect(textarea.attributes('rows')).toBe('2')
-    expect(textarea.classes()).toContain('max-h-20')
+    expect(textarea.attributes('rows')).toBe('5')
+    expect(textarea.attributes('textarea-class')).toContain('min-h-[112px]')
+    expect(textarea.attributes('textarea-class')).toContain('max-h-60')
+    expect(wrapper.text()).not.toContain('admin.accounts.pelicanModelOverridePlaceholder')
 
     wrapper.unmount()
   })

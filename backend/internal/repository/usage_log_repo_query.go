@@ -20,7 +20,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id, native_compaction_v2, cache_creation_30m_tokens, cache_creation_12h_tokens, created_at"
+const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id, native_compaction_v2, cache_creation_30m_tokens, cache_creation_12h_tokens, client_disconnected, created_at"
 
 func (r *usageLogRepository) GetByID(ctx context.Context, id int64) (log *service.UsageLog, err error) {
 	query := "SELECT " + usageLogSelectColumns + " FROM usage_logs WHERE id = $1"
@@ -96,7 +96,7 @@ func (r *usageLogRepository) Delete(ctx context.Context, id int64) error {
 // UsageLogFilters represents filters for usage log queries
 type UsageLogFilters = usagestats.UsageLogFilters
 
-const usageLogWithStatusColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id, native_compaction_v2, created_at, status, status_code, error_id, error_message, error_type, error_phase, error_body"
+const usageLogWithStatusColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, upstream_response_model, upstream_model_mismatch, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, image_input_tokens, image_input_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id, native_compaction_v2, client_disconnected, created_at, status, status_code, error_id, error_message, error_type, error_phase, error_body"
 
 const usageLogSuccessSelectWithStatus = `
 SELECT
@@ -110,7 +110,7 @@ SELECT
   video_count, video_resolution, video_duration_seconds, service_tier, reasoning_effort, requested_reasoning_effort,
   inbound_endpoint, upstream_endpoint, cache_ttl_overridden, long_context_billing_applied, channel_id,
   model_mapping_chain, billing_tier, billing_mode, account_stats_cost, upstream_request_id, session_id,
-  native_compaction_v2, created_at,
+  native_compaction_v2, client_disconnected, created_at,
   'success'::text AS status, 200::integer AS status_code, NULL::bigint AS error_id, NULL::text AS error_message, NULL::text AS error_type, NULL::text AS error_phase, NULL::text AS error_body
 FROM usage_logs
 `
@@ -132,7 +132,7 @@ SELECT
   NULL::text AS reasoning_effort, NULL::text AS requested_reasoning_effort, o.inbound_endpoint, o.upstream_endpoint,
   false AS cache_ttl_overridden, false AS long_context_billing_applied, NULL::bigint AS channel_id, NULL::text AS model_mapping_chain,
   NULL::text AS billing_tier, NULL::text AS billing_mode, NULL::float8 AS account_stats_cost, NULL::text AS upstream_request_id,
-  NULL::text AS session_id, false AS native_compaction_v2, o.created_at,
+  NULL::text AS session_id, false AS native_compaction_v2, false AS client_disconnected, o.created_at,
   'error'::text AS status, COALESCE(o.status_code, 500)::integer AS status_code, o.id AS error_id, o.error_message, o.error_type, o.error_phase, o.error_body
 FROM ops_error_logs o
 `
@@ -425,9 +425,12 @@ ORDER BY %s LIMIT $%d OFFSET $%d
 		if err := scanSingleRow(ctx, r.sql, count1Query, usageArgs, &count1); err != nil {
 			return nil, nil, err
 		}
-		count2Query := "SELECT COUNT(*) FROM ops_error_logs " + opsWhere
+		// The standalone count has its own argument list, unlike the UNION.
+		// Restart placeholders at $1 rather than retaining the usage-branch offset.
+		countOpsConds, countOpsArgs := buildOpsErrorLogConditions(filters, 0)
+		count2Query := "SELECT COUNT(*) FROM ops_error_logs " + buildWhere(countOpsConds)
 		var count2 int64
-		if err := scanSingleRow(ctx, r.sql, count2Query, opsArgs, &count2); err != nil {
+		if err := scanSingleRow(ctx, r.sql, count2Query, countOpsArgs, &count2); err != nil {
 			return nil, nil, err
 		}
 		total = count1 + count2
@@ -761,6 +764,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		nativeCompactionV2        bool
 		cacheCreation30m          int
 		cacheCreation12h          int
+		clientDisconnected        bool
 		createdAt                 time.Time
 	)
 
@@ -829,6 +833,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		&nativeCompactionV2,
 		&cacheCreation30m,
 		&cacheCreation12h,
+		&clientDisconnected,
 		&createdAt,
 	); err != nil {
 		return nil, err
@@ -864,6 +869,7 @@ func scanUsageLog(scanner interface{ Scan(...any) error }) (*service.UsageLog, e
 		NativeCompactionV2:        nativeCompactionV2,
 		CacheCreation30mTokens:    cacheCreation30m,
 		CacheCreation12hTokens:    cacheCreation12h,
+		ClientDisconnected:        clientDisconnected,
 		ImageCount:                imageCount,
 		VideoCount:                videoCount,
 		CacheTTLOverridden:        cacheTTLOverridden,
@@ -1067,6 +1073,7 @@ func scanUsageLogWithStatus(scanner interface{ Scan(...any) error }) (*service.U
 		upstreamRequestID         sql.NullString
 		sessionID                 sql.NullString
 		nativeCompactionV2        bool
+		clientDisconnected        bool
 		createdAt                 time.Time
 		status                    sql.NullString
 		statusCode                sql.NullInt64
@@ -1140,6 +1147,7 @@ func scanUsageLogWithStatus(scanner interface{ Scan(...any) error }) (*service.U
 		&upstreamRequestID,
 		&sessionID,
 		&nativeCompactionV2,
+		&clientDisconnected,
 		&createdAt,
 		&status,
 		&statusCode,
@@ -1180,6 +1188,7 @@ func scanUsageLogWithStatus(scanner interface{ Scan(...any) error }) (*service.U
 		BillingType:               int8(billingType),
 		RequestType:               service.RequestTypeFromInt16(requestTypeRaw),
 		NativeCompactionV2:        nativeCompactionV2,
+		ClientDisconnected:        clientDisconnected,
 		ImageCount:                imageCount,
 		VideoCount:                videoCount,
 		CacheTTLOverridden:        cacheTTLOverridden,

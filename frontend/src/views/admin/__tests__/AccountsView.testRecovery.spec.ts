@@ -322,14 +322,14 @@ describe('admin AccountsView successful test recovery prompt', () => {
     wrapper.unmount()
   })
 
-  it('点击直接测智时传递 autoStart 为 true', async () => {
+  it('点击账号测试仅打开工作台，不自动开始测智', async () => {
     const wrapper = mountView()
     await flushPromises()
 
     await wrapper.get('[data-test="account-test-action"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="test-modal-active"]').attributes('data-auto-start')).toBe('true')
+    expect(wrapper.get('[data-test="test-modal-active"]').attributes('data-auto-start')).not.toBe('true')
     wrapper.unmount()
   })
 })

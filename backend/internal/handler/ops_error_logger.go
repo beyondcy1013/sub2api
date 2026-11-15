@@ -18,6 +18,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/modules/rotationnotice"
+	"github.com/Wei-Shaw/sub2api/internal/modules/routingdiagnostics"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -490,6 +492,7 @@ func markOpsRoutingCapacityLimited(c *gin.Context) {
 }
 
 func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {
+	routingdiagnostics.Capture(c, err)
 	if !isOpsNoAvailableAccountError(err) {
 		return
 	}
@@ -1088,6 +1091,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			releaseOpsCaptureWriter(w)
 		}()
 		c.Writer = w
+		bindQualityAttemptUsageRecorder(c, ops)
 		c.Next()
 		w.finalizeCapture()
 
@@ -1243,7 +1247,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 			ErrorMessage: parsed.Message,
 			// Sanitize each SSE data payload before the body enters the async queue.
-			ErrorBody:   sanitizeOpsSSEDataForPersistence(body),
+			ErrorBody:   routingdiagnostics.EnrichBody(c, sanitizeOpsSSEDataForPersistence(body)),
 			ErrorSource: errorSource,
 			ErrorOwner:  errorOwner,
 
@@ -1251,7 +1255,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
-		if parsed.StreamFailure {
+		if parsed.StreamFailure && normalizedType != rotationnotice.QualityCheckFailed && normalizedType != rotationnotice.AccountAttemptsExhausted {
 			if message := strings.TrimSpace(parsed.Message); message != "" {
 				entry.UpstreamErrorMessage = &message
 			}
@@ -2039,6 +2043,8 @@ func sanitizeOpsSSEDataForPersistence(body []byte) string {
 
 func inferResponsesFailedOpsErrorType(code string) string {
 	switch strings.TrimSpace(code) {
+	case rotationnotice.QualityCheckFailed, rotationnotice.AccountAttemptsExhausted:
+		return strings.TrimSpace(code)
 	case "rate_limit_exceeded":
 		return "rate_limit_error"
 	case "permission_denied", "permission_error", "insufficient_permissions", "cyber_policy", "content_policy":
@@ -2135,7 +2141,8 @@ func guessPlatformFromPath(path string) string {
 // classification if accepted blindly.
 func isKnownOpsErrorType(t string) bool {
 	switch t {
-	case "invalid_request_error",
+	case rotationnotice.QualityCheckFailed, rotationnotice.AccountAttemptsExhausted,
+		"invalid_request_error",
 		"authentication_error",
 		"permission_error",
 		"model_not_found",
@@ -2191,7 +2198,7 @@ func classifyOpsPhase(errType, message, code string) string {
 		return "upstream"
 	case "invalid_request_error", "permission_error", "forbidden_error", "not_found_error", "model_not_found":
 		return "request"
-	case "upstream_error", "overloaded_error":
+	case "upstream_error", "overloaded_error", rotationnotice.QualityCheckFailed, rotationnotice.AccountAttemptsExhausted:
 		return "upstream"
 	case "api_error":
 		if isOpsNoAvailableAccountMessage(msg) {

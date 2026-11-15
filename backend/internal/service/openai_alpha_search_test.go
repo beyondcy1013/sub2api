@@ -586,8 +586,8 @@ func TestForwardAlphaSearchAPIKeyEndpointNotFoundFailsOver(t *testing.T) {
 	require.Empty(t, recorder.Body.String())
 }
 
-// OAuth 账号的 chatgpt.com 端点固定存在，404 保持原有透传行为不变。
-func TestForwardAlphaSearchOAuthNotFoundPassesThrough(t *testing.T) {
+// OAuth 上游的 404 同样交给通用故障转移，不提交下游响应。
+func TestForwardAlphaSearchOAuthNotFoundFailsOver(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"id":"search-session","model":"gpt-5.6-sol","commands":{"search_query":[{"q":"news"}]}}`)
 	recorder := httptest.NewRecorder()
@@ -614,10 +614,12 @@ func TestForwardAlphaSearchOAuthNotFoundPassesThrough(t *testing.T) {
 
 	result, err := service.ForwardAlphaSearch(context.Background(), c, account, body)
 
-	require.NoError(t, err)
 	require.Nil(t, result)
-	require.Equal(t, http.StatusNotFound, recorder.Code)
-	require.JSONEq(t, upstreamBody, recorder.Body.String())
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusNotFound, failoverErr.StatusCode)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
 }
 
 func TestShouldApplyOpenAIAlphaSearchAccountErrorSideEffects(t *testing.T) {

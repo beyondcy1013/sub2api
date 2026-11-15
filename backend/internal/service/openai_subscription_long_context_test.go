@@ -132,7 +132,7 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolUsesCredentialAndUpstreamModel(
 	}{
 		{name: "客户别名映射到目标", model: "custom", upstream: "gpt-6.1-sol", parentType: AccountTypeOAuth, wantTotal: 0.62},
 		{name: "请求目标映射到旧模型", model: "gpt-6.1-sol", upstream: "gpt-6-sol", parentType: AccountTypeOAuth, wantTotal: 1.23, wantLong: true},
-		{name: "其他订阅模型", model: "gpt-6-sol", parentType: AccountTypeOAuth, wantTotal: 1.23, wantLong: true},
+		{name: "其他订阅模型", model: "gpt-6-luna", parentType: AccountTypeOAuth, wantTotal: 0.0615, wantLong: true},
 		{name: "订阅母账号", model: "gpt-6.1-sol", parentType: AccountTypeOAuth, wantTotal: 0.62},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

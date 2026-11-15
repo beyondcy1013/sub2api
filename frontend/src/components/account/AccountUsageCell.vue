@@ -807,6 +807,7 @@ import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
 import {
   applyAccountBalanceQueryResult,
+  enqueueBalanceQuery,
   formatAccountBalanceCell,
   supportsAccountBalanceQuery
 } from '@/utils/accountBalance'
@@ -952,8 +953,6 @@ const shouldFetchUsage = computed(() => {
 // credentialsBuilder 的单一实现）：都不可见时显示 `-` 占位符。
 const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account))
 const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account))
-
-const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')
 
 // Vertex 没有本地模拟配额，用量窗口展示今日统计
 const showGeminiTodayStats = computed(() => {
@@ -1108,6 +1107,7 @@ const antigravity3ImageUsageFromAPI = computed(() =>
 // Claude from API (all Claude model variants)
 const antigravityClaudeUsageFromAPI = computed(() =>
   getAntigravityUsageFromAPI([
+    'claude-fable-5-2',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-sonnet-4-5', 'claude-opus-4-5-thinking',
@@ -1840,11 +1840,27 @@ const handleOpenCodeGoUsageUpdated = (state: NonNullable<Account['opencode_go_us
 const apiKeyBalanceRefreshing = ref(false)
 const apiKeyBalanceFailed = ref(false)
 const apiKeyBalanceOverride = ref<string | null>(null)
+const _autoBalanceQueriedIds = new Set<number>()
 
 const apiKeyBalanceDisplay = computed(() => {
   if (apiKeyBalanceFailed.value) return '--'
   return apiKeyBalanceOverride.value ?? formatAccountBalanceCell(props.account)
 })
+
+const maybeAutoFetchApiKeyBalance = () => {
+  if (!supportsAccountBalanceQuery(props.account)) return
+  if (props.account.status !== 'active') return
+  const hasResult = props.account.extra?.balance_query?.last_result != null
+  const hasDirectBalance = props.account.extra?.balance != null
+  if (hasResult || hasDirectBalance) return
+  if (_autoBalanceQueriedIds.has(props.account.id)) return
+  _autoBalanceQueriedIds.add(props.account.id)
+
+  enqueueBalanceQuery(props.account.id, async () => {
+    if (unmounted.value) return
+    await refreshApiKeyBalance()
+  })
+}
 
 const refreshApiKeyBalance = async () => {
   if (apiKeyBalanceRefreshing.value || !supportsAccountBalanceQuery(props.account)) return
@@ -1902,10 +1918,21 @@ onMounted(() => {
     }
   }
 
-  if (!shouldAutoLoadUsageOnMount.value) return
+  if (!shouldAutoLoadUsageOnMount.value) {
+    maybeAutoFetchApiKeyBalance()
+    return
+  }
   const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
   requestAutoLoad(source)
+  maybeAutoFetchApiKeyBalance()
 })
+
+watch(
+  () => props.account.id,
+  () => {
+    maybeAutoFetchApiKeyBalance()
+  }
+)
 
 watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (!prevKey || nextKey === prevKey) return

@@ -496,6 +496,7 @@ const props = defineProps<{
   modelOptions: SelectOption[]
   embedded?: boolean
   rulesOnly?: boolean
+  initialPlanId?: number
 }>()
 
 const isGlobalMode = computed(() => props.accountId === null)
@@ -996,6 +997,10 @@ watch(
       if (!props.rulesOnly) await loadGlobalFormData()
     } else if (visible && props.accountId) {
       await Promise.all([...(props.rulesOnly ? [] : [loadPlans()]), loadRules()])
+    }
+    if (!props.rulesOnly) {
+      const initialPlan = plans.value.find(plan => plan.id === props.initialPlanId)
+      if (initialPlan) startEdit(initialPlan)
     }
   },
   { immediate: true }

@@ -373,6 +373,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.GET("/automatic-detection", h.Admin.ScheduledTest.GetAutomaticDetection)
 		accounts.PUT("/automatic-detection", h.Admin.ScheduledTest.UpdateAutomaticDetection)
 		accounts.GET("/detection-records", h.Admin.Account.ListDetectionRecords)
+		accounts.GET("/degradation-counts", h.Admin.Account.GetDegradationCounts)
 		accounts.POST("/:id/quality-test", h.Admin.Account.RunQualityRules)
 		accounts.GET("/request-quality-probe/settings", h.Admin.Account.GetRequestQualityProbeSettings)
 		accounts.PUT("/request-quality-probe/settings", h.Admin.Account.UpdateRequestQualityProbeSettings)

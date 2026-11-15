@@ -76,3 +76,19 @@ func TestIsHaiku55(t *testing.T) {
 		require.False(t, IsHaiku55(model), model)
 	}
 }
+
+func TestIsFable52(t *testing.T) {
+	t.Parallel()
+	for _, model := range []string{
+		"claude-fable-5-2",
+		"anthropic/claude-fable-5.2",
+		"anthropic.claude-fable-5-2",
+		"us.anthropic.claude-fable-5-2",
+		"global.anthropic.claude-fable-5-2-thinking",
+	} {
+		require.True(t, IsFable52(model), model)
+	}
+	for _, model := range []string{"claude-fable-5", "claude-fable-5-1", "claude-fable-5-3", "claude-sonnet-5-5"} {
+		require.False(t, IsFable52(model), model)
+	}
+}
