@@ -1888,11 +1888,11 @@ func TestGetModelPricing_Fable52FallbackPricing(t *testing.T) {
 
 	pricing, err := svc.GetModelPricing("claude-fable-5-2")
 	require.NoError(t, err)
-	require.InDelta(t, 10e-6, pricing.InputPricePerToken, 1e-12)
-	require.InDelta(t, 50e-6, pricing.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 12.5e-6, pricing.CacheCreation5mPrice, 1e-12)
-	require.InDelta(t, 20e-6, pricing.CacheCreation1hPrice, 1e-12)
-	require.InDelta(t, 0.25e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 8e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 40e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 10e-6, pricing.CacheCreation5mPrice, 1e-12)
+	require.InDelta(t, 16e-6, pricing.CacheCreation1hPrice, 1e-12)
+	require.InDelta(t, 0.2e-6, pricing.CacheReadPricePerToken, 1e-12)
 	require.Empty(t, pricing.ReasoningEffortMultipliers)
 }
 

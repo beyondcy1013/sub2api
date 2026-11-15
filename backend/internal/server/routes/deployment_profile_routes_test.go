@@ -31,7 +31,7 @@ func TestDeploymentProfileAdminRouteMatrix(t *testing.T) {
 				Deployment: config.DeploymentConfig{Profile: tt.profile},
 			})
 			registerAccountRoutes(router.Group("/api/v1/admin"), &handler.Handlers{Admin: &handler.AdminHandlers{}}, nil, settingService.RuntimeCapabilities().StickySessionReassignment)
-			registerSettingsRoutes(router.Group("/api/v1/admin"), &handler.Handlers{Admin: &handler.AdminHandlers{}}, settingService.RuntimeCapabilities().BalanceCheck)
+			registerSettingsRoutes(router.Group("/api/v1/admin"), &handler.Handlers{Admin: &handler.AdminHandlers{}}, nil, settingService.RuntimeCapabilities().BalanceCheck)
 
 			routes := make(map[string]struct{})
 			for _, route := range router.Routes() {

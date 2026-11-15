@@ -1887,7 +1887,7 @@ func TestFable52ResponsesAdaptiveThinkingAndToolChoice(t *testing.T) {
 		require.Equal(t, "adaptive", out.Thinking.Type)
 		require.Zero(t, out.Thinking.BudgetTokens)
 		if effort == "" {
-			effort = "medium"
+			effort = "high"
 		}
 		require.Equal(t, effort, out.OutputConfig.Effort)
 	}

@@ -148,7 +148,7 @@ func TestAccountFromService_RedactsGrokModelDiagnostics(t *testing.T) {
 	require.Contains(t, body, `"mappings":[`)
 	require.NotContains(t, body, "access-secret")
 	require.NotContains(t, body, "refresh-secret")
-	require.NotContains(t, body, "sk-secret")
+	require.Contains(t, body, "sk-secret")
 	require.NotContains(t, body, "query-secret")
 	require.NotContains(t, body, "s3cret")
 

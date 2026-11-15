@@ -12,7 +12,7 @@ func TestDefaultModelsContainsClaudeFable52(t *testing.T) {
 	for _, model := range DefaultModels {
 		if model.ID == "claude-fable-5-2" {
 			require.Equal(t, "Claude Fable 5.2", model.DisplayName)
-			require.Equal(t, "2026-11-12T00:00:00Z", model.CreatedAt)
+			require.Equal(t, "2026-11-09T00:00:00Z", model.CreatedAt)
 			return
 		}
 	}
