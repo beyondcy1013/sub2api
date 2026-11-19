@@ -111,6 +111,15 @@ func TestCreateOpenAIPelicanProbePayload(t *testing.T) {
 	assert.NotEmpty(t, meta["x-codex-installation-id"])
 }
 
+func TestCreateOpenAIRuleProbePayload(t *testing.T) {
+	payload := createOpenAIRuleProbePayload("gpt-6.1-sol", true, "hello", 123)
+	require.NotNil(t, payload)
+	assert.Equal(t, "gpt-6.1-sol", payload["model"])
+	assert.Equal(t, false, payload["store"])
+	assert.Equal(t, true, payload["stream"])
+	assert.Equal(t, compactProbeSessionID(123), payload["prompt_cache_key"])
+}
+
 func TestAccountTestService_TestAccountConnection_OpenAIPelican(t *testing.T) {
 	account := Account{
 		ID:          1,

@@ -56,7 +56,8 @@ func createOpenAICompactProbePayload(model string, isOAuth bool) map[string]any 
 			},
 			map[string]any{"type": "compaction_trigger"},
 		},
-		"stream": true,
+		"stream":           true,
+		"prompt_cache_key": "probe-compact",
 	}
 	// ChatGPT internal API 要求 store: false，与真实转发一致。
 	if isOAuth {

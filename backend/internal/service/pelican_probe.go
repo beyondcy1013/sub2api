@@ -253,7 +253,8 @@ func createOpenAIRuleProbePayload(model string, isOAuth bool, prompt string, acc
 				},
 			},
 		},
-		"stream": true,
+		"stream":           true,
+		"prompt_cache_key": compactProbeSessionID(accountID),
 	}
 	if effort != "" && effort != "none" {
 		// Request the readable reasoning summary so a failed answer keeps the

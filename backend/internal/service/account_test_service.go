@@ -3147,7 +3147,8 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				},
 			},
 		},
-		"stream": true,
+		"stream":           true,
+		"prompt_cache_key": "probe-test-" + uuid.NewString()[:8],
 	}
 
 	// OAuth accounts using ChatGPT internal API require store: false
