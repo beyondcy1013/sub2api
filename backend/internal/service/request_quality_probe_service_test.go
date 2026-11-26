@@ -73,7 +73,11 @@ func (m *mockSettingRepoForQualityProbe) Delete(ctx context.Context, key string)
 
 type stubAccountRepoForQualityProbe struct {
 	AccountRepository
-	extraUpdated map[int64]map[string]any
+	extraUpdated       map[int64]map[string]any
+	qualityState       QualityDegradationState
+	qualityStateCalls  int
+	qualityStateClears int
+	qualityStateResets int
 }
 
 func (s *stubAccountRepoForQualityProbe) UpdateExtra(ctx context.Context, id int64, extra map[string]any) error {
@@ -81,6 +85,36 @@ func (s *stubAccountRepoForQualityProbe) UpdateExtra(ctx context.Context, id int
 		s.extraUpdated = make(map[int64]map[string]any)
 	}
 	s.extraUpdated[id] = extra
+	return nil
+}
+
+func (s *stubAccountRepoForQualityProbe) RecordQualityDegradation(_ context.Context, _ int64, fingerprint, model, reason string, threshold int, pause bool) (QualityDegradationState, error) {
+	s.qualityStateCalls++
+	if s.qualityState.RuleFingerprint != fingerprint {
+		s.qualityState.ConsecutiveCount = 0
+	}
+	s.qualityState.ConsecutiveCount++
+	s.qualityState.RuleFingerprint = fingerprint
+	s.qualityState.LastModel = model
+	s.qualityState.LastReason = reason
+	s.qualityState.Threshold = threshold
+	if pause && s.qualityState.ConsecutiveCount >= threshold {
+		s.qualityState.Paused = true
+	}
+	return s.qualityState, nil
+}
+
+func (s *stubAccountRepoForQualityProbe) ResetQualityDegradation(_ context.Context, _ int64, fingerprint string) error {
+	s.qualityStateResets++
+	if s.qualityState.RuleFingerprint == fingerprint {
+		s.qualityState.ConsecutiveCount = 0
+	}
+	return nil
+}
+
+func (s *stubAccountRepoForQualityProbe) ClearQualityDegradationState(_ context.Context, _ int64) error {
+	s.qualityStateClears++
+	s.qualityState = QualityDegradationState{}
 	return nil
 }
 
@@ -303,6 +337,68 @@ func TestRequestQualityProbeEveryRequestMarksOnlyConfirmedDegradation(t *testing
 			}
 		})
 	}
+}
+
+func TestRequestQualityProbePausesAfterConfirmedDegradationThreshold(t *testing.T) {
+	settings := NewSettingService(newMockSettingRepoForQualityProbe(), nil)
+	config := DefaultRequestQualityProbeSettings()
+	config.Enabled = true
+	config.RuleIDs = []int64{1}
+	config.ReuseSeconds = intPtr(0)
+	config.AutoPauseOnDowngrade = true
+	config.DowngradeThreshold = 2
+	require.NoError(t, settings.UpdateRequestQualityProbeSettings(context.Background(), config))
+
+	repo := &stubAccountRepoForQualityProbe{}
+	tester := &stubAccountTesterForQualityProbe{status: "success", downgraded: true}
+	svc := NewRequestQualityProbeService(settings, repo, newBuiltinRuleStub(), nil)
+	svc.accountTestService = tester
+	account := &Account{ID: 77, Status: StatusActive, Schedulable: true}
+
+	for i := 0; i < 2; i++ {
+		result, cancel := svc.StartRequestQualityCheck(context.Background(), account, "gpt-6-astra")
+		require.NotNil(t, result)
+		require.Error(t, <-result)
+		cancel()
+	}
+
+	require.Equal(t, 2, repo.qualityStateCalls)
+	require.Equal(t, 2, repo.qualityState.ConsecutiveCount)
+	require.True(t, repo.qualityState.Paused)
+	require.False(t, account.Schedulable)
+}
+
+func TestRequestQualityProbeCleanPassResetsCountButDoesNotResumePause(t *testing.T) {
+	settings := NewSettingService(newMockSettingRepoForQualityProbe(), nil)
+	config := DefaultRequestQualityProbeSettings()
+	config.Enabled = true
+	config.RuleIDs = []int64{1}
+	config.ReuseSeconds = intPtr(0)
+	config.AutoPauseOnDowngrade = true
+	config.DowngradeThreshold = 1
+	require.NoError(t, settings.UpdateRequestQualityProbeSettings(context.Background(), config))
+
+	repo := &stubAccountRepoForQualityProbe{}
+	tester := &stubAccountTesterForQualityProbe{status: "success", downgraded: true}
+	svc := NewRequestQualityProbeService(settings, repo, newBuiltinRuleStub(), nil)
+	svc.accountTestService = tester
+	account := &Account{ID: 78, Status: StatusActive, Schedulable: true}
+
+	result, cancel := svc.StartRequestQualityCheck(context.Background(), account, "gpt-6-astra")
+	require.Error(t, <-result)
+	cancel()
+	require.True(t, repo.qualityState.Paused)
+	account.Schedulable = false
+
+	tester.downgraded = false
+	result, cancel = svc.StartRequestQualityCheck(context.Background(), account, "gpt-6-astra")
+	require.NotNil(t, result)
+	require.NoError(t, <-result)
+	cancel()
+	require.Equal(t, 0, repo.qualityState.ConsecutiveCount)
+	require.True(t, repo.qualityState.Paused)
+	require.False(t, account.Schedulable)
+	require.GreaterOrEqual(t, repo.qualityStateResets, 1)
 }
 
 func TestRequestQualityProbeParallelStartsWithoutWaitingAndChecksEachTurn(t *testing.T) {
@@ -586,4 +682,81 @@ func TestRequestQualityProbe_ClaudeWildcardGate(t *testing.T) {
 	require.NotNil(t, result3)
 	require.NoError(t, <-result3)
 	require.Equal(t, 2, tester.runCount)
+}
+
+func TestRequestQualityProbe_GLMExemption(t *testing.T) {
+	// 1. IsGLMModel identification
+	glmModels := []string{
+		"glm-5.3",
+		"glm-5.3-flash",
+		"GLM-5.3",
+		"GLM-5.3-Flash",
+		"glm-5.2",
+		"glm-5.1",
+		"glm-5",
+		"glm-4.7",
+		"glm-4.7-flash",
+		"glm-4.6",
+		"glm-4.5",
+		"cn:glm-5.3",
+		"zhipu/GLM-5.3-Flash",
+		"chatglm_turbo",
+	}
+	for _, m := range glmModels {
+		require.True(t, IsGLMModel(m), "expected %s to be recognized as GLM", m)
+		require.True(t, IsQualityProbeExcluded(nil, m), "expected %s to be excluded from quality probe", m)
+	}
+
+	nonGlmModels := []string{
+		"gpt-6-astra",
+		"gpt-6.1-sol",
+		"claude-3-7-sonnet",
+		"claude-sonnet-5",
+		"deepseek-v4",
+	}
+	for _, m := range nonGlmModels {
+		require.False(t, IsGLMModel(m), "expected %s not to be recognized as GLM", m)
+		require.False(t, IsQualityProbeExcluded(nil, m), "expected %s not to be excluded without custom exclude pattern", m)
+	}
+
+	// 2. StartRequestQualityCheck with ModelScope: "all"
+	svc, tester, _ := qualityFixture(t)
+	require.NoError(t, svc.settingService.UpdateRequestQualityProbeSettings(context.Background(), &RequestQualityProbeSettings{
+		Enabled: true, RuleIDs: []int64{1}, ModelScope: "all",
+		AccountScope: "all",
+	}))
+
+	// GLM models must NOT trigger probe even when ModelScope is "all"
+	for _, m := range []string{"glm-5.3", "glm-5.3-flash", "GLM-5.3", "GLM-5.3-Flash", "cn:glm-5.3"} {
+		res, cancel := svc.StartRequestQualityCheck(context.Background(), &Account{ID: 1, Status: "active"}, m)
+		defer cancel()
+		require.Nil(t, res, "expected no quality probe for GLM model %s", m)
+	}
+	require.Equal(t, 0, tester.runCount, "GLM models should never increment tester runCount")
+
+	// EnsureAccountQuality passes immediately without probe for GLM models
+	for _, m := range []string{"glm-5.3", "glm-5.3-flash", "GLM-5.3-Flash"} {
+		passed, reason, err := svc.EnsureAccountQuality(context.Background(), &Account{ID: 1, Status: "active"}, m)
+		require.True(t, passed)
+		require.Empty(t, reason)
+		require.NoError(t, err)
+	}
+	require.Equal(t, 0, tester.runCount)
+
+	// Non-GLM model triggers probe when ModelScope is "all"
+	resGpt, cancelGpt := svc.StartRequestQualityCheck(context.Background(), &Account{ID: 1, Status: "active"}, "gpt-6-astra")
+	defer cancelGpt()
+	require.NotNil(t, resGpt)
+	require.NoError(t, <-resGpt)
+	require.Equal(t, 1, tester.runCount)
+
+	// 3. Custom ExcludeModels configuration
+	require.NoError(t, svc.settingService.UpdateRequestQualityProbeSettings(context.Background(), &RequestQualityProbeSettings{
+		Enabled: true, RuleIDs: []int64{1}, ModelScope: "all",
+		ExcludeModels: []string{"glm*", "deepseek*"},
+		AccountScope:  "all",
+	}))
+	resDs, cancelDs := svc.StartRequestQualityCheck(context.Background(), &Account{ID: 1, Status: "active"}, "deepseek-v4")
+	defer cancelDs()
+	require.Nil(t, resDs, "custom excluded model deepseek-v4 should not trigger probe")
 }

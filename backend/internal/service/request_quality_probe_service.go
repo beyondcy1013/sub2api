@@ -140,6 +140,9 @@ func (s *RequestQualityProbeService) EnsureAccountQuality(
 
 	// 1. Designated models check ("只能指定的大模型才需要测智")
 	cleanModel := strings.TrimSpace(requestedModel)
+	if IsQualityProbeExcluded(settings, cleanModel) {
+		return true, "", nil
+	}
 	if settings.ModelScope != "all" {
 		matched := false
 		for _, m := range settings.Models {
@@ -286,6 +289,9 @@ func (s *RequestQualityProbeService) hasRecentPassingProbe(ctx context.Context, 
 	if s == nil || s.detectionRepo == nil || account == nil || settings == nil {
 		return false
 	}
+	if IsQualityProbeExcluded(settings, model) {
+		return false
+	}
 	window := settings.reuseWindowSeconds()
 	if window <= 0 {
 		return false
@@ -307,6 +313,9 @@ func (s *RequestQualityProbeService) hasRecentPassingProbe(ctx context.Context, 
 }
 
 func requestQualityMatches(settings *RequestQualityProbeSettings, account *Account, model string) bool {
+	if IsQualityProbeExcluded(settings, model) {
+		return false
+	}
 	if settings.ModelScope != "all" {
 		matched := false
 		for _, candidate := range settings.Models {
@@ -335,6 +344,33 @@ func requestQualityMatches(settings *RequestQualityProbeSettings, account *Accou
 	default:
 		return true
 	}
+}
+
+// IsGLMModel reports whether a model identifier belongs to the GLM model family (e.g. glm-5.3, glm-5.3-flash, GLM-5.3).
+func IsGLMModel(model string) bool {
+	clean := stripModelNamespaceAndProvider(strings.ToLower(strings.TrimSpace(model)))
+	return strings.HasPrefix(clean, "glm") || strings.HasPrefix(clean, "chatglm")
+}
+
+// IsQualityProbeExcluded reports whether a model is excluded from quality probing.
+// GLM* models (such as glm-5.3, glm-5.3-flash) are excluded by policy and never require quality probing.
+// In addition, any model matching patterns in settings.ExcludeModels is excluded.
+func IsQualityProbeExcluded(settings *RequestQualityProbeSettings, model string) bool {
+	clean := stripModelNamespaceAndProvider(strings.ToLower(strings.TrimSpace(model)))
+	if clean == "" {
+		return false
+	}
+	if IsGLMModel(clean) {
+		return true
+	}
+	if settings != nil {
+		for _, pattern := range settings.ExcludeModels {
+			if matchesQualityProbeModel(pattern, model) || matchesQualityProbeModel(pattern, clean) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func matchesQualityProbeModel(pattern, model string) bool {
@@ -485,6 +521,9 @@ func (s *RequestQualityProbeService) resolveSelectedRules(ctx context.Context, i
 }
 
 func (s *RequestQualityProbeService) executeProbe(ctx context.Context, account *Account, modelID string, settings *RequestQualityProbeSettings, rules []*DegradationRule) probeExecutionResult {
+	if IsQualityProbeExcluded(settings, modelID) {
+		return probeExecutionResult{passed: true}
+	}
 	probeCtx, cancel := context.WithTimeout(withDetectionOrigin(ctx, "request", AccountTestModePelican, account.ID, 0, false), time.Duration(settings.TimeoutSeconds)*time.Second)
 	defer cancel()
 
@@ -506,6 +545,10 @@ func (s *RequestQualityProbeService) executeProbe(ctx context.Context, account *
 
 	if testResult == nil {
 		return probeExecutionResult{err: errors.New("empty quality result"), reason: "empty quality result"}
+	}
+	probeObservedAt := testResult.FinishedAt
+	if probeObservedAt.IsZero() {
+		probeObservedAt = time.Now()
 	}
 	if testResult.Status != "success" && testResult.UpstreamFailure != nil && (testResult.UpstreamFailure.StatusCode == 402 || testResult.UpstreamFailure.StatusCode == 403) {
 		failure := testResult.UpstreamFailure
@@ -533,9 +576,28 @@ func (s *RequestQualityProbeService) executeProbe(ctx context.Context, account *
 			"[RequestQualityProbe] account=%d (%s) model=%s probe FAILED status=%s downgraded=%t: %s",
 			account.ID, account.Name, modelID, testResult.Status, testResult.Downgraded, reason)
 
-		// Persist downgrade status to account extra so UI reflects it
+		// Only a completed probe that explicitly reports degradation contributes
+		// to the scheduling guard. Transport failures and incomplete tests are
+		// intentionally excluded from the counter.
 		s.ClearRecentSuccess(account.ID, modelID)
 		if testResult.Status == "success" && testResult.Downgraded {
+			fingerprint := DegradationRulesFingerprint(rules)
+			stateCtx, stateCancel := context.WithTimeout(context.WithoutCancel(probeCtx), 3*time.Second)
+			state, stateErr := s.recordQualityDegradation(
+				stateCtx,
+				account,
+				modelID,
+				reason,
+				fingerprint,
+				settings.DowngradeThreshold,
+				settings.AutoPauseOnDowngrade,
+			)
+			stateCancel()
+			if stateErr != nil {
+				logger.LegacyPrintf("service.request_quality_probe", "persist degradation state account=%d failed: %v", account.ID, stateErr)
+			} else if state.Paused {
+				logger.LegacyPrintf("service.request_quality_probe", "account=%d paused after %s confirmed degradations", account.ID, state.String())
+			}
 			s.persistAccountDowngradeFlag(probeCtx, account, true)
 		}
 
@@ -554,6 +616,15 @@ func (s *RequestQualityProbeService) executeProbe(ctx context.Context, account *
 	logger.LegacyPrintf("service.request_quality_probe",
 		"[RequestQualityProbe] account=%d (%s) model=%s probe PASSED; recording success and proceeding with request",
 		account.ID, account.Name, modelID)
+
+	// A clean result resets only the consecutive counter. It never silently
+	// re-enables an account that was already paused by the quality guard.
+	stateCtx, stateCancel := context.WithTimeout(context.WithoutCancel(probeCtx), 3*time.Second)
+	resetErr := s.resetQualityDegradation(stateCtx, account, DegradationRulesFingerprint(rules), probeObservedAt)
+	stateCancel()
+	if resetErr != nil {
+		logger.LegacyPrintf("service.request_quality_probe", "reset degradation state account=%d failed: %v", account.ID, resetErr)
+	}
 
 	// If account had downgrade flag, clear it
 	if getExtraBool(account.Extra, "pelican_downgraded") {

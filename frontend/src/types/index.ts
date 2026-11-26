@@ -1155,6 +1155,9 @@ export interface RequestQualityProbeSettings {
   reuse_seconds?: number
   enabled: boolean
   models: string[]
+  exclude_models?: string[]
+  auto_pause_on_downgrade?: boolean
+  downgrade_threshold?: number
   recent_minutes: number
   account_scope: 'all' | 'error_or_downgraded' | 'selected'
   account_ids: number[]
@@ -1369,6 +1372,15 @@ export interface Account {
     auto_reset_credit_5h_threshold?: number
     auto_reset_credit_7d_threshold?: number
     pelican_downgraded?: boolean
+    quality_degradation_state?: {
+      consecutive_count?: number
+      rule_fingerprint?: string
+      last_model?: string
+      last_reason?: string
+      threshold?: number
+      paused?: boolean
+      last_detected_at?: string
+    }
     state_protection_enabled?: boolean
     pinned?: boolean
     codex_auto_reset_credit_state?: {

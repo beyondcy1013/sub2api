@@ -17,6 +17,10 @@
         <input v-model="modelText" data-testid="scheduling-rule-quality-probe-models" type="text" class="input w-full" placeholder="gpt-6*, claude-3-7*, claude*" />
         <span class="block text-xs text-gray-500">{{ t('admin.accounts.detection.emptyModels') }}</span>
       </label>
+      <label class="block">{{ t('admin.accounts.schedulingRules.requestQualityProbeExcludeModels') }}
+        <input v-model="excludeModelText" data-testid="scheduling-rule-quality-probe-exclude-models" type="text" class="input w-full" placeholder="glm*" />
+        <span class="block text-xs text-gray-500">{{ t('admin.accounts.detection.excludeModelsHint') }}</span>
+      </label>
       <label class="block">{{ t('admin.accounts.schedulingRules.requestQualityProbeAccountScope') }}
         <Select v-model="settings.account_scope" :options="scopeOptions" />
       </label>
@@ -32,6 +36,14 @@
       <label class="block">{{ t('admin.accounts.detection.reuseSeconds') }}
         <input v-model.number="settings.reuse_seconds" data-testid="quality-reuse-seconds" type="number" min="0" max="3600" step="30" class="input w-full" />
         <span class="block text-xs text-gray-500">{{ t('admin.accounts.detection.reuseSecondsHint') }}</span>
+      </label>
+      <label class="flex items-start gap-2">
+        <input v-model="settings.auto_pause_on_downgrade" data-testid="quality-auto-pause-on-downgrade" type="checkbox" />
+        <span>{{ t('admin.accounts.detection.autoPauseOnDowngrade') }}<span class="block text-xs text-gray-500">{{ t('admin.accounts.detection.autoPauseOnDowngradeHint') }}</span></span>
+      </label>
+      <label v-if="settings.auto_pause_on_downgrade" class="block">{{ t('admin.accounts.detection.downgradeThreshold') }}
+        <input v-model.number="settings.downgrade_threshold" data-testid="quality-downgrade-threshold" type="number" min="1" max="10" step="1" class="input w-full" />
+        <span class="block text-xs text-gray-500">{{ t('admin.accounts.detection.downgradeThresholdHint') }}</span>
       </label>
       <p class="text-xs text-gray-500">{{ t('admin.accounts.detection.parallelHint') }}</p>
       <p v-if="settings.model_scope !== 'all' && !settings.models.length || settings.account_scope === 'selected' && !settings.account_ids.length && !Object.values(settings.account_overrides ?? {}).some(Boolean)" role="alert" class="text-xs text-amber-600">{{ t('admin.accounts.detection.emptyScope') }}</p>
@@ -50,6 +62,7 @@ const emit = defineEmits<{ (e: 'rules'): void }>()
 const { t } = useI18n()
 const settings = computed(() => props.modelValue)
 const modelText = computed({get:() => settings.value.models.join(', '),set:(value:string) => { settings.value.models=value.split(/[,，]/).map(v=>v.trim()).filter(Boolean) }})
+const excludeModelText = computed({get:() => (settings.value.exclude_models ?? []).join(', '),set:(value:string) => { settings.value.exclude_models=value.split(/[,，]/).map(v=>v.trim()).filter(Boolean) }})
 const selectedRuleName = computed(() => {
   const id = settings.value.rule_ids?.[0]
   if (!id) return t('admin.accounts.accountTesting.noAutoQuestion')

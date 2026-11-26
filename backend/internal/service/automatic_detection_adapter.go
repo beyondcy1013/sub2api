@@ -102,6 +102,9 @@ func (x automaticDetectionExecutor) Probe(ctx context.Context, p autodetection.P
 		if loadErr != nil {
 			return autodetection.Outcome{}, loadErr
 		}
+		if IsQualityProbeExcluded(settings, model) {
+			return autodetection.Outcome{Healthy: true, Standard: false}, nil
+		}
 		if len(settings.RuleIDs) != 1 {
 			return autodetection.Outcome{}, fmt.Errorf("请先在试题库指定自动测智标准试题")
 		}

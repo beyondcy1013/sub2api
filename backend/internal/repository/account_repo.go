@@ -516,6 +516,12 @@ func (r *accountRepository) updateLockedAccount(ctx context.Context, client *dbe
 	account.Extra = extra
 
 	schedulable := account.Schedulable
+	if service.IsQualityDegradationPaused(extra) {
+		// A stale account DTO must not overwrite a quality guard that was
+		// recorded while the edit form was open. Explicit recovery uses the
+		// dedicated atomic admin path and clears this state first.
+		schedulable = false
+	}
 	if account.Status == service.StatusError {
 		schedulable = false
 	}
@@ -653,7 +659,14 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 			extra -> 'opencode_go_usage_auto_refresh',
 			extra -> 'opencode_go_usage_snapshot',
 			extra -> 'grok_observed_models',
-			extra -> 'upstream_model_metadata'
+			CASE
+				WHEN COALESCE(extra, '{}'::jsonb) ? 'quality_degradation_state' THEN
+					jsonb_build_object(
+						'__sub2api_upstream_model_metadata', extra -> 'upstream_model_metadata',
+						'__sub2api_quality_degradation_state', extra -> 'quality_degradation_state'
+					)
+				ELSE extra -> 'upstream_model_metadata'
+			END
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -717,6 +730,7 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 		service.OllamaCloudUsageSnapshotExtraKey,
 		service.OpenCodeGoUsageAutoRefreshExtraKey,
 		service.OpenCodeGoUsageSnapshotExtraKey,
+		service.QualityDegradationStateExtraKey,
 	} {
 		delete(extra, key)
 	}
@@ -804,9 +818,13 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 	}
 	// Grok 目录和能力 metadata 是同步写入的受管状态。普通更新在行锁内采用最新
 	// 数据库值，忽略表单旧值、缺键和注入。来源身份变化不删除已有成功快照。
+	metadataRaw, qualityStateRaw, err := splitQualityStateMetadataEnvelope(currentUpstreamModelMetadata)
+	if err != nil {
+		return nil, err
+	}
 	for key, raw := range map[string][]byte{
 		"grok_observed_models":                currentGrokObservedModels,
-		service.UpstreamModelMetadataExtraKey: currentUpstreamModelMetadata,
+		service.UpstreamModelMetadataExtraKey: metadataRaw,
 	} {
 		delete(extra, key)
 		value, ok, err := decodeAccountExtraJSON(raw)
@@ -816,6 +834,14 @@ func lockAndMergeAccountProbeExtra(ctx context.Context, client *dbent.Client, ac
 		if ok {
 			extra[key] = value
 		}
+	}
+	// Request-quality pause/counter is server-owned state. Always replace the
+	// DTO's stale copy with the row locked above so an ordinary account edit
+	// cannot erase a concurrent probe decision.
+	if value, ok, err := decodeAccountExtraJSON(qualityStateRaw); err != nil {
+		return nil, err
+	} else if ok {
+		extra[service.QualityDegradationStateExtraKey] = value
 	}
 	return extra, nil
 }
@@ -829,6 +855,38 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 		return nil, false, err
 	}
 	return value, true, nil
+}
+
+const (
+	qualityStateMetadataEnvelopeKey = "__sub2api_upstream_model_metadata"
+	qualityStateEnvelopeKey         = "__sub2api_quality_degradation_state"
+)
+
+// splitQualityStateMetadataEnvelope keeps the account-edit SELECT compatible
+// with older callers (the query still returns the same number of columns) while
+// carrying the newly server-owned quality state under the metadata slot.
+// Existing sqlmock fixtures and old rows contain the plain metadata JSON and
+// therefore pass through unchanged.
+func splitQualityStateMetadataEnvelope(raw []byte) ([]byte, []byte, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw, nil, nil
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return raw, nil, nil
+	}
+	qualityRaw, hasQuality := envelope[qualityStateEnvelopeKey]
+	metadataRaw, hasMetadata := envelope[qualityStateMetadataEnvelopeKey]
+	if !hasQuality || !hasMetadata {
+		return raw, nil, nil
+	}
+	if string(metadataRaw) == "null" {
+		metadataRaw = nil
+	}
+	if string(qualityRaw) == "null" {
+		qualityRaw = nil
+	}
+	return metadataRaw, qualityRaw, nil
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
@@ -3005,6 +3063,9 @@ func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedu
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.SetSchedulable(ctx, id, schedulable)
 	}
+	if schedulable {
+		return r.setSchedulableWithQualityGuard(ctx, id)
+	}
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSchedulable(schedulable).
@@ -3433,6 +3494,13 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		return 0, nil
 	}
 	updates.Extra = stripCodexFingerprintSeedFromExtraUpdate(updates.Extra)
+	if updates.Extra != nil {
+		// Quality counters and pause state are server-owned. Never accept a
+		// client-supplied copy, even when this repository is called directly.
+		updates.Extra = copyJSONMap(updates.Extra)
+		delete(updates.Extra, service.QualityDegradationStateExtraKey)
+	}
+	clearQualityStateOnEnable := updates.Schedulable != nil && *updates.Schedulable
 
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)
@@ -3552,7 +3620,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" AND COALESCE(btrim("+credentialPlaceholder+"::jsonb ->> 'account_mode') <> 'zen', true) IS NOT TRUE")
 	}
 
-	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || len(opencodeGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed {
+	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || len(opencodeGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed || clearQualityStateOnEnable {
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -3634,6 +3702,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 		if updates.EnsureCodexFingerprintSeed {
 			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+		}
+		if clearQualityStateOnEnable {
+			extraExpression = "(" + extraExpression + ") - '" + service.QualityDegradationStateExtraKey + "'"
 		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}

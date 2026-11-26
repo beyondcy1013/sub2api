@@ -172,6 +172,9 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"codex_7d_reset_after_seconds":         {},
 	"codex_7d_window_minutes":              {},
 	"codex_7d_reset_at":                    {},
+	// Request-quality degradation counters and pause state belong to the
+	// source account and must never make a duplicated account unschedulable.
+	QualityDegradationStateExtraKey: {},
 }
 
 func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
@@ -736,6 +739,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OpenCodeGoUsageSnapshotExtraKey)
+		delete(normalizedExtra, QualityDegradationStateExtraKey)
 		// 目录观察和能力 metadata 只由同步写入。表单里的旧值或注入值不能进入本次更新。
 		delete(normalizedExtra, grokObservedModelsExtraKey)
 		delete(normalizedExtra, UpstreamModelMetadataExtraKey)
@@ -1023,6 +1027,7 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
 	delete(updates, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(updates, OpenCodeGoUsageSnapshotExtraKey)
+	delete(updates, QualityDegradationStateExtraKey)
 	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
@@ -1052,6 +1057,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
 	delete(input.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(input.Extra, OpenCodeGoUsageSnapshotExtraKey)
+	delete(input.Extra, QualityDegradationStateExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
@@ -1492,8 +1498,17 @@ func (s *adminServiceImpl) SetAccountError(ctx context.Context, id int64, errorM
 }
 
 func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, schedulable bool) (*Account, error) {
-	if err := s.accountRepo.SetSchedulable(ctx, id, schedulable); err != nil {
-		return nil, err
+	// Re-enabling an account is an explicit operator decision. Clear the
+	// quality pause history before enabling it; a clean probe alone must not
+	// silently undo the safety stop.
+	if schedulable {
+		if err := ClearQualityDegradationStateAndSetSchedulable(ctx, s.accountRepo, id); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.accountRepo.SetSchedulable(ctx, id, false); err != nil {
+			return nil, err
+		}
 	}
 	s.accountRequests.setSchedulable(id, schedulable)
 	updated, err := s.accountRepo.GetByID(ctx, id)
