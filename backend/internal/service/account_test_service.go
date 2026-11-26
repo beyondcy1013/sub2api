@@ -137,12 +137,19 @@ type TestEvent struct {
 // AccountTestOptions carries optional media for admin connectivity tests.
 // ImageDataURL / AudioDataURL are full data URLs (data:<mime>;base64,...).
 type AccountTestOptions struct {
+	DraftAccount    *Account
 	RuleID          int64
 	ImageDataURL    string
 	AudioDataURL    string
 	ReasoningEffort string
 	Evaluator       string
 	ExpectedAnswer  *int
+}
+
+type draftAccountTestKey struct{}
+
+func isDraftAccountTest(ctx context.Context) bool {
+	return ctx.Value(draftAccountTestKey{}) == true
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -494,8 +501,12 @@ func createClaudeTestPayloadWithPrompt(modelID string, prompt string) (map[strin
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	initAccountTestLogger(c, accountID, modelID, mode)
 	ctx := ensureDetectionOrigin(c.Request.Context(), accountID, normalizeAccountTestMode(mode))
+	testOpts := firstAccountTestOptions(opts)
+	if testOpts.DraftAccount != nil {
+		ctx = context.WithValue(ctx, draftAccountTestKey{}, true)
+	}
 	c.Request = c.Request.WithContext(ctx)
-	if !isBackgroundAccountTest(ctx) && s.detectionRepo != nil {
+	if !isDraftAccountTest(ctx) && !isBackgroundAccountTest(ctx) && s.detectionRepo != nil {
 		capture := &manualDetectionCapture{model: modelID, result: ScheduledTestResult{Status: "failed", StartedAt: time.Now()}}
 		c.Set(manualDetectionCaptureKey, capture)
 		defer func() {
@@ -533,12 +544,13 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 			s.recordDetection(ctx, accountID, capture.model, normalizeAccountTestMode(mode), fingerprint, &capture.result)
 		}()
 	}
-	testOpts := firstAccountTestOptions(opts)
-
-	// Get account
-	account, err := s.accountRepo.GetByID(ctx, accountID)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Account not found")
+	account := testOpts.DraftAccount
+	if account == nil {
+		var err error
+		account, err = s.accountRepo.GetByID(ctx, accountID)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Account not found")
+		}
 	}
 	bindAccountTestPlatform(c, account)
 	// Pelican compares the caller-selected model for each account; the UI now
@@ -1204,7 +1216,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if isOAuth && s.accountRepo != nil {
+	if isOAuth && s.accountRepo != nil && !isDraftAccountTest(ctx) {
 		if updates, err := extractOpenAICodexProbeUpdates(resp); err == nil && len(updates) > 0 {
 			_ = s.accountRepo.UpdateExtra(ctx, account.ID, updates)
 			mergeAccountExtra(account, updates)
@@ -1472,7 +1484,7 @@ func (s *AccountTestService) applyGrokTestRequestHeaders(req *http.Request, acco
 }
 
 func (s *AccountTestService) observeGrokTestResponse(ctx context.Context, account *Account, resp *http.Response) {
-	if resp == nil {
+	if resp == nil || isDraftAccountTest(ctx) {
 		return
 	}
 	now := time.Now()
@@ -2642,7 +2654,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 
 	resp, err := s.doOpenAIAccountTestUpstream(req, proxyURL, account, true)
 	if err != nil {
-		if s.accountRepo != nil {
+		if s.accountRepo != nil && !isDraftAccountTest(ctx) {
 			updates := buildOpenAICompactProbeExtraUpdates(nil, nil, err, false, time.Now())
 			_ = s.accountRepo.UpdateExtra(ctx, account.ID, updates)
 			mergeAccountExtra(account, updates)
@@ -2663,7 +2675,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	}
 
 	compactionFound := openAICompactProbeFoundCompactionItem(body)
-	if s.accountRepo != nil {
+	if s.accountRepo != nil && !isDraftAccountTest(ctx) {
 		updates := buildOpenAICompactProbeExtraUpdates(resp, body, nil, compactionFound, time.Now())
 		if codexUpdates, err := extractOpenAICodexProbeUpdates(resp); err == nil && len(codexUpdates) > 0 {
 			updates = mergeExtraUpdates(updates, codexUpdates)
@@ -2692,7 +2704,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 }
 
 func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, account *Account, headers http.Header, body []byte) {
-	if s == nil || s.accountRepo == nil || account == nil {
+	if s == nil || s.accountRepo == nil || account == nil || isDraftAccountTest(ctx) {
 		return
 	}
 

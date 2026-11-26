@@ -397,7 +397,7 @@
 
 <script setup lang="ts">
 import RotationProgress from '@/modules/rotationnotice/RotationProgress.vue'
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { cachedAccountModels, rememberAccountModels } from '@/utils/pelicanModelCatalog'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -434,6 +434,7 @@ interface PreviewImage {
 const props = defineProps<{
   show: boolean
   account: Account | null
+  draft?: Record<string, unknown>
 }>()
 
 const emit = defineEmits<{
@@ -573,6 +574,7 @@ const sortTestModels = (models: ClaudeModel[]) => {
 watch(
   () => props.show,
   async (newVal) => {
+    await nextTick()
     if (newVal && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
@@ -591,7 +593,8 @@ watch(
     } else {
       abortStream()
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(testMode, (newMode) => {
@@ -621,6 +624,14 @@ const loadAvailableModels = async () => {
   // 先用该账号上一次成功加载的目录渲染，避免测智期间下拉短暂变空。
   availableModels.value = cachedModelOptions(props.account.id)
   try {
+    if (props.draft) {
+      const mapped = getMappedTestModelID(props.account)
+      if (mapped) {
+        availableModels.value = [{ id: mapped, type: 'model', display_name: mapped, created_at: '' }]
+        selectedModelId.value = mapped
+        return
+      }
+    }
     // axios unwraps the standard {code,data} envelope in the response
     // interceptor, so the API helper already returns the model array here.
     const payload = await adminAPI.accounts.getAvailableModels(props.account.id, { local: true })
@@ -683,6 +694,7 @@ const abortStream = () => {
     abortController = null
   }
 }
+onBeforeUnmount(abortStream)
 
 const stopTest = () => {
   if (status.value !== 'connecting') return
@@ -734,8 +746,10 @@ const startTest = async () => {
       evaluator?: string
       expected_answer?: number
       mode?: 'default' | 'compact' | 'pelican'
+      draft?: Record<string, unknown>
     } = {
       model_id: selectedModelId.value,
+      draft: props.draft,
       prompt: testMode.value === 'pelican'
         ? (pelicanPrompt.value.trim() || t('admin.accounts.pelicanPromptDefault'))
         : (supportsImageTest.value ? testPrompt.value.trim() : '')

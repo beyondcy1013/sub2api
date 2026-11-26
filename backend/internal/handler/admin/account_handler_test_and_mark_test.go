@@ -19,10 +19,48 @@ type accountTestRunnerStub struct {
 	mu      sync.Mutex
 	results map[int64]*service.ScheduledTestResult
 	seen    []int64
+	draft   *service.Account
 }
 
-func (s *accountTestRunnerStub) TestAccountConnection(*gin.Context, int64, string, string, string, ...service.AccountTestOptions) error {
+func (s *accountTestRunnerStub) TestAccountConnection(_ *gin.Context, _ int64, _, _, _ string, opts ...service.AccountTestOptions) error {
+	if len(opts) > 0 {
+		s.draft = opts[0].DraftAccount
+	}
 	return errors.New("upstream rejected credentials")
+}
+
+type draftTestAdmin struct {
+	*accountTestMarkingAdminService
+	saved *service.Account
+}
+
+func (s *draftTestAdmin) GetAccount(context.Context, int64) (*service.Account, error) {
+	return s.saved, nil
+}
+
+func TestAccountHandlerTestsDraftWithoutMarkingSavedAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved := &service.Account{
+		ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://old.example", "api_key": "old"},
+	}
+	admin := &draftTestAdmin{accountTestMarkingAdminService: &accountTestMarkingAdminService{marked: map[int64]string{}}, saved: saved}
+	runner := &accountTestRunnerStub{}
+	handler := &AccountHandler{adminService: admin, accountTestRunner: runner, superPriorityService: newAccountTestFailureWindow()}
+	router := gin.New()
+	router.POST("/accounts/:id/test", handler.Test)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/accounts/42/test", strings.NewReader(`{"draft":{"credentials":{"base_url":"https://new.example","api_key":"new"},"proxy_id":0}}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+	require.NotNil(t, runner.draft)
+	require.Equal(t, "https://new.example", runner.draft.GetCredential("base_url"))
+	require.Equal(t, "new", runner.draft.GetCredential("api_key"))
+	require.Equal(t, "old", saved.GetCredential("api_key"))
+	require.Empty(t, admin.marked)
 }
 
 func (s *accountTestRunnerStub) RunTestBackground(_ context.Context, id int64, _ string) (*service.ScheduledTestResult, error) {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"math"
@@ -1616,13 +1617,14 @@ func (h *AccountHandler) PermanentDelete(c *gin.Context) {
 
 // TestAccountRequest represents the request body for testing an account
 type TestAccountRequest struct {
-	ModelID         string `json:"model_id"`
-	Prompt          string `json:"prompt"`
-	Mode            string `json:"mode"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	Evaluator       string `json:"evaluator"`
-	ExpectedAnswer  *int   `json:"expected_answer"`
-	RuleID          int64  `json:"rule_id"`
+	ModelID         string                `json:"model_id"`
+	Prompt          string                `json:"prompt"`
+	Mode            string                `json:"mode"`
+	ReasoningEffort string                `json:"reasoning_effort"`
+	Evaluator       string                `json:"evaluator"`
+	ExpectedAnswer  *int                  `json:"expected_answer"`
+	RuleID          int64                 `json:"rule_id"`
+	Draft           *UpdateAccountRequest `json:"draft"`
 }
 
 type SyncFromCRSRequest struct {
@@ -1650,7 +1652,10 @@ func (h *AccountHandler) Test(c *gin.Context) {
 
 	var req TestAccountRequest
 	// Allow empty body, model_id is optional
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		response.BadRequest(c, "Invalid test request")
+		return
+	}
 
 	// Use AccountTestService to test the account with SSE streaming
 	opts := service.AccountTestOptions{
@@ -1658,6 +1663,47 @@ func (h *AccountHandler) Test(c *gin.Context) {
 		Evaluator:       req.Evaluator,
 		ExpectedAnswer:  req.ExpectedAnswer,
 		RuleID:          req.RuleID,
+	}
+	if req.Draft != nil {
+		ctx := c.Request.Context()
+		saved, err := h.adminService.GetAccount(ctx, accountID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		draft := *saved
+		if req.Draft.Platform != "" && req.Draft.Platform != saved.Platform {
+			draft.Platform = req.Draft.Platform
+		}
+		if req.Draft.Type != "" {
+			draft.Type = req.Draft.Type
+		}
+		if draft.Platform != saved.Platform || draft.Type != saved.Type {
+			if saved.Type != service.AccountTypeAPIKey || draft.Type != service.AccountTypeAPIKey {
+				response.BadRequest(c, "Unsupported account conversion")
+				return
+			}
+			draft.Credentials = req.Draft.Credentials
+		} else if req.Draft.Credentials != nil {
+			draft.Credentials = service.MergePreservingSensitiveCreds(saved.Credentials, req.Draft.Credentials)
+		}
+		if req.Draft.Extra != nil {
+			draft.Extra = req.Draft.Extra
+		}
+		if req.Draft.ProxyID != nil {
+			draft.ProxyID, draft.Proxy = nil, nil
+			if *req.Draft.ProxyID > 0 {
+				proxy, err := h.adminService.GetProxy(ctx, *req.Draft.ProxyID)
+				if err != nil {
+					response.ErrorFrom(c, err)
+					return
+				}
+				draft.ProxyID, draft.Proxy = req.Draft.ProxyID, proxy
+			}
+		}
+		opts.DraftAccount = &draft
+		_ = h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts)
+		return
 	}
 	if err := h.accountTestRunner.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		if c.Request.Context().Err() == nil {

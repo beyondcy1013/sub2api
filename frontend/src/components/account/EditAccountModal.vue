@@ -3323,6 +3323,9 @@
 
     <template #footer>
       <div v-if="account" class="flex justify-end gap-3">
+        <button type="button" class="btn btn-secondary" :disabled="submitting" @click="openDraftTest">
+          {{ t('admin.accounts.testConnection') }}
+        </button>
         <button @click="handleClose" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
         </button>
@@ -3358,6 +3361,7 @@
       </div>
     </template>
   </BaseDialog>
+  <DraftAccountTestModal v-if="draftTest && show" :show="true" :account="draftTest.account" :draft="draftTest.payload" @close="draftTest = null" />
 
   <!-- Mixed Channel Warning Dialog -->
   <ConfirmDialog
@@ -3429,6 +3433,7 @@ import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtoc
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import AccountQualitySwitch from '@/modules/qualitycontrol/AccountQualitySwitch.vue'
+import DraftAccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -5513,6 +5518,7 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  draftTest.value = null
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
@@ -5588,7 +5594,10 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
   }
 }
 
-const handleSubmit = async () => {
+const draftTest = ref<{ account: Account; payload: Record<string, unknown> } | null>(null)
+const openDraftTest = () => handleSubmit(true)
+
+const handleSubmit = async (testDraft: boolean | Event = false) => {
   if (!props.account) return
   const accountID = props.account.id
 
@@ -6365,6 +6374,12 @@ const handleSubmit = async () => {
         delete newExtra.upstream_request_id_header
       }
       updatePayload.extra = newExtra
+    }
+
+    if (testDraft === true) {
+      const payload = JSON.parse(JSON.stringify(updatePayload))
+      draftTest.value = { account: { ...props.account, ...payload }, payload }
+      return
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
